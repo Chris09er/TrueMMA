@@ -352,20 +352,37 @@ after seeding data doesn't create duplicate organizations) →
 ## Known open items
 
 - `push_subscriptions` anonymous rows (`user_id is null`) are still fully
-  public (`using (true)`) — acceptable for MVP (low-sensitivity data:
-  device token ↔ fighter id), but means anyone holding a given push token
-  could theoretically unfollow on someone else's behalf. Rows tied to a
-  logged-in user (`user_id = auth.uid()`) are scoped. Not currently a
-  planned fix for the anonymous case.
+  public by design (`user_id is null or user_id = auth.uid()`) —
+  acceptable for MVP (low-sensitivity data: device token ↔ fighter id),
+  but means anyone holding a given push token could theoretically
+  unfollow on someone else's behalf. Rows tied to a logged-in user
+  (`user_id = auth.uid()`) are scoped. Not currently a planned fix for
+  the anonymous case.
 - Password-reset OTP flow (see [Login / Profile](#login--profile)) needs
   the Supabase "Reset Password" email template switched to `{{ .Token }}`
   in the dashboard — not yet done as of this writing, must happen before
   the reset flow works end-to-end.
-- The three original `push_subscriptions` RLS policies (`using (true)`)
-  need to be found and dropped manually before running
-  `supabase/migrations/001_profiles_and_login.sql` — see the migration
-  file's comment. Not yet run against the live database as of this
-  writing.
+- **Supabase database linter findings (2026-07-16), fixed in
+  `supabase/migrations/003_security_hardening.sql`, not yet run against
+  the live database as of this writing:** the original fully-open
+  `push_subscriptions` anon policies from before the login feature
+  (`"public can subscribe"`/`"public can unsubscribe"`, both `using/with
+  check (true)`) were never dropped after `001_profiles_and_login.sql`
+  added the scoped replacements — since RLS policies are OR'd together,
+  this silently left every row readable/writable/deletable by anyone
+  regardless of `user_id`, defeating the scoping. Also revokes public
+  `EXECUTE` on the `handle_new_user()`/`notify_fighter_added_to_fight()`
+  trigger functions, which were otherwise callable as public RPC
+  endpoints (`/rest/v1/rpc/...`) — not directly exploitable (both
+  reference `NEW`, only valid in a trigger context) but unnecessary
+  attack surface; revoking doesn't affect trigger firing.
+- **`pg_net` extension lives in the `public` schema** (linter:
+  `extension_in_public`) — Supabase recommends a dedicated schema
+  instead. Deliberately **not** included in the migration above: the
+  `notify_fighter_added_to_fight()` trigger body needs to be checked for
+  how it references pg_net's objects before moving the extension's
+  schema, otherwise this could silently break fighter-follow push
+  delivery. Left as an open item until that's verified.
 - Auth emails (signup confirmation, password reset) currently go through
   Supabase's built-in test mailer, which is fine for development but
   heavily rate-limited — a custom SMTP provider (e.g. Resend, SendGrid,
