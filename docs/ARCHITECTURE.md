@@ -362,20 +362,21 @@ after seeding data doesn't create duplicate organizations) →
   the Supabase "Reset Password" email template switched to `{{ .Token }}`
   in the dashboard — not yet done as of this writing, must happen before
   the reset flow works end-to-end.
-- **Supabase database linter findings (2026-07-16), fixed in
-  `supabase/migrations/003_security_hardening.sql`, not yet run against
-  the live database as of this writing:** the original fully-open
-  `push_subscriptions` anon policies from before the login feature
-  (`"public can subscribe"`/`"public can unsubscribe"`, both `using/with
-  check (true)`) were never dropped after `001_profiles_and_login.sql`
-  added the scoped replacements — since RLS policies are OR'd together,
-  this silently left every row readable/writable/deletable by anyone
-  regardless of `user_id`, defeating the scoping. Also revokes public
-  `EXECUTE` on the `handle_new_user()`/`notify_fighter_added_to_fight()`
-  trigger functions, which were otherwise callable as public RPC
-  endpoints (`/rest/v1/rpc/...`) — not directly exploitable (both
-  reference `NEW`, only valid in a trigger context) but unnecessary
-  attack surface; revoking doesn't affect trigger firing.
+- **Supabase database linter findings (2026-07-16), fixed via
+  `supabase/migrations/003_security_hardening.sql`, applied to the live
+  database on 2026-07-16:** the original fully-open `push_subscriptions`
+  anon policies from before the login feature (`"public can subscribe"`/
+  `"public can unsubscribe"`/`"public can view own subscriptions"`, all
+  `using`/`with check (true)`) were never dropped after
+  `001_profiles_and_login.sql` added the scoped replacements — since RLS
+  policies are OR'd together, this silently left every row
+  readable/writable/deletable by anyone regardless of `user_id`,
+  defeating the scoping. Also revoked public `EXECUTE` on the
+  `handle_new_user()`/`notify_fighter_added_to_fight()` trigger
+  functions, which were otherwise callable as public RPC endpoints
+  (`/rest/v1/rpc/...`) — not directly exploitable (both reference `NEW`,
+  only valid in a trigger context) but unnecessary attack surface;
+  revoking doesn't affect trigger firing.
 - **`pg_net` extension lives in the `public` schema** (linter:
   `extension_in_public`) — Supabase recommends a dedicated schema
   instead. Deliberately **not** included in the migration above: the
