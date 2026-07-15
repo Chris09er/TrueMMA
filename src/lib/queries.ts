@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { EventDetail, EventListItem, Fight, Organization } from './types';
+import type { EventDetail, EventListItem, Fight, Fighter, Organization } from './types';
 
 export async function getOrganizations(): Promise<Organization[]> {
   const { data, error } = await supabase
@@ -27,6 +27,16 @@ export async function getUpcomingEvents(organizationId?: string): Promise<EventL
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as unknown as EventListItem[];
+}
+
+export async function getFighters(): Promise<Fighter[]> {
+  const { data, error } = await supabase
+    .from('fighters')
+    .select('id, name, nickname, nationality, photo_url, tapology_url, sherdog_url')
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as Fighter[];
 }
 
 export async function getEventDetail(eventId: string): Promise<EventDetail> {

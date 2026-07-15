@@ -8,14 +8,17 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation';
+import type { EventsStackParamList } from '../navigation';
 import { getEventDetail, getFightsForEvent } from '../lib/queries';
 import type { EventDetail, Fight, Fighter } from '../lib/types';
+import { colors, radius, spacing } from '../lib/theme';
+import { useLocale } from '../lib/i18n';
+import EventReminderBell from '../components/EventReminderBell';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'EventDetail'>;
+type Props = NativeStackScreenProps<EventsStackParamList, 'EventDetail'>;
 
-function formatDate(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString('de-DE', {
+function formatDate(isoDate: string, locale: string): string {
+  return new Date(isoDate).toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', {
     weekday: 'long',
     day: '2-digit',
     month: '2-digit',
@@ -44,6 +47,7 @@ function FighterLink({ fighter }: { fighter: Fighter | null }) {
 
 export default function EventDetailScreen({ route }: Props) {
   const { eventId, eventName } = route.params;
+  const { t, locale } = useLocale();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [fights, setFights] = useState<Fight[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,12 +61,12 @@ export default function EventDetailScreen({ route }: Props) {
         setEvent(eventData);
         setFights(fightsData);
       })
-      .catch((err) => setError(err.message ?? 'Fehler beim Laden der Fight Card'))
+      .catch(() => setError(t.common.error))
       .finally(() => setLoading(false));
-  }, [eventId]);
+  }, [eventId, t]);
 
   if (loading) {
-    return <ActivityIndicator style={styles.center} />;
+    return <ActivityIndicator style={styles.center} color={colors.textPrimary} />;
   }
 
   if (error) {
@@ -77,8 +81,13 @@ export default function EventDetailScreen({ route }: Props) {
       keyExtractor={(item) => item.id}
       ListHeaderComponent={
         <View style={styles.header}>
+          <EventReminderBell
+            eventId={eventId}
+            eventName={event?.name ?? eventName}
+            eventDateIso={event?.event_date ?? new Date().toISOString()}
+          />
           <Text style={styles.eventName}>{event?.name ?? eventName}</Text>
-          {event && <Text style={styles.eventMeta}>{formatDate(event.event_date)}</Text>}
+          {event && <Text style={styles.eventMeta}>{formatDate(event.event_date, locale)}</Text>}
           {event && (
             <Text style={styles.eventMeta}>
               {[event.venue, event.city, event.country].filter(Boolean).join(', ')}
@@ -86,12 +95,12 @@ export default function EventDetailScreen({ route }: Props) {
           )}
         </View>
       }
-      ListEmptyComponent={<Text style={styles.empty}>Fight Card noch nicht verfügbar.</Text>}
+      ListEmptyComponent={<Text style={styles.empty}>{t.eventDetail.emptyFightCard}</Text>}
       renderItem={({ item }) => (
         <View style={styles.fightCard}>
           <View style={styles.fightTags}>
-            {item.is_main_event && <Text style={styles.tagMain}>MAIN EVENT</Text>}
-            {item.is_title_fight && <Text style={styles.tagTitle}>TITLE FIGHT</Text>}
+            {item.is_main_event && <Text style={styles.tagMain}>{t.eventDetail.mainEvent}</Text>}
+            {item.is_title_fight && <Text style={styles.tagTitle}>{t.eventDetail.titleFight}</Text>}
           </View>
           <View style={styles.matchupRow}>
             <FighterLink fighter={item.fighter1} />
@@ -108,60 +117,65 @@ export default function EventDetailScreen({ route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   center: {
     marginTop: 40,
   },
   error: {
-    padding: 16,
-    color: 'crimson',
+    padding: spacing.lg,
+    color: colors.danger,
   },
   empty: {
-    padding: 16,
-    color: '#666',
+    padding: spacing.lg,
+    color: colors.textSecondary,
   },
   list: {
-    padding: 12,
+    padding: spacing.md,
   },
   header: {
-    marginBottom: 16,
+    marginBottom: spacing.lg,
+    position: 'relative',
   },
   eventName: {
     fontSize: 22,
     fontWeight: '700',
     marginBottom: 6,
+    color: colors.textPrimary,
+    paddingRight: 32,
   },
   eventMeta: {
     fontSize: 14,
-    color: '#555',
+    color: colors.textSecondary,
   },
   fightCard: {
     padding: 14,
-    borderRadius: 12,
-    backgroundColor: '#f5f5f5',
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   fightTags: {
     flexDirection: 'row',
-    gap: 8,
+    gap: spacing.sm,
     marginBottom: 6,
   },
   tagMain: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#fff',
-    backgroundColor: '#111',
-    paddingHorizontal: 8,
+    color: colors.background,
+    backgroundColor: colors.textPrimary,
+    paddingHorizontal: spacing.sm,
     paddingVertical: 3,
     borderRadius: 6,
   },
   tagTitle: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#fff',
-    backgroundColor: '#b8860b',
-    paddingHorizontal: 8,
+    color: colors.background,
+    backgroundColor: colors.accentGold,
+    paddingHorizontal: spacing.sm,
     paddingVertical: 3,
     borderRadius: 6,
   },
@@ -169,23 +183,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: spacing.sm,
   },
   fighterName: {
     fontSize: 16,
     fontWeight: '600',
+    color: colors.textPrimary,
   },
   fighterLink: {
-    color: '#0066cc',
+    color: colors.link,
     textDecorationLine: 'underline',
   },
   vs: {
     fontSize: 13,
-    color: '#888',
+    color: colors.textSecondary,
   },
   weightClass: {
     marginTop: 6,
     fontSize: 13,
-    color: '#555',
+    color: colors.textSecondary,
   },
 });
