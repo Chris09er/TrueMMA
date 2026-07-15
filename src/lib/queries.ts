@@ -29,12 +29,25 @@ export async function getOrganizations(): Promise<Organization[]> {
 const EVENT_LIST_COLUMNS =
   'id, organization_id, name, event_date, city, country, venue, poster_url, organizations(short_name)';
 
-export async function getUpcomingEvents(organizationId?: string): Promise<EventListItem[]> {
-  let query = supabase
-    .from('events')
-    .select(EVENT_LIST_COLUMNS)
-    .gte('event_date', new Date().toISOString())
-    .order('event_date', { ascending: true });
+// Single source of truth for "is this event upcoming" — matches the `>=`
+// used by the events query below, so a screen deciding whether to show the
+// reminder bell never disagrees with which list (upcoming/past) an event
+// actually landed in.
+export function isEventUpcoming(eventDateIso: string): boolean {
+  return new Date(eventDateIso).getTime() >= Date.now();
+}
+
+async function getEvents(
+  direction: 'upcoming' | 'past',
+  organizationId?: string
+): Promise<EventListItem[]> {
+  const now = new Date().toISOString();
+  let query = supabase.from('events').select(EVENT_LIST_COLUMNS);
+
+  query =
+    direction === 'upcoming'
+      ? query.gte('event_date', now).order('event_date', { ascending: true })
+      : query.lt('event_date', now).order('event_date', { ascending: false });
 
   if (organizationId) {
     query = query.eq('organization_id', organizationId);
@@ -45,20 +58,12 @@ export async function getUpcomingEvents(organizationId?: string): Promise<EventL
   return (data ?? []) as unknown as EventListItem[];
 }
 
-export async function getPastEvents(organizationId?: string): Promise<EventListItem[]> {
-  let query = supabase
-    .from('events')
-    .select(EVENT_LIST_COLUMNS)
-    .lt('event_date', new Date().toISOString())
-    .order('event_date', { ascending: false });
+export function getUpcomingEvents(organizationId?: string): Promise<EventListItem[]> {
+  return getEvents('upcoming', organizationId);
+}
 
-  if (organizationId) {
-    query = query.eq('organization_id', organizationId);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as unknown as EventListItem[];
+export function getPastEvents(organizationId?: string): Promise<EventListItem[]> {
+  return getEvents('past', organizationId);
 }
 
 export async function getFighters(): Promise<Fighter[]> {

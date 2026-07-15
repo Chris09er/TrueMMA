@@ -24,3 +24,19 @@ export const radius = {
   md: 12,
   lg: 20,
 };
+
+// Shared by every list/detail screen for their loading/error/empty states,
+// so a visual tweak (e.g. spacing) only needs to change in one place.
+export const commonStyles = {
+  center: {
+    marginTop: 40,
+  },
+  error: {
+    padding: spacing.lg,
+    color: colors.danger,
+  },
+  empty: {
+    padding: spacing.lg,
+    color: colors.textSecondary,
+  },
+} as const;

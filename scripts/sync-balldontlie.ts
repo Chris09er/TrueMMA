@@ -38,7 +38,9 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function bdlFetch<T>(path: string, params: [string, string][] = []): Promise<T> {
+const MAX_RATE_LIMIT_RETRIES = 5;
+
+async function bdlFetch<T>(path: string, params: [string, string][] = [], attempt = 0): Promise<T> {
   const wait = MIN_REQUEST_INTERVAL_MS - (Date.now() - lastRequestAt);
   if (wait > 0) await sleep(wait);
 
@@ -49,9 +51,12 @@ async function bdlFetch<T>(path: string, params: [string, string][] = []): Promi
   lastRequestAt = Date.now();
 
   if (res.status === 429) {
-    console.warn('  Rate limited, waiting 10s...');
+    if (attempt >= MAX_RATE_LIMIT_RETRIES) {
+      throw new Error(`balldontlie ${path} rate-limited after ${MAX_RATE_LIMIT_RETRIES} retries, giving up`);
+    }
+    console.warn(`  Rate limited, waiting 10s... (attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`);
     await sleep(10000);
-    return bdlFetch(path, params);
+    return bdlFetch(path, params, attempt + 1);
   }
   if (!res.ok) {
     throw new Error(`balldontlie ${path} failed: ${res.status} ${await res.text()}`);
@@ -86,13 +91,32 @@ async function upsertBatched(table: string, rows: Record<string, unknown>[], bat
   }
 }
 
+// Supabase/PostgREST caps unpaginated selects at 1000 rows by default — for
+// tables that can grow past that (fighters, fights) an unpaginated select
+// here would silently return a partial map with no error, corrupting every
+// downstream upsert that depends on it. Page through explicitly instead.
+const SUPABASE_PAGE_SIZE = 1000;
+
 async function externalIdMap(table: string): Promise<Map<number, string>> {
-  const { data, error } = await supabase.from(table).select('id, external_id').not('external_id', 'is', null);
-  if (error) throw error;
   const map = new Map<number, string>();
-  for (const row of data ?? []) {
-    if (row.external_id !== null) map.set(row.external_id as number, row.id as string);
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('id, external_id')
+      .not('external_id', 'is', null)
+      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+    if (error) throw error;
+
+    for (const row of data ?? []) {
+      if (row.external_id !== null) map.set(row.external_id as number, row.id as string);
+    }
+
+    if (!data || data.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
   }
+
   return map;
 }
 
@@ -178,7 +202,14 @@ async function syncEvents(orgMap: Map<number, string>): Promise<Map<number, stri
   // "UFC 1" from 1993) — re-filter by date ourselves as the source of truth.
   const now = Date.now();
   const pastCutoff = now - PAST_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-  const events = fetched.filter((event) => new Date(event.date).getTime() >= pastCutoff);
+  const events = fetched.filter((event) => {
+    const eventTime = new Date(event.date).getTime();
+    if (Number.isNaN(eventTime)) {
+      console.warn(`  Skipping event "${event.name}" — unparseable date "${event.date}"`);
+      return false;
+    }
+    return eventTime >= pastCutoff;
+  });
   console.log(`  ${fetched.length} events fetched, ${events.length} within the ${PAST_WINDOW_DAYS}-day window.`);
 
   const rows = events.flatMap((event) => {

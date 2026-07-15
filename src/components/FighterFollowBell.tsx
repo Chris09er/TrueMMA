@@ -22,12 +22,14 @@ export default function FighterFollowBell({ fighterId }: Props) {
     if (busy) return;
     setBusy(true);
     try {
-      const success = active
-        ? await unfollowFighter(fighterId)
-        : await followFighter(fighterId);
+      const result = active ? await unfollowFighter(fighterId) : await followFighter(fighterId);
 
-      if (!success) {
+      if (result === 'permission_denied') {
         Alert.alert(t.notifications.permissionDeniedTitle, t.notifications.permissionDeniedBody);
+        return;
+      }
+      if (result === 'error') {
+        Alert.alert(t.notifications.genericErrorTitle, t.notifications.genericErrorBody);
         return;
       }
       setActive(!active);

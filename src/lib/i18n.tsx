@@ -52,6 +52,8 @@ const translations = {
       permissionDeniedBody: 'Bitte erlaube Benachrichtigungen in den Geräteeinstellungen, um Erinnerungen zu erhalten.',
       eventReminderTitle: 'Es geht los!',
       eventReminderBody: (eventName: string) => `${eventName} beginnt jetzt.`,
+      genericErrorTitle: 'Das hat nicht geklappt',
+      genericErrorBody: 'Bitte versuche es später erneut.',
     },
   },
   en: {
@@ -91,6 +93,8 @@ const translations = {
       permissionDeniedBody: 'Please allow notifications in your device settings to receive reminders.',
       eventReminderTitle: "It's starting!",
       eventReminderBody: (eventName: string) => `${eventName} is starting now.`,
+      genericErrorTitle: "That didn't work",
+      genericErrorBody: 'Please try again later.',
     },
   },
 } satisfies Record<Locale, unknown>;

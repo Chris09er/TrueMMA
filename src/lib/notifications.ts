@@ -19,6 +19,15 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return status === 'granted';
 }
 
+// Checks the current permission status without ever prompting the user —
+// use this anywhere permission is only being read, not acted on (e.g.
+// deciding whether a "following" badge should show), so the OS's one-shot
+// permission dialog is never triggered as a side effect of rendering.
+export async function hasNotificationPermission(): Promise<boolean> {
+  const { status } = await Notifications.getPermissionsAsync();
+  return status === 'granted';
+}
+
 export async function isEventReminderSet(eventId: string): Promise<boolean> {
   const id = await AsyncStorage.getItem(STORAGE_PREFIX + eventId);
   return id !== null;

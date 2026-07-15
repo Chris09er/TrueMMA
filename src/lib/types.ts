@@ -42,13 +42,4 @@ export type Fight = {
   result_time: string | null;
 };
 
-export type EventDetail = {
-  id: string;
-  name: string;
-  event_date: string;
-  city: string | null;
-  country: string | null;
-  venue: string | null;
-  poster_url: string | null;
-  organizations: Pick<Organization, 'short_name'> | null;
-};
+export type EventDetail = Omit<EventListItem, 'organization_id'>;

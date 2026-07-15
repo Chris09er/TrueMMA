@@ -9,22 +9,14 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList } from '../navigation';
-import { getEventDetail, getFightsForEvent } from '../lib/queries';
+import { getEventDetail, getFightsForEvent, isEventUpcoming } from '../lib/queries';
 import type { EventDetail, Fight, Fighter } from '../lib/types';
-import { colors, radius, spacing } from '../lib/theme';
+import { colors, commonStyles, radius, spacing } from '../lib/theme';
+import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import EventReminderBell from '../components/EventReminderBell';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventDetail'>;
-
-function formatDate(isoDate: string, locale: string): string {
-  return new Date(isoDate).toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', {
-    weekday: 'long',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-}
 
 function fighterProfileUrl(fighter: Fighter | null): string | null {
   return fighter?.tapology_url ?? fighter?.sherdog_url ?? null;
@@ -71,11 +63,11 @@ export default function EventDetailScreen({ route }: Props) {
   }, [eventId, t]);
 
   if (loading) {
-    return <ActivityIndicator style={styles.center} color={colors.textPrimary} />;
+    return <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />;
   }
 
   if (error) {
-    return <Text style={styles.error}>{error}</Text>;
+    return <Text style={commonStyles.error}>{error}</Text>;
   }
 
   return (
@@ -86,11 +78,13 @@ export default function EventDetailScreen({ route }: Props) {
       keyExtractor={(item) => item.id}
       ListHeaderComponent={
         <View style={styles.header}>
-          {event && new Date(event.event_date).getTime() > Date.now() && (
+          {event && isEventUpcoming(event.event_date) && (
             <EventReminderBell eventId={eventId} eventName={event.name} eventDateIso={event.event_date} />
           )}
           <Text style={styles.eventName}>{event?.name ?? eventName}</Text>
-          {event && <Text style={styles.eventMeta}>{formatDate(event.event_date, locale)}</Text>}
+          {event && (
+            <Text style={styles.eventMeta}>{formatEventDate(event.event_date, locale, 'long')}</Text>
+          )}
           {event && (
             <Text style={styles.eventMeta}>
               {[event.venue, event.city, event.country].filter(Boolean).join(', ')}
@@ -98,7 +92,7 @@ export default function EventDetailScreen({ route }: Props) {
           )}
         </View>
       }
-      ListEmptyComponent={<Text style={styles.empty}>{t.eventDetail.emptyFightCard}</Text>}
+      ListEmptyComponent={<Text style={commonStyles.empty}>{t.eventDetail.emptyFightCard}</Text>}
       renderItem={({ item }) => (
         <View style={styles.fightCard}>
           <View style={styles.fightTags}>
@@ -128,17 +122,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  center: {
-    marginTop: 40,
-  },
-  error: {
-    padding: spacing.lg,
-    color: colors.danger,
-  },
-  empty: {
-    padding: spacing.lg,
-    color: colors.textSecondary,
   },
   list: {
     padding: spacing.md,

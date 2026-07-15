@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { getFighters } from '../lib/queries';
 import type { Fighter } from '../lib/types';
-import { colors, radius, spacing } from '../lib/theme';
+import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
 
@@ -54,11 +54,11 @@ export default function FighterListScreen() {
   }, [fighters, search]);
 
   if (loading) {
-    return <ActivityIndicator style={styles.center} color={colors.textPrimary} />;
+    return <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />;
   }
 
   if (error) {
-    return <Text style={styles.error}>{error}</Text>;
+    return <Text style={commonStyles.error}>{error}</Text>;
   }
 
   return (
@@ -84,7 +84,7 @@ export default function FighterListScreen() {
           colors={[colors.accentGold]}
         />
       }
-      ListEmptyComponent={<Text style={styles.empty}>{t.fighterList.empty}</Text>}
+      ListEmptyComponent={<Text style={commonStyles.empty}>{t.fighterList.empty}</Text>}
       renderItem={({ item }) => {
         const url = item.tapology_url ?? item.sherdog_url;
         return (
@@ -111,17 +111,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  center: {
-    marginTop: 40,
-  },
-  error: {
-    padding: spacing.lg,
-    color: colors.danger,
-  },
-  empty: {
-    padding: spacing.lg,
-    color: colors.textSecondary,
   },
   list: {
     padding: spacing.md,

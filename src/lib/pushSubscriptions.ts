@@ -1,26 +1,47 @@
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { supabase } from './supabase';
-import { requestNotificationPermission } from './notifications';
+import { hasNotificationPermission, requestNotificationPermission } from './notifications';
+
+export type FollowResult = 'ok' | 'permission_denied' | 'error';
 
 let cachedPushToken: string | null = null;
+let pendingTokenPromise: Promise<string | null> | null = null;
 
-async function getPushToken(): Promise<string | null> {
-  if (cachedPushToken) return cachedPushToken;
+// `interactive: false` never prompts the OS permission dialog — only reads
+// current status. `interactive: true` (only used when the user actively
+// taps "follow") may prompt. Concurrent callers share one in-flight promise
+// instead of each firing their own permission check / token request.
+async function resolvePushToken(interactive: boolean): Promise<string | null> {
+  if (pendingTokenPromise) return pendingTokenPromise;
 
-  const granted = await requestNotificationPermission();
-  if (!granted) return null;
+  pendingTokenPromise = (async () => {
+    const granted = interactive ? await requestNotificationPermission() : await hasNotificationPermission();
 
-  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-  if (!projectId) return null;
+    if (!granted) {
+      cachedPushToken = null;
+      return null;
+    }
 
-  const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
-  cachedPushToken = data;
-  return data;
+    if (cachedPushToken) return cachedPushToken;
+
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    if (!projectId) return null;
+
+    const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+    cachedPushToken = data;
+    return data;
+  })();
+
+  try {
+    return await pendingTokenPromise;
+  } finally {
+    pendingTokenPromise = null;
+  }
 }
 
 export async function isFollowingFighter(fighterId: string): Promise<boolean> {
-  const token = await getPushToken();
+  const token = await resolvePushToken(false);
   if (!token) return false;
 
   const { data, error } = await supabase
@@ -34,20 +55,20 @@ export async function isFollowingFighter(fighterId: string): Promise<boolean> {
   return data !== null;
 }
 
-export async function followFighter(fighterId: string): Promise<boolean> {
-  const token = await getPushToken();
-  if (!token) return false;
+export async function followFighter(fighterId: string): Promise<FollowResult> {
+  const token = await resolvePushToken(true);
+  if (!token) return 'permission_denied';
 
   const { error } = await supabase
     .from('push_subscriptions')
     .insert({ push_token: token, fighter_id: fighterId });
 
-  return !error;
+  return error ? 'error' : 'ok';
 }
 
-export async function unfollowFighter(fighterId: string): Promise<boolean> {
-  const token = await getPushToken();
-  if (!token) return false;
+export async function unfollowFighter(fighterId: string): Promise<FollowResult> {
+  const token = await resolvePushToken(false);
+  if (!token) return 'permission_denied';
 
   const { error } = await supabase
     .from('push_subscriptions')
@@ -55,5 +76,5 @@ export async function unfollowFighter(fighterId: string): Promise<boolean> {
     .eq('push_token', token)
     .eq('fighter_id', fighterId);
 
-  return !error;
+  return error ? 'error' : 'ok';
 }

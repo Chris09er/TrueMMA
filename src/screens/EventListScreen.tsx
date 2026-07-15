@@ -11,23 +11,15 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList } from '../navigation';
-import { getOrganizations, getPastEvents, getUpcomingEvents } from '../lib/queries';
+import { getOrganizations, getPastEvents, getUpcomingEvents, isEventUpcoming } from '../lib/queries';
 import type { EventListItem, Organization } from '../lib/types';
-import { colors, radius, spacing } from '../lib/theme';
+import { colors, commonStyles, radius, spacing } from '../lib/theme';
+import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import EventReminderBell from '../components/EventReminderBell';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventList'>;
 type Timeframe = 'upcoming' | 'past';
-
-function formatDate(isoDate: string, locale: string): string {
-  return new Date(isoDate).toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', {
-    weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-}
 
 export default function EventListScreen({ navigation }: Props) {
   const { t, locale } = useLocale();
@@ -110,8 +102,8 @@ export default function EventListScreen({ navigation }: Props) {
         ))}
       </View>
 
-      {loading && <ActivityIndicator style={styles.center} color={colors.textPrimary} />}
-      {!loading && error && <Text style={styles.error}>{error}</Text>}
+      {loading && <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />}
+      {!loading && error && <Text style={commonStyles.error}>{error}</Text>}
       {!loading && !error && (
         <FlatList
           data={visibleEvents}
@@ -126,30 +118,33 @@ export default function EventListScreen({ navigation }: Props) {
             />
           }
           ListEmptyComponent={
-            <Text style={styles.empty}>
+            <Text style={commonStyles.empty}>
               {timeframe === 'upcoming' ? t.eventList.empty : t.eventList.emptyPast}
             </Text>
           }
-          renderItem={({ item }) => (
-            <Pressable
-              style={styles.eventCard}
-              onPress={() =>
-                navigation.navigate('EventDetail', { eventId: item.id, eventName: item.name })
-              }
-            >
-              {timeframe === 'upcoming' && (
-                <EventReminderBell eventId={item.id} eventName={item.name} eventDateIso={item.event_date} />
-              )}
-              <Text style={styles.eventOrg}>{item.organizations?.short_name ?? ''}</Text>
-              <Text style={[styles.eventName, timeframe === 'upcoming' && styles.eventNameWithBell]}>
-                {item.name}
-              </Text>
-              <Text style={styles.eventMeta}>{formatDate(item.event_date, locale)}</Text>
-              <Text style={styles.eventMeta}>
-                {[item.venue, item.city, item.country].filter(Boolean).join(', ')}
-              </Text>
-            </Pressable>
-          )}
+          renderItem={({ item }) => {
+            const upcoming = isEventUpcoming(item.event_date);
+            return (
+              <Pressable
+                style={styles.eventCard}
+                onPress={() =>
+                  navigation.navigate('EventDetail', { eventId: item.id, eventName: item.name })
+                }
+              >
+                {upcoming && (
+                  <EventReminderBell eventId={item.id} eventName={item.name} eventDateIso={item.event_date} />
+                )}
+                <Text style={styles.eventOrg}>{item.organizations?.short_name ?? ''}</Text>
+                <Text style={[styles.eventName, upcoming && styles.eventNameWithBell]}>
+                  {item.name}
+                </Text>
+                <Text style={styles.eventMeta}>{formatEventDate(item.event_date, locale)}</Text>
+                <Text style={styles.eventMeta}>
+                  {[item.venue, item.city, item.country].filter(Boolean).join(', ')}
+                </Text>
+              </Pressable>
+            );
+          }}
         />
       )}
     </View>
@@ -219,17 +214,6 @@ const styles = StyleSheet.create({
   },
   filterButtonTextActive: {
     color: colors.background,
-  },
-  center: {
-    marginTop: 40,
-  },
-  error: {
-    padding: spacing.lg,
-    color: colors.danger,
-  },
-  empty: {
-    padding: spacing.lg,
-    color: colors.textSecondary,
   },
   list: {
     padding: spacing.md,
