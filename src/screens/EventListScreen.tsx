@@ -1,21 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList } from '../navigation';
-import { getOrganizations, getUpcomingEvents } from '../lib/queries';
+import { getOrganizations, getPastEvents, getUpcomingEvents } from '../lib/queries';
 import type { EventListItem, Organization } from '../lib/types';
 import { colors, radius, spacing } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
 import EventReminderBell from '../components/EventReminderBell';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventList'>;
+type Timeframe = 'upcoming' | 'past';
 
 function formatDate(isoDate: string, locale: string): string {
   return new Date(isoDate).toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', {
@@ -30,29 +33,67 @@ export default function EventListScreen({ navigation }: Props) {
   const { t, locale } = useLocale();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
+  const [timeframe, setTimeframe] = useState<Timeframe>('upcoming');
+  const [search, setSearch] = useState('');
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     getOrganizations().then(setOrganizations).catch(() => {});
   }, []);
 
-  const loadEvents = useCallback(() => {
-    setLoading(true);
+  const loadEvents = useCallback(async () => {
     setError(null);
-    getUpcomingEvents(selectedOrgId)
-      .then(setEvents)
-      .catch(() => setError(t.common.error))
-      .finally(() => setLoading(false));
-  }, [selectedOrgId, t]);
+    try {
+      const fetcher = timeframe === 'upcoming' ? getUpcomingEvents : getPastEvents;
+      setEvents(await fetcher(selectedOrgId));
+    } catch {
+      setError(t.common.error);
+    }
+  }, [selectedOrgId, timeframe, t]);
 
   useEffect(() => {
-    loadEvents();
+    setLoading(true);
+    loadEvents().finally(() => setLoading(false));
   }, [loadEvents]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([getOrganizations().then(setOrganizations).catch(() => {}), loadEvents()]);
+    setRefreshing(false);
+  }, [loadEvents]);
+
+  const visibleEvents = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return events;
+    return events.filter((event) => event.name.toLowerCase().includes(query));
+  }, [events, search]);
 
   return (
     <View style={styles.container}>
+      <View style={styles.timeframeRow}>
+        <FilterButton
+          label={t.eventList.upcoming}
+          active={timeframe === 'upcoming'}
+          onPress={() => setTimeframe('upcoming')}
+        />
+        <FilterButton
+          label={t.eventList.past}
+          active={timeframe === 'past'}
+          onPress={() => setTimeframe('past')}
+        />
+      </View>
+
+      <TextInput
+        value={search}
+        onChangeText={setSearch}
+        placeholder={t.eventList.searchPlaceholder}
+        placeholderTextColor={colors.textSecondary}
+        style={styles.searchInput}
+      />
+
       <View style={styles.filterRow}>
         <FilterButton
           label={t.eventList.filterAll}
@@ -73,10 +114,22 @@ export default function EventListScreen({ navigation }: Props) {
       {!loading && error && <Text style={styles.error}>{error}</Text>}
       {!loading && !error && (
         <FlatList
-          data={events}
+          data={visibleEvents}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.empty}>{t.eventList.empty}</Text>}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.textPrimary}
+              colors={[colors.accentGold]}
+            />
+          }
+          ListEmptyComponent={
+            <Text style={styles.empty}>
+              {timeframe === 'upcoming' ? t.eventList.empty : t.eventList.emptyPast}
+            </Text>
+          }
           renderItem={({ item }) => (
             <Pressable
               style={styles.eventCard}
@@ -84,9 +137,13 @@ export default function EventListScreen({ navigation }: Props) {
                 navigation.navigate('EventDetail', { eventId: item.id, eventName: item.name })
               }
             >
-              <EventReminderBell eventId={item.id} eventName={item.name} eventDateIso={item.event_date} />
+              {timeframe === 'upcoming' && (
+                <EventReminderBell eventId={item.id} eventName={item.name} eventDateIso={item.event_date} />
+              )}
               <Text style={styles.eventOrg}>{item.organizations?.short_name ?? ''}</Text>
-              <Text style={styles.eventName}>{item.name}</Text>
+              <Text style={[styles.eventName, timeframe === 'upcoming' && styles.eventNameWithBell]}>
+                {item.name}
+              </Text>
               <Text style={styles.eventMeta}>{formatDate(item.event_date, locale)}</Text>
               <Text style={styles.eventMeta}>
                 {[item.venue, item.city, item.country].filter(Boolean).join(', ')}
@@ -124,6 +181,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  timeframeRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+  },
+  searchInput: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.textPrimary,
   },
   filterRow: {
     flexDirection: 'row',
@@ -181,6 +255,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 4,
     color: colors.textPrimary,
+  },
+  eventNameWithBell: {
     paddingRight: 28,
   },
   eventMeta: {

@@ -36,6 +36,10 @@ export type Fight = {
   card_position: number | null;
   fighter1: Fighter | null;
   fighter2: Fighter | null;
+  result_winner_id: string | null;
+  result_method: string | null;
+  result_round: number | null;
+  result_time: string | null;
 };
 
 export type EventDetail = {

@@ -30,16 +30,21 @@ function fighterProfileUrl(fighter: Fighter | null): string | null {
   return fighter?.tapology_url ?? fighter?.sherdog_url ?? null;
 }
 
-function FighterLink({ fighter }: { fighter: Fighter | null }) {
+function FighterLink({ fighter, isWinner }: { fighter: Fighter | null; isWinner: boolean }) {
   const url = fighterProfileUrl(fighter);
   const name = fighter?.name ?? 'TBA';
+  const style = [
+    styles.fighterName,
+    url && styles.fighterLink,
+    isWinner && styles.fighterNameWinner,
+  ];
 
   if (!url) {
-    return <Text style={styles.fighterName}>{name}</Text>;
+    return <Text style={style}>{name}</Text>;
   }
 
   return (
-    <Text style={[styles.fighterName, styles.fighterLink]} onPress={() => Linking.openURL(url)}>
+    <Text style={style} onPress={() => Linking.openURL(url)}>
       {name}
     </Text>
   );
@@ -81,11 +86,9 @@ export default function EventDetailScreen({ route }: Props) {
       keyExtractor={(item) => item.id}
       ListHeaderComponent={
         <View style={styles.header}>
-          <EventReminderBell
-            eventId={eventId}
-            eventName={event?.name ?? eventName}
-            eventDateIso={event?.event_date ?? new Date().toISOString()}
-          />
+          {event && new Date(event.event_date).getTime() > Date.now() && (
+            <EventReminderBell eventId={eventId} eventName={event.name} eventDateIso={event.event_date} />
+          )}
           <Text style={styles.eventName}>{event?.name ?? eventName}</Text>
           {event && <Text style={styles.eventMeta}>{formatDate(event.event_date, locale)}</Text>}
           {event && (
@@ -103,11 +106,18 @@ export default function EventDetailScreen({ route }: Props) {
             {item.is_title_fight && <Text style={styles.tagTitle}>{t.eventDetail.titleFight}</Text>}
           </View>
           <View style={styles.matchupRow}>
-            <FighterLink fighter={item.fighter1} />
+            <FighterLink fighter={item.fighter1} isWinner={item.fighter1?.id === item.result_winner_id} />
             <Text style={styles.vs}>vs</Text>
-            <FighterLink fighter={item.fighter2} />
+            <FighterLink fighter={item.fighter2} isWinner={item.fighter2?.id === item.result_winner_id} />
           </View>
           {item.weight_class && <Text style={styles.weightClass}>{item.weight_class}</Text>}
+          {item.result_method && (
+            <Text style={styles.result}>
+              {t.eventDetail.resultVia} {item.result_method}
+              {item.result_round ? ` · ${t.eventDetail.round} ${item.result_round}` : ''}
+              {item.result_time ? ` (${item.result_time})` : ''}
+            </Text>
+          )}
         </View>
       )}
     />
@@ -190,6 +200,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textPrimary,
   },
+  fighterNameWinner: {
+    color: colors.accentGold,
+  },
   fighterLink: {
     color: colors.link,
     textDecorationLine: 'underline',
@@ -202,5 +215,11 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
     color: colors.textSecondary,
+  },
+  result: {
+    marginTop: 4,
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
   },
 });

@@ -26,14 +26,31 @@ export async function getOrganizations(): Promise<Organization[]> {
   });
 }
 
+const EVENT_LIST_COLUMNS =
+  'id, organization_id, name, event_date, city, country, venue, poster_url, organizations(short_name)';
+
 export async function getUpcomingEvents(organizationId?: string): Promise<EventListItem[]> {
   let query = supabase
     .from('events')
-    .select(
-      'id, organization_id, name, event_date, city, country, venue, poster_url, organizations(short_name)'
-    )
+    .select(EVENT_LIST_COLUMNS)
     .gte('event_date', new Date().toISOString())
     .order('event_date', { ascending: true });
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as unknown as EventListItem[];
+}
+
+export async function getPastEvents(organizationId?: string): Promise<EventListItem[]> {
+  let query = supabase
+    .from('events')
+    .select(EVENT_LIST_COLUMNS)
+    .lt('event_date', new Date().toISOString())
+    .order('event_date', { ascending: false });
 
   if (organizationId) {
     query = query.eq('organization_id', organizationId);
@@ -69,7 +86,7 @@ export async function getFightsForEvent(eventId: string): Promise<Fight[]> {
   const { data, error } = await supabase
     .from('fights')
     .select(
-      'id, event_id, weight_class, is_main_event, is_title_fight, card_position, fighter1:fighter1_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url), fighter2:fighter2_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url)'
+      'id, event_id, weight_class, is_main_event, is_title_fight, card_position, result_winner_id, result_method, result_round, result_time, fighter1:fighter1_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url), fighter2:fighter2_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url)'
     )
     .eq('event_id', eventId)
     .order('card_position', { ascending: true });

@@ -7,8 +7,11 @@
 //
 // API quirks discovered while building this:
 // - /fights requires the paid ALL-STAR tier; /leagues, /events, /fighters are free.
-// - `statuses[]=scheduled` reliably filters /events but not /fights, so we
-//   instead fetch fights for exactly the scheduled events via `event_ids[]`.
+// - Neither `statuses[]` nor date filters are reliably honored by /events
+//   past the first page of cursor pagination — we always get back the full
+//   ~30-year history and filter by date ourselves (see PAST_WINDOW_DAYS).
+// - /fights doesn't honor `statuses[]` either, so we instead fetch fights
+//   for exactly the events we kept via `event_ids[]`.
 // - Fighter objects are fully embedded in fight responses, so a separate
 //   /fighters crawl isn't needed — we derive the fighter set from fights.
 import 'dotenv/config';
@@ -160,16 +163,23 @@ async function syncLeagues(): Promise<Map<number, string>> {
   return map;
 }
 
-async function syncScheduledEvents(orgMap: Map<number, string>): Promise<Map<number, string>> {
-  console.log('Fetching scheduled events...');
+// How far back to keep past events/fights. We already have to paginate
+// through balldontlie's full history to find the upcoming events (their
+// `statuses[]`/date filters aren't reliably honored — see below), so keeping
+// a recent-past window too costs zero extra API calls.
+const PAST_WINDOW_DAYS = 365;
+
+async function syncEvents(orgMap: Map<number, string>): Promise<Map<number, string>> {
+  console.log('Fetching events...');
   const fetched = await paginateAll<BdlEvent>('/events', [['statuses[]', 'scheduled']]);
 
   // `statuses[]=scheduled` isn't reliably honored past the first page of
   // cursor pagination (observed historical events leaking through, e.g.
   // "UFC 1" from 1993) — re-filter by date ourselves as the source of truth.
   const now = Date.now();
-  const events = fetched.filter((event) => new Date(event.date).getTime() >= now);
-  console.log(`  ${fetched.length} events fetched, ${events.length} are actually upcoming.`);
+  const pastCutoff = now - PAST_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const events = fetched.filter((event) => new Date(event.date).getTime() >= pastCutoff);
+  console.log(`  ${fetched.length} events fetched, ${events.length} within the ${PAST_WINDOW_DAYS}-day window.`);
 
   const rows = events.flatMap((event) => {
     const organizationId = event.league ? orgMap.get(event.league.id) : undefined;
@@ -192,13 +202,13 @@ async function syncScheduledEvents(orgMap: Map<number, string>): Promise<Map<num
 
   await upsertBatched('events', rows);
   const map = await externalIdMap('events');
-  console.log(`  ${rows.length} scheduled events synced.`);
+  console.log(`  ${rows.length} events synced.`);
   return map;
 }
 
 async function syncFightersAndFights(eventMap: Map<number, string>): Promise<void> {
   const bdlEventIds = [...eventMap.keys()];
-  console.log(`Fetching fights for ${bdlEventIds.length} scheduled events...`);
+  console.log(`Fetching fights for ${bdlEventIds.length} events...`);
 
   const allFights: BdlFight[] = [];
   for (const batch of chunk(bdlEventIds, 25)) {
@@ -259,7 +269,7 @@ async function syncFightersAndFights(eventMap: Map<number, string>): Promise<voi
 
 async function main() {
   const orgMap = await syncLeagues();
-  const eventMap = await syncScheduledEvents(orgMap);
+  const eventMap = await syncEvents(orgMap);
   await syncFightersAndFights(eventMap);
   console.log('Sync complete.');
 }

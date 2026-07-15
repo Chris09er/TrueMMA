@@ -1,5 +1,14 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Linking,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+} from 'react-native';
 import { getFighters } from '../lib/queries';
 import type { Fighter } from '../lib/types';
 import { colors, radius, spacing } from '../lib/theme';
@@ -9,15 +18,40 @@ import FighterFollowBell from '../components/FighterFollowBell';
 export default function FighterListScreen() {
   const { t } = useLocale();
   const [fighters, setFighters] = useState<Fighter[]>([]);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    getFighters()
-      .then(setFighters)
-      .catch(() => setError(t.common.error))
-      .finally(() => setLoading(false));
+  const loadFighters = useCallback(async () => {
+    setError(null);
+    try {
+      setFighters(await getFighters());
+    } catch {
+      setError(t.common.error);
+    }
   }, [t]);
+
+  useEffect(() => {
+    setLoading(true);
+    loadFighters().finally(() => setLoading(false));
+  }, [loadFighters]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadFighters();
+    setRefreshing(false);
+  }, [loadFighters]);
+
+  const visibleFighters = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return fighters;
+    return fighters.filter(
+      (fighter) =>
+        fighter.name.toLowerCase().includes(query) ||
+        fighter.nickname?.toLowerCase().includes(query)
+    );
+  }, [fighters, search]);
 
   if (loading) {
     return <ActivityIndicator style={styles.center} color={colors.textPrimary} />;
@@ -31,8 +65,25 @@ export default function FighterListScreen() {
     <FlatList
       style={styles.container}
       contentContainerStyle={styles.list}
-      data={fighters}
+      data={visibleFighters}
       keyExtractor={(item) => item.id}
+      ListHeaderComponent={
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder={t.fighterList.searchPlaceholder}
+          placeholderTextColor={colors.textSecondary}
+          style={styles.searchInput}
+        />
+      }
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          tintColor={colors.textPrimary}
+          colors={[colors.accentGold]}
+        />
+      }
       ListEmptyComponent={<Text style={styles.empty}>{t.fighterList.empty}</Text>}
       renderItem={({ item }) => {
         const url = item.tapology_url ?? item.sherdog_url;
@@ -74,6 +125,16 @@ const styles = StyleSheet.create({
   },
   list: {
     padding: spacing.md,
+  },
+  searchInput: {
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.textPrimary,
   },
   card: {
     padding: 14,
