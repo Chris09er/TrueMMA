@@ -66,6 +66,29 @@ export function getPastEvents(organizationId?: string): Promise<EventListItem[]>
   return getEvents('past', organizationId);
 }
 
+// For the calendar view — independent of the upcoming/past split, covers
+// whatever month range is currently on screen.
+export async function getEventsInRange(
+  startIso: string,
+  endIso: string,
+  organizationId?: string
+): Promise<EventListItem[]> {
+  let query = supabase
+    .from('events')
+    .select(EVENT_LIST_COLUMNS)
+    .gte('event_date', startIso)
+    .lt('event_date', endIso)
+    .order('event_date', { ascending: true });
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as unknown as EventListItem[];
+}
+
 export async function getFighters(): Promise<Fighter[]> {
   const { data, error } = await supabase
     .from('fighters')

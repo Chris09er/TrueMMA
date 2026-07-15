@@ -14,7 +14,9 @@ conversations/decisions with the maintainer; this file is technical only.
 ## Tech stack
 
 - **App:** React Native + Expo SDK 54 (managed workflow), TypeScript, no
-  Expo Router — plain `@react-navigation` (bottom tabs + one native stack).
+  Expo Router — plain `@react-navigation` (bottom tabs + a native stack per
+  tab that needs one). `react-native-calendars` for the events calendar
+  view — pure JS, no native module.
 - **Backend:** Supabase (Postgres + PostgREST + `pg_net`), region
   eu-central-1. No custom server — the only "backend logic" is SQL
   (triggers/functions) plus a standalone local Node sync script.
@@ -71,12 +73,18 @@ else (UFC + 9 other leagues) is populated by
   params: {...} })`. This is a standard React Navigation pattern, not a
   workaround.
 - **Screens** (`src/screens/`):
-  - `EventListScreen` — upcoming/past toggle, org filter (UFC/OKTAGON
-    pinned first via `PINNED_ORG_ORDER` in `queries.ts`, rest alphabetical;
-    horizontally scrollable — the org list is longer than one screen width,
-    e.g. PFL only shows up if you scroll), text search (client-side
-    substring match), pull-to-refresh, per-event reminder bell (only
-    rendered for events where `isEventUpcoming()` is true).
+  - `EventListScreen` — list/calendar view toggle (top row); list mode:
+    upcoming/past toggle, org filter (UFC/OKTAGON pinned first via
+    `PINNED_ORG_ORDER` in `queries.ts`, rest alphabetical; horizontally
+    scrollable — the org list is longer than one screen width, e.g. PFL
+    only shows up if you scroll), text search (client-side substring
+    match), pull-to-refresh; calendar mode: month grid
+    (`react-native-calendars`, pure JS — no native module, no EAS rebuild)
+    with a dot on days that have events, fed per-month by
+    `getEventsInRange()` (independent of the upcoming/past split), tapping
+    a day filters the list below to that day; org filter applies in both
+    modes. Per-event reminder bell + favorite heart (only bell rendered
+    for events where `isEventUpcoming()` is true, heart always).
   - `EventDetailScreen` — event header + fight card list, **main event
     first** (`getFightsForEvent` orders `card_position` descending,
     `nullsFirst: false` so manually-entered fights without a

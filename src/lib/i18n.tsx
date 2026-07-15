@@ -26,6 +26,10 @@ const translations = {
       upcoming: 'Kommende',
       past: 'Vergangene',
       searchPlaceholder: 'Events suchen...',
+      viewList: 'Liste',
+      viewCalendar: 'Kalender',
+      calendarEmptyDay: 'Keine Veranstaltung an diesem Tag.',
+      calendarSelectDay: 'Tippe auf einen Tag mit Veranstaltung.',
     },
     eventDetail: {
       mainEvent: 'MAIN EVENT',
@@ -131,6 +135,10 @@ const translations = {
       upcoming: 'Upcoming',
       past: 'Past',
       searchPlaceholder: 'Search events...',
+      viewList: 'List',
+      viewCalendar: 'Calendar',
+      calendarEmptyDay: 'No event on this day.',
+      calendarSelectDay: 'Tap a day with an event.',
     },
     eventDetail: {
       mainEvent: 'MAIN EVENT',
