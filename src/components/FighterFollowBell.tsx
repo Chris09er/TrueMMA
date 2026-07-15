@@ -33,6 +33,15 @@ export default function FighterFollowBell({ fighterId }: Props) {
         return;
       }
       setActive(!active);
+    } catch (err) {
+      // resolvePushToken() can throw (e.g. getExpoPushTokenAsync failing) —
+      // without this, the rejection was silently swallowed and the bell
+      // just looked unresponsive with no feedback at all.
+      console.error('FighterFollowBell press failed:', err);
+      Alert.alert(
+        t.notifications.genericErrorTitle,
+        `${t.notifications.genericErrorBody}\n\n${err instanceof Error ? err.message : String(err)}`
+      );
     } finally {
       setBusy(false);
     }

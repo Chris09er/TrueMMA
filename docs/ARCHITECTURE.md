@@ -222,3 +222,17 @@ after seeding data doesn't create duplicate organizations) →
 - `AGENTS.md` still points at the SDK 57 docs even though the project
   runs SDK 54 (downgraded to match the currently-published Expo Go app) —
   minor staleness, worth fixing if SDK is bumped again.
+- **Fighter-follow push doesn't actually deliver on Android yet.**
+  Tapping the follow bell throws `Default FirebaseApp is not initialized`
+  from `Notifications.getExpoPushTokenAsync()` — Android push delivery
+  requires Firebase Cloud Messaging (FCM V1) credentials, which is a
+  separate setup from everything else in this project (needs a Firebase
+  project, a service-account JSON uploaded to EAS via `eas credentials`,
+  and `google-services.json` referenced in `app.json` →
+  `android.googleServicesFile`, followed by another native rebuild).
+  Deliberately deferred (2026-07-15) — not needed to keep developing other
+  features, but must be done before the fighter-follow feature actually
+  works on a real device. See
+  [Expo's FCM V1 setup guide](https://docs.expo.dev/push-notifications/fcm-credentials/).
+  The event-reminder bell (local notifications) is unaffected and already
+  works.
