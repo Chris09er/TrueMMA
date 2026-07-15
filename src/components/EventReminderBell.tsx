@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert } from 'react-native';
+import { useAuth } from '../lib/auth';
+import { followEvent, unfollowEvent } from '../lib/eventFollows';
 import { useLocale } from '../lib/i18n';
 import {
   cancelEventReminder,
@@ -17,6 +19,7 @@ type Props = {
 
 export default function EventReminderBell({ eventId, eventName, eventDateIso }: Props) {
   const { t } = useLocale();
+  const { user } = useAuth();
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -32,6 +35,9 @@ export default function EventReminderBell({ eventId, eventName, eventDateIso }: 
       if (active) {
         await cancelEventReminder(eventId);
         setActive(false);
+        // Best-effort: the local reminder is the source of truth for this
+        // bell, event_follows only mirrors it for the profile screen.
+        if (user) unfollowEvent(user.id, eventId).catch(() => {});
       } else {
         const granted = await requestNotificationPermission();
         if (!granted) {
@@ -45,6 +51,7 @@ export default function EventReminderBell({ eventId, eventName, eventDateIso }: 
           t.notifications.eventReminderBody(eventName)
         );
         setActive(scheduled);
+        if (scheduled && user) followEvent(user.id, eventId).catch(() => {});
       }
     } finally {
       setBusy(false);

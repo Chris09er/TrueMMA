@@ -6,6 +6,7 @@ export type EventsStackParamList = {
 export type RootTabParamList = {
   EventsTab: undefined;
   FightersTab: undefined;
+  ProfileTab: undefined;
   LanguageTab: undefined;
   ContactTab: undefined;
 };

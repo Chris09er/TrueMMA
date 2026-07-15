@@ -33,11 +33,14 @@ Tables (Supabase Postgres), all with RLS enabled:
 | `fighters` | Fighter roster | none (read-only) |
 | `events` | Event calendar entries | none (read-only) |
 | `fights` | Matchups within an event, incl. results | none (read-only) |
-| `push_subscriptions` | Device push token ↔ followed fighter | **insert/select/delete** (anon) |
+| `push_subscriptions` | Device push token ↔ followed fighter, optional `user_id` | **insert/select/delete** (anon, or own rows if logged in) |
+| `profiles` | Login-only: nickname per account (`id` = `auth.users.id`) | own row only |
+| `event_follows` | Login-only: user ↔ followed event (profile visibility) | own rows only |
 
-`push_subscriptions` is the one exception to "app is read-only" — it's how
-the fighter-follow bell registers/unregisters without requiring login. See
-[Notifications](#notifications).
+`push_subscriptions` is the one exception to "app is read-only" for
+anonymous users — it's how the fighter-follow bell registers/unregisters
+without requiring login. See [Notifications](#notifications) and
+[Login / Profile](#login--profile).
 
 **Sync idempotency:** `organizations`, `events`, `fighters`, and `fights`
 each have a nullable `external_id integer unique` column, populated by the
@@ -70,6 +73,11 @@ else (UFC + 9 other leagues) is populated by
   - `FighterListScreen` — search, pull-to-refresh, per-fighter follow bell.
     Tapping a fighter opens their Tapology/Sherdog profile if one exists.
   - `LanguageScreen`, `ContactScreen` — simple settings-style screens.
+  - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
+    flow. Logged-in: nickname, change email/password, followed
+    fighters/events (reusing `FighterFollowBell`/`EventReminderBell` to
+    unfollow directly from the list), logout. See
+    [Login / Profile](#login--profile).
 - **Shared lib** (`src/lib/`):
   - `theme.ts` — dark palette, spacing/radius tokens, `commonStyles`
     (loading/error/empty — reused by every list/detail screen).
@@ -120,6 +128,61 @@ for permission just to *check* follow-state (`isFollowingFighter`) — only
 an explicit `followFighter()` call (interactive) may trigger the OS
 permission dialog. Concurrent callers share one in-flight token-resolution
 promise.
+
+## Login / Profile
+
+Login is **optional** — every existing feature (browsing, fighter-follow,
+event reminders) keeps working fully anonymously, same as before. Login is
+additive: it gives a user a "Profil" tab (`ProfileScreen`) where they can
+see what they follow across devices, pick a nickname, and manage their
+email/password. No feature is gated behind login (yet) — see [Known open
+items](#known-open-items) if that changes.
+
+- **Auth backend:** Supabase Auth, email+password only (no magic link, no
+  OAuth). `src/lib/supabase.ts` now persists the session
+  (`persistSession: true`, `AsyncStorage` as storage, `autoRefreshToken:
+  true`) — previously disabled since the app had no concept of a logged-in
+  user. `src/lib/auth.tsx` (`AuthProvider`/`useAuth`) wraps
+  `supabase.auth.getSession()` + `onAuthStateChange`, mounted in `App.tsx`
+  alongside `LocaleProvider`.
+- **No EAS rebuild needed for any of this** — `@supabase/supabase-js` auth
+  is pure JS on top of AsyncStorage (already a dependency), no native
+  module involved.
+- **Password reset without deep linking:** rather than a magic-link email
+  redirect (which would need an `app.json` URL scheme + native rebuild),
+  password reset uses Supabase's OTP flow: `resetPasswordForEmail()` →
+  user receives a 6-digit code by email → app calls
+  `supabase.auth.verifyOtp({ type: 'recovery', ... })` +
+  `updateUser({ password })`. **Requires a one-time Supabase dashboard
+  change:** the "Reset Password" email template must reference `{{ .Token
+  }}` (the OTP code) instead of the default magic-link `{{ .ConfirmationURL
+  }}`, otherwise users get a link instead of a code and the in-app flow
+  breaks.
+- **Anonymous → account linking:** fighter-follow (`push_subscriptions`)
+  keeps working without login, keyed by push token as before, now with an
+  additional nullable `user_id`. On sign-in, `claimAnonymousFollows()`
+  (`src/lib/pushSubscriptions.ts`) attaches this device's already-existing
+  anonymous rows (`user_id is null`, matching push token) to the newly
+  logged-in account, so follows made before login aren't lost or
+  duplicated.
+- **Event follows:** event reminders themselves stay 100% local
+  (`expo-notifications` + AsyncStorage, unaffected by login). A separate
+  `event_follows` table (login-only, no anonymous rows) exists purely so a
+  followed event is visible in the profile; `EventReminderBell` writes to
+  it as a best-effort side effect alongside the local schedule/cancel call
+  — the local reminder is always the source of truth for the bell's
+  on/off state.
+- **Nickname:** stored in `profiles` (`id` = `auth.users.id`, one row per
+  account, auto-created by an `on_auth_user_created` trigger on signup),
+  optional, editable anytime from the profile screen. Minimal data
+  collection by design — only email (required by Supabase Auth) and an
+  optional nickname are collected; no other personal data.
+- **SQL:** `supabase/migrations/001_profiles_and_login.sql` (this project
+  has no CLI migration runner — run manually in the Supabase SQL Editor,
+  same as `push_subscriptions`'s trigger). Includes a manual step: the
+  pre-existing anon `push_subscriptions` policies must be looked up and
+  dropped by their actual name before the new scoped policies are created,
+  since their names weren't recorded anywhere in this repo.
 
 ## balldontlie sync
 
@@ -211,11 +274,26 @@ after seeding data doesn't create duplicate organizations) →
 
 ## Known open items
 
-- `push_subscriptions` RLS is fully public (`insert`/`select`/`delete` all
-  `using (true)`) — acceptable for MVP (no login, low-sensitivity data:
+- `push_subscriptions` anonymous rows (`user_id is null`) are still fully
+  public (`using (true)`) — acceptable for MVP (low-sensitivity data:
   device token ↔ fighter id), but means anyone holding a given push token
-  could theoretically unfollow on someone else's behalf. Documented in the
-  SQL setup comment, not currently a planned fix.
+  could theoretically unfollow on someone else's behalf. Rows tied to a
+  logged-in user (`user_id = auth.uid()`) are scoped. Not currently a
+  planned fix for the anonymous case.
+- Password-reset OTP flow (see [Login / Profile](#login--profile)) needs
+  the Supabase "Reset Password" email template switched to `{{ .Token }}`
+  in the dashboard — not yet done as of this writing, must happen before
+  the reset flow works end-to-end.
+- The three original `push_subscriptions` RLS policies (`using (true)`)
+  need to be found and dropped manually before running
+  `supabase/migrations/001_profiles_and_login.sql` — see the migration
+  file's comment. Not yet run against the live database as of this
+  writing.
+- Auth emails (signup confirmation, password reset) currently go through
+  Supabase's built-in test mailer, which is fine for development but
+  heavily rate-limited — a custom SMTP provider (e.g. Resend, SendGrid,
+  Postmark) must be configured in Supabase before real users sign up.
+  Same rough timing as the privacy-policy item below.
 - Once notifications/data collection ship to the app stores, a privacy
   policy + Apple/Google data-safety disclosures are required before
   release (flagged, not yet done).

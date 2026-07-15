@@ -59,9 +59,13 @@ export async function followFighter(fighterId: string): Promise<FollowResult> {
   const token = await resolvePushToken(true);
   if (!token) return 'permission_denied';
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const { error } = await supabase
     .from('push_subscriptions')
-    .insert({ push_token: token, fighter_id: fighterId });
+    .insert({ push_token: token, fighter_id: fighterId, user_id: user?.id ?? null });
 
   return error ? 'error' : 'ok';
 }
@@ -77,4 +81,19 @@ export async function unfollowFighter(fighterId: string): Promise<FollowResult> 
     .eq('fighter_id', fighterId);
 
   return error ? 'error' : 'ok';
+}
+
+// Called once on sign-in: attaches any follows made anonymously on this
+// device (before login, or while logged out) to the now-known account, so
+// they show up in the profile instead of staying orphaned to the device
+// token only.
+export async function claimAnonymousFollows(userId: string): Promise<void> {
+  const token = await resolvePushToken(false);
+  if (!token) return;
+
+  await supabase
+    .from('push_subscriptions')
+    .update({ user_id: userId })
+    .eq('push_token', token)
+    .is('user_id', null);
 }

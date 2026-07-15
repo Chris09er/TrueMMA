@@ -5,10 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import type { EventsStackParamList, RootTabParamList } from './src/navigation';
 import { LocaleProvider, useLocale } from './src/lib/i18n';
+import { AuthProvider } from './src/lib/auth';
 import { colors } from './src/lib/theme';
 import EventDetailScreen from './src/screens/EventDetailScreen';
 import EventListScreen from './src/screens/EventListScreen';
 import FighterListScreen from './src/screens/FighterListScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 import LanguageScreen from './src/screens/LanguageScreen';
 import ContactScreen from './src/screens/ContactScreen';
 
@@ -65,6 +67,7 @@ function RootTabs() {
           const icons: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
             EventsTab: 'calendar',
             FightersTab: 'people',
+            ProfileTab: 'person',
             LanguageTab: 'language',
             ContactTab: 'mail',
           };
@@ -77,6 +80,11 @@ function RootTabs() {
         name="FightersTab"
         component={FighterListScreen}
         options={{ title: t.tabs.fighters, headerShown: true, headerTitle: t.fighterList.title }}
+      />
+      <Tab.Screen
+        name="ProfileTab"
+        component={ProfileScreen}
+        options={{ title: t.tabs.profile, headerShown: true, headerTitle: t.profile.title }}
       />
       <Tab.Screen
         name="LanguageTab"
@@ -95,10 +103,12 @@ function RootTabs() {
 export default function App() {
   return (
     <LocaleProvider>
-      <NavigationContainer theme={navTheme}>
-        <StatusBar style="light" />
-        <RootTabs />
-      </NavigationContainer>
+      <AuthProvider>
+        <NavigationContainer theme={navTheme}>
+          <StatusBar style="light" />
+          <RootTabs />
+        </NavigationContainer>
+      </AuthProvider>
     </LocaleProvider>
   );
 }

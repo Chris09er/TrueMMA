@@ -87,6 +87,31 @@ export async function getEventDetail(eventId: string): Promise<EventDetail> {
   return data as unknown as EventDetail;
 }
 
+export async function getFollowedFighters(userId: string): Promise<Fighter[]> {
+  const { data, error } = await supabase
+    .from('push_subscriptions')
+    .select('fighters(id, name, nickname, nationality, photo_url, tapology_url, sherdog_url)')
+    .eq('user_id', userId)
+    .not('fighter_id', 'is', null);
+
+  if (error) throw error;
+  return ((data ?? []) as unknown as { fighters: Fighter | null }[])
+    .map((row) => row.fighters)
+    .filter((fighter): fighter is Fighter => fighter !== null);
+}
+
+export async function getFollowedEvents(userId: string): Promise<EventListItem[]> {
+  const { data, error } = await supabase
+    .from('event_follows')
+    .select(`events(${EVENT_LIST_COLUMNS})`)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  return ((data ?? []) as unknown as { events: EventListItem | null }[])
+    .map((row) => row.events)
+    .filter((event): event is EventListItem => event !== null);
+}
+
 export async function getFightsForEvent(eventId: string): Promise<Fight[]> {
   const { data, error } = await supabase
     .from('fights')
