@@ -40,6 +40,16 @@ const translations = {
       searchPlaceholder: 'Kämpfer suchen...',
       filterAll: 'Alle',
     },
+    fighterDetail: {
+      tapologyButton: 'Tapology-Profil',
+      sherdogButton: 'Sherdog-Profil',
+      upcomingFight: 'Nächster Kampf',
+      fightHistory: 'Kampfhistorie',
+      noFightHistory: 'Keine vergangenen Kämpfe bekannt.',
+      resultWin: 'Sieg',
+      resultLoss: 'Niederlage',
+      vs: 'gegen',
+    },
     language: {
       title: 'Sprache',
     },
@@ -130,6 +140,16 @@ const translations = {
       empty: 'No fighters found.',
       searchPlaceholder: 'Search fighters...',
       filterAll: 'All',
+    },
+    fighterDetail: {
+      tapologyButton: 'Tapology profile',
+      sherdogButton: 'Sherdog profile',
+      upcomingFight: 'Next fight',
+      fightHistory: 'Fight history',
+      noFightHistory: 'No past fights on record.',
+      resultWin: 'Win',
+      resultLoss: 'Loss',
+      vs: 'vs',
     },
     language: {
       title: 'Language',

@@ -3,18 +3,20 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import type { EventsStackParamList, RootTabParamList } from './src/navigation';
+import type { EventsStackParamList, FightersStackParamList, RootTabParamList } from './src/navigation';
 import { LocaleProvider, useLocale } from './src/lib/i18n';
 import { AuthProvider } from './src/lib/auth';
 import { colors } from './src/lib/theme';
 import EventDetailScreen from './src/screens/EventDetailScreen';
 import EventListScreen from './src/screens/EventListScreen';
 import FighterListScreen from './src/screens/FighterListScreen';
+import FighterDetailScreen from './src/screens/FighterDetailScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import LanguageScreen from './src/screens/LanguageScreen';
 import ContactScreen from './src/screens/ContactScreen';
 
 const EventsStack = createNativeStackNavigator<EventsStackParamList>();
+const FightersStack = createNativeStackNavigator<FightersStackParamList>();
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
 const navTheme = {
@@ -53,6 +55,24 @@ function EventsStackNavigator() {
   );
 }
 
+function FightersStackNavigator() {
+  const { t } = useLocale();
+  return (
+    <FightersStack.Navigator screenOptions={screenOptions}>
+      <FightersStack.Screen
+        name="FighterList"
+        component={FighterListScreen}
+        options={{ title: t.fighterList.title }}
+      />
+      <FightersStack.Screen
+        name="FighterDetail"
+        component={FighterDetailScreen}
+        options={({ route }) => ({ title: route.params.fighterName })}
+      />
+    </FightersStack.Navigator>
+  );
+}
+
 function RootTabs() {
   const { t } = useLocale();
   return (
@@ -76,11 +96,7 @@ function RootTabs() {
       })}
     >
       <Tab.Screen name="EventsTab" component={EventsStackNavigator} options={{ title: t.tabs.events }} />
-      <Tab.Screen
-        name="FightersTab"
-        component={FighterListScreen}
-        options={{ title: t.tabs.fighters, headerShown: true, headerTitle: t.fighterList.title }}
-      />
+      <Tab.Screen name="FightersTab" component={FightersStackNavigator} options={{ title: t.tabs.fighters }} />
       <Tab.Screen
         name="ProfileTab"
         component={ProfileScreen}

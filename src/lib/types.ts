@@ -43,3 +43,7 @@ export type Fight = {
 };
 
 export type EventDetail = Omit<EventListItem, 'organization_id'>;
+
+export type FightWithEvent = Fight & {
+  event: { id: string; name: string; event_date: string } | null;
+};

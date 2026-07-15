@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,6 +9,8 @@ import {
   Text,
   TextInput,
 } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { FightersStackParamList } from '../navigation';
 import { getFighters } from '../lib/queries';
 import type { Fighter } from '../lib/types';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
@@ -17,7 +18,9 @@ import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
 import FilterButton from '../components/FilterButton';
 
-export default function FighterListScreen() {
+type Props = NativeStackScreenProps<FightersStackParamList, 'FighterList'>;
+
+export default function FighterListScreen({ navigation }: Props) {
   const { t } = useLocale();
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [search, setSearch] = useState('');
@@ -121,24 +124,20 @@ export default function FighterListScreen() {
         />
       }
       ListEmptyComponent={<Text style={commonStyles.empty}>{t.fighterList.empty}</Text>}
-      renderItem={({ item }) => {
-        const url = item.tapology_url ?? item.sherdog_url;
-        return (
-          <Pressable
-            style={styles.card}
-            onPress={() => url && Linking.openURL(url)}
-            disabled={!url}
-          >
-            <FighterFollowBell fighterId={item.id} />
-            <Text style={styles.name}>{item.name}</Text>
-            {(item.nickname || item.nationality) && (
-              <Text style={styles.meta}>
-                {[item.nickname && `"${item.nickname}"`, item.nationality].filter(Boolean).join(' · ')}
-              </Text>
-            )}
-          </Pressable>
-        );
-      }}
+      renderItem={({ item }) => (
+        <Pressable
+          style={styles.card}
+          onPress={() => navigation.navigate('FighterDetail', { fighterId: item.id, fighterName: item.name })}
+        >
+          <FighterFollowBell fighterId={item.id} />
+          <Text style={styles.name}>{item.name}</Text>
+          {(item.nickname || item.nationality) && (
+            <Text style={styles.meta}>
+              {[item.nickname && `"${item.nickname}"`, item.nationality].filter(Boolean).join(' · ')}
+            </Text>
+          )}
+        </Pressable>
+      )}
     />
   );
 }

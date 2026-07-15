@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Linking,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NavigationProp } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { EventsStackParamList } from '../navigation';
+import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import { getEventDetail, getFightsForEvent, isEventUpcoming } from '../lib/queries';
 import type { EventDetail, Fight, Fighter } from '../lib/types';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
@@ -18,25 +19,25 @@ import EventReminderBell from '../components/EventReminderBell';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventDetail'>;
 
-function fighterProfileUrl(fighter: Fighter | null): string | null {
-  return fighter?.tapology_url ?? fighter?.sherdog_url ?? null;
-}
-
 function FighterLink({ fighter, isWinner }: { fighter: Fighter | null; isWinner: boolean }) {
-  const url = fighterProfileUrl(fighter);
+  const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const name = fighter?.name ?? 'TBA';
-  const style = [
-    styles.fighterName,
-    url && styles.fighterLink,
-    isWinner && styles.fighterNameWinner,
-  ];
+  const style = [styles.fighterName, fighter && styles.fighterLink, isWinner && styles.fighterNameWinner];
 
-  if (!url) {
+  if (!fighter) {
     return <Text style={style}>{name}</Text>;
   }
 
   return (
-    <Text style={style} onPress={() => Linking.openURL(url)}>
+    <Text
+      style={style}
+      onPress={() =>
+        navigation.navigate('FightersTab', {
+          screen: 'FighterDetail',
+          params: { fighterId: fighter.id, fighterName: fighter.name },
+        })
+      }
+    >
       {name}
     </Text>
   );

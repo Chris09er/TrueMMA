@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { EventDetail, EventListItem, Fight, Fighter, Organization } from './types';
+import type { EventDetail, EventListItem, Fight, FightWithEvent, Fighter, Organization } from './types';
 
 // DACH audience cares about these first; every other league (auto-synced from
 // balldontlie) still shows up, just after, alphabetically.
@@ -76,6 +76,17 @@ export async function getFighters(): Promise<Fighter[]> {
   return (data ?? []) as Fighter[];
 }
 
+export async function getFighterById(fighterId: string): Promise<Fighter> {
+  const { data, error } = await supabase
+    .from('fighters')
+    .select('id, name, nickname, nationality, photo_url, tapology_url, sherdog_url')
+    .eq('id', fighterId)
+    .single();
+
+  if (error) throw error;
+  return data as Fighter;
+}
+
 export async function getEventDetail(eventId: string): Promise<EventDetail> {
   const { data, error } = await supabase
     .from('events')
@@ -110,6 +121,23 @@ export async function getFollowedEvents(userId: string): Promise<EventListItem[]
   return ((data ?? []) as unknown as { events: EventListItem | null }[])
     .map((row) => row.events)
     .filter((event): event is EventListItem => event !== null);
+}
+
+export async function getFighterFights(fighterId: string): Promise<FightWithEvent[]> {
+  const { data, error } = await supabase
+    .from('fights')
+    .select(
+      'id, event_id, weight_class, is_main_event, is_title_fight, card_position, result_winner_id, result_method, result_round, result_time, fighter1:fighter1_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url), fighter2:fighter2_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url), event:event_id(id,name,event_date)'
+    )
+    .or(`fighter1_id.eq.${fighterId},fighter2_id.eq.${fighterId}`);
+
+  if (error) throw error;
+  const fights = (data ?? []) as unknown as FightWithEvent[];
+  return fights.sort((a, b) => {
+    if (!a.event) return 1;
+    if (!b.event) return -1;
+    return new Date(b.event.event_date).getTime() - new Date(a.event.event_date).getTime();
+  });
 }
 
 export async function getFightsForEvent(eventId: string): Promise<Fight[]> {

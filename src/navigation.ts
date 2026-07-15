@@ -1,11 +1,18 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
+
 export type EventsStackParamList = {
   EventList: undefined;
   EventDetail: { eventId: string; eventName: string };
 };
 
+export type FightersStackParamList = {
+  FighterList: undefined;
+  FighterDetail: { fighterId: string; fighterName: string };
+};
+
 export type RootTabParamList = {
   EventsTab: undefined;
-  FightersTab: undefined;
+  FightersTab: NavigatorScreenParams<FightersStackParamList> | undefined;
   ProfileTab: undefined;
   LanguageTab: undefined;
   ContactTab: undefined;

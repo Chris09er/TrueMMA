@@ -59,8 +59,16 @@ else (UFC + 9 other leagues) is populated by
 - `App.tsx` — root: `LocaleProvider` → `NavigationContainer` (dark theme) →
   bottom tabs.
 - **Navigation** (`src/navigation.ts`): `RootTabParamList` (EventsTab,
-  FightersTab, LanguageTab, ContactTab) + `EventsStackParamList`
-  (EventList → EventDetail, native stack nested inside the Events tab).
+  FightersTab, ProfileTab, LanguageTab, ContactTab) +
+  `EventsStackParamList` (EventList → EventDetail) and
+  `FightersStackParamList` (FighterList → FighterDetail), both native
+  stacks nested inside their tab. `RootTabParamList.FightersTab` is typed
+  as `NavigatorScreenParams<FightersStackParamList>` (not `undefined`) so
+  that tapping a fighter from `EventDetailScreen` — which lives in the
+  Events stack — can type-check a cross-tab navigation into the Fighters
+  stack: `navigation.navigate('FightersTab', { screen: 'FighterDetail',
+  params: {...} })`. This is a standard React Navigation pattern, not a
+  workaround.
 - **Screens** (`src/screens/`):
   - `EventListScreen` — upcoming/past toggle, org filter (UFC/OKTAGON
     pinned first via `PINNED_ORG_ORDER` in `queries.ts`, rest alphabetical;
@@ -77,7 +85,18 @@ else (UFC + 9 other leagues) is populated by
   - `FighterListScreen` — search, nationality filter (derived client-side
     from the loaded fighters, horizontally scrollable, same
     `FilterButton` component as the event org filter), pull-to-refresh,
-    per-fighter follow bell.
+    per-fighter follow bell. Tapping a fighter opens `FighterDetailScreen`
+    (used to jump straight to Tapology/Sherdog — now shows an in-app
+    profile first, external links are explicit buttons there).
+  - `FighterDetailScreen` — photo/name/nickname/nationality, Tapology/
+    Sherdog link buttons, follow bell, upcoming fight (if any, via
+    `isEventUpcoming`) and full fight history (opponent, event, win/loss
+    by comparing `result_winner_id`), fed by `getFighterFights()` in
+    `queries.ts` (fetches both `fighter1_id`/`fighter2_id` sides via
+    `.or()`, sorted by the embedded event's date client-side). Reachable
+    both from `FighterListScreen` and from tapping a fighter's name in
+    `EventDetailScreen`'s fight card (cross-tab navigation, see
+    Navigation above).
   - `LanguageScreen`, `ContactScreen` — simple settings-style screens.
   - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
     flow. Logged-in: nickname, change email/password, followed
