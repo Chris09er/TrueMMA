@@ -16,6 +16,7 @@ import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import EventReminderBell from '../components/EventReminderBell';
+import EventFavoriteHeart from '../components/EventFavoriteHeart';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventDetail'>;
 
@@ -82,6 +83,7 @@ export default function EventDetailScreen({ route }: Props) {
           {event && isEventUpcoming(event.event_date) && (
             <EventReminderBell eventId={eventId} eventName={event.name} eventDateIso={event.event_date} />
           )}
+          <EventFavoriteHeart eventId={eventId} />
           <Text style={styles.eventName}>{event?.name ?? eventName}</Text>
           {event && (
             <Text style={styles.eventMeta}>{formatEventDate(event.event_date, locale, 'long')}</Text>
@@ -136,7 +138,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 6,
     color: colors.textPrimary,
-    paddingRight: 32,
+    paddingRight: 60,
   },
   eventMeta: {
     fontSize: 14,

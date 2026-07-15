@@ -13,11 +13,13 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList } from '../navigation';
 import { getOrganizations, getPastEvents, getUpcomingEvents, isEventUpcoming } from '../lib/queries';
+import { getEventFavoriteIds } from '../lib/favorites';
 import type { EventListItem, Organization } from '../lib/types';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import EventReminderBell from '../components/EventReminderBell';
+import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FilterButton from '../components/FilterButton';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventList'>;
@@ -30,6 +32,7 @@ export default function EventListScreen({ navigation }: Props) {
   const [timeframe, setTimeframe] = useState<Timeframe>('upcoming');
   const [search, setSearch] = useState('');
   const [events, setEvents] = useState<EventListItem[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,20 +53,34 @@ export default function EventListScreen({ navigation }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    loadEvents().finally(() => setLoading(false));
+    Promise.all([loadEvents(), getEventFavoriteIds().then(setFavoriteIds)]).finally(() => setLoading(false));
   }, [loadEvents]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([getOrganizations().then(setOrganizations).catch(() => {}), loadEvents()]);
+    await Promise.all([
+      getOrganizations().then(setOrganizations).catch(() => {}),
+      loadEvents(),
+      getEventFavoriteIds().then(setFavoriteIds),
+    ]);
     setRefreshing(false);
   }, [loadEvents]);
 
+  const handleFavoriteToggle = useCallback((eventId: string, active: boolean) => {
+    setFavoriteIds((prev) => {
+      const next = new Set(prev);
+      if (active) next.add(eventId);
+      else next.delete(eventId);
+      return next;
+    });
+  }, []);
+
   const visibleEvents = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return events;
-    return events.filter((event) => event.name.toLowerCase().includes(query));
-  }, [events, search]);
+    const filtered = query ? events.filter((event) => event.name.toLowerCase().includes(query)) : events;
+    // Stable sort — favorited events first, existing (date) order preserved within each group.
+    return [...filtered].sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)));
+  }, [events, search, favoriteIds]);
 
   return (
     <View style={styles.container}>
@@ -140,10 +157,12 @@ export default function EventListScreen({ navigation }: Props) {
                 {upcoming && (
                   <EventReminderBell eventId={item.id} eventName={item.name} eventDateIso={item.event_date} />
                 )}
+                <EventFavoriteHeart
+                  eventId={item.id}
+                  onToggle={(active) => handleFavoriteToggle(item.id, active)}
+                />
                 <Text style={styles.eventOrg}>{item.organizations?.short_name ?? ''}</Text>
-                <Text style={[styles.eventName, upcoming && styles.eventNameWithBell]}>
-                  {item.name}
-                </Text>
+                <Text style={[styles.eventName, styles.eventNameWithIcons]}>{item.name}</Text>
                 <Text style={styles.eventMeta}>{formatEventDate(item.event_date, locale)}</Text>
                 <Text style={styles.eventMeta}>
                   {[item.venue, item.city, item.country].filter(Boolean).join(', ')}
@@ -210,8 +229,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     color: colors.textPrimary,
   },
-  eventNameWithBell: {
-    paddingRight: 28,
+  eventNameWithIcons: {
+    paddingRight: 56,
   },
   eventMeta: {
     fontSize: 13,

@@ -114,6 +114,10 @@ const translations = {
       followedEventsTitle: 'Gefolgte Veranstaltungen',
       noFollowedFighters: 'Du folgst noch keinem Kämpfer.',
       noFollowedEvents: 'Du folgst noch keiner Veranstaltung.',
+      favoritedFightersTitle: 'Favorisierte Kämpfer',
+      favoritedEventsTitle: 'Favorisierte Veranstaltungen',
+      noFavoritedFighters: 'Du hast noch keine Kämpfer favorisiert.',
+      noFavoritedEvents: 'Du hast noch keine Veranstaltungen favorisiert.',
     },
   },
   en: {
@@ -215,6 +219,10 @@ const translations = {
       followedEventsTitle: 'Followed events',
       noFollowedFighters: "You're not following any fighters yet.",
       noFollowedEvents: "You're not following any events yet.",
+      favoritedFightersTitle: 'Favorited fighters',
+      favoritedEventsTitle: 'Favorited events',
+      noFavoritedFighters: "You haven't favorited any fighters yet.",
+      noFavoritedEvents: "You haven't favorited any events yet.",
     },
   },
 } satisfies Record<Locale, unknown>;

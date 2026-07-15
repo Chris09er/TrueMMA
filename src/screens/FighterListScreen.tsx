@@ -12,10 +12,12 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList } from '../navigation';
 import { getFighters } from '../lib/queries';
+import { getFighterFavoriteIds } from '../lib/favorites';
 import type { Fighter } from '../lib/types';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
+import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 import FilterButton from '../components/FilterButton';
 
 type Props = NativeStackScreenProps<FightersStackParamList, 'FighterList'>;
@@ -25,6 +27,7 @@ export default function FighterListScreen({ navigation }: Props) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [search, setSearch] = useState('');
   const [selectedNationality, setSelectedNationality] = useState<string | undefined>(undefined);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,14 +43,23 @@ export default function FighterListScreen({ navigation }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    loadFighters().finally(() => setLoading(false));
+    Promise.all([loadFighters(), getFighterFavoriteIds().then(setFavoriteIds)]).finally(() => setLoading(false));
   }, [loadFighters]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadFighters();
+    await Promise.all([loadFighters(), getFighterFavoriteIds().then(setFavoriteIds)]);
     setRefreshing(false);
   }, [loadFighters]);
+
+  const handleFavoriteToggle = useCallback((fighterId: string, active: boolean) => {
+    setFavoriteIds((prev) => {
+      const next = new Set(prev);
+      if (active) next.add(fighterId);
+      else next.delete(fighterId);
+      return next;
+    });
+  }, []);
 
   const nationalities = useMemo(() => {
     const set = new Set<string>();
@@ -59,7 +71,7 @@ export default function FighterListScreen({ navigation }: Props) {
 
   const visibleFighters = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return fighters.filter((fighter) => {
+    const filtered = fighters.filter((fighter) => {
       const matchesQuery =
         !query ||
         fighter.name.toLowerCase().includes(query) ||
@@ -67,7 +79,10 @@ export default function FighterListScreen({ navigation }: Props) {
       const matchesNationality = !selectedNationality || fighter.nationality === selectedNationality;
       return matchesQuery && matchesNationality;
     });
-  }, [fighters, search, selectedNationality]);
+    // Stable sort — favorited fighters first, existing (alphabetical) order
+    // preserved within each group.
+    return [...filtered].sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)));
+  }, [fighters, search, selectedNationality, favoriteIds]);
 
   if (loading) {
     return <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />;
@@ -130,6 +145,10 @@ export default function FighterListScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('FighterDetail', { fighterId: item.id, fighterName: item.name })}
         >
           <FighterFollowBell fighterId={item.id} />
+          <FighterFavoriteHeart
+            fighterId={item.id}
+            onToggle={(active) => handleFavoriteToggle(item.id, active)}
+          />
           <Text style={styles.name}>{item.name}</Text>
           {(item.nickname || item.nationality) && (
             <Text style={styles.meta}>
@@ -179,7 +198,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textPrimary,
     marginBottom: 2,
-    paddingRight: 28,
+    paddingRight: 56,
   },
   meta: {
     fontSize: 13,

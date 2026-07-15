@@ -8,6 +8,7 @@ import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
+import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 
 type Props = NativeStackScreenProps<FightersStackParamList, 'FighterDetail'>;
 
@@ -48,6 +49,7 @@ export default function FighterDetailScreen({ route }: Props) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <FighterFollowBell fighterId={fighterId} />
+        <FighterFavoriteHeart fighterId={fighterId} />
         {fighter?.photo_url && <Image source={{ uri: fighter.photo_url }} style={styles.photo} />}
         <Text style={styles.name}>{fighter?.name ?? fighterName}</Text>
         {(fighter?.nickname || fighter?.nationality) && (

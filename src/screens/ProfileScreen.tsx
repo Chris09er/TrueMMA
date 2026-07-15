@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import EventReminderBell from '../components/EventReminderBell';
 import FighterFollowBell from '../components/FighterFollowBell';
+import EventFavoriteHeart from '../components/EventFavoriteHeart';
+import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 import { useAuth } from '../lib/auth';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { getProfile, updateNickname } from '../lib/profile';
-import { getFollowedEvents, getFollowedFighters } from '../lib/queries';
+import { getFavoritedEvents, getFavoritedFighters, getFollowedEvents, getFollowedFighters } from '../lib/queries';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import type { EventListItem, Fighter } from '../lib/types';
 
@@ -189,6 +191,9 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const [followedFighters, setFollowedFighters] = useState<Fighter[]>([]);
   const [followedEvents, setFollowedEvents] = useState<EventListItem[]>([]);
   const [followsLoading, setFollowsLoading] = useState(true);
+  const [favoritedFighters, setFavoritedFighters] = useState<Fighter[]>([]);
+  const [favoritedEvents, setFavoritedEvents] = useState<EventListItem[]>([]);
+  const [favoritesLoading, setFavoritesLoading] = useState(true);
 
   useEffect(() => {
     getProfile(userId)
@@ -204,6 +209,16 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         setFollowedEvents(events);
       })
       .finally(() => setFollowsLoading(false));
+  }, [userId]);
+
+  useEffect(() => {
+    setFavoritesLoading(true);
+    Promise.all([getFavoritedFighters(userId), getFavoritedEvents(userId)])
+      .then(([fighters, events]) => {
+        setFavoritedFighters(fighters);
+        setFavoritedEvents(events);
+      })
+      .finally(() => setFavoritesLoading(false));
   }, [userId]);
 
   const handleSaveNickname = async () => {
@@ -330,6 +345,35 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         ))
       )}
 
+      <Text style={styles.sectionTitle}>{t.profile.favoritedFightersTitle}</Text>
+      {favoritesLoading ? (
+        <ActivityIndicator color={colors.accentGold} />
+      ) : favoritedFighters.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFavoritedFighters}</Text>
+      ) : (
+        favoritedFighters.map((fighter) => (
+          <View key={fighter.id} style={styles.listCard}>
+            <FighterFavoriteHeart fighterId={fighter.id} />
+            <Text style={styles.listCardTitle}>{fighter.name}</Text>
+          </View>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>{t.profile.favoritedEventsTitle}</Text>
+      {favoritesLoading ? (
+        <ActivityIndicator color={colors.accentGold} />
+      ) : favoritedEvents.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFavoritedEvents}</Text>
+      ) : (
+        favoritedEvents.map((event) => (
+          <View key={event.id} style={styles.listCard}>
+            <EventFavoriteHeart eventId={event.id} />
+            <Text style={styles.listCardTitle}>{event.name}</Text>
+            <Text style={styles.listCardMeta}>{formatEventDate(event.event_date, locale)}</Text>
+          </View>
+        ))
+      )}
+
       <Pressable style={styles.logoutButton} onPress={signOut}>
         <Text style={styles.logoutButtonText}>{t.profile.logoutButton}</Text>
       </Pressable>
@@ -404,7 +448,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: colors.textPrimary,
-    paddingRight: 28,
+    paddingRight: 56,
   },
   listCardMeta: {
     fontSize: 13,

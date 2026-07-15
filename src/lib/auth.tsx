@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { supabase } from './supabase';
 import { claimAnonymousFollows } from './pushSubscriptions';
+import { claimLocalFavorites } from './favorites';
 
 export type AuthResult = 'ok' | 'error';
 
@@ -36,6 +37,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === 'SIGNED_IN' && nextSession?.user) {
         claimAnonymousFollows(nextSession.user.id).catch((err) => {
           console.error('claimAnonymousFollows failed:', err);
+        });
+        claimLocalFavorites(nextSession.user.id).catch((err) => {
+          console.error('claimLocalFavorites failed:', err);
         });
       }
     });

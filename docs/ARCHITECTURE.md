@@ -36,6 +36,7 @@ Tables (Supabase Postgres), all with RLS enabled:
 | `push_subscriptions` | Device push token ↔ followed fighter, optional `user_id` | **insert/select/delete** (anon, or own rows if logged in) |
 | `profiles` | Login-only: nickname per account (`id` = `auth.users.id`) | own row only |
 | `event_follows` | Login-only: user ↔ followed event (profile visibility) | own rows only |
+| `fighter_favorites` / `event_favorites` | Login-only: user ↔ favorited fighter/event | own rows only |
 
 `push_subscriptions` is the one exception to "app is read-only" for
 anonymous users — it's how the fighter-follow bell registers/unregisters
@@ -99,10 +100,10 @@ else (UFC + 9 other leagues) is populated by
     Navigation above).
   - `LanguageScreen`, `ContactScreen` — simple settings-style screens.
   - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
-    flow. Logged-in: nickname, change email/password, followed
-    fighters/events (reusing `FighterFollowBell`/`EventReminderBell` to
-    unfollow directly from the list), logout. See
-    [Login / Profile](#login--profile).
+    flow. Logged-in: nickname, change email/password, followed and
+    favorited fighters/events (reusing the same bell/heart components to
+    unfollow/unfavorite directly from the list), logout. See
+    [Login / Profile](#login--profile) and [Favorites](#favorites).
 - **Shared lib** (`src/lib/`):
   - `theme.ts` — dark palette, spacing/radius tokens, `commonStyles`
     (loading/error/empty — reused by every list/detail screen).
@@ -119,12 +120,12 @@ else (UFC + 9 other leagues) is populated by
     `Omit<EventListItem, 'organization_id'>`, not a separate literal.
   - `notifications.ts` / `pushSubscriptions.ts` — see below.
 - **Components** (`src/components/`): `BellIconButton` (shared
-  presentational icon-button), `EventReminderBell`, `FighterFollowBell`
-  (each wraps `BellIconButton` with its own state/data logic — both now
-  also show an `Alert` after a successful toggle explaining what
-  enabling/disabling the reminder does, since it wasn't obvious from the
-  icon alone). `FilterButton` (shared filter-chip, used by the event org
-  filter and the fighter nationality filter).
+  presentational icon-button, `icon`/`offsetRight` props), `EventReminderBell`,
+  `FighterFollowBell` (each wraps `BellIconButton`, shows an `Alert` after
+  a successful toggle explaining what enabling/disabling the reminder
+  does), `EventFavoriteHeart`, `FighterFavoriteHeart` (same pattern, see
+  [Favorites](#favorites)). `FilterButton` (shared filter-chip, used by
+  the event org filter and the fighter nationality filter).
 
 ## Notifications
 
@@ -212,6 +213,39 @@ items](#known-open-items) if that changes.
   pre-existing anon `push_subscriptions` policies must be looked up and
   dropped by their actual name before the new scoped policies are created,
   since their names weren't recorded anywhere in this repo.
+
+## Favorites
+
+Separate concept from follows/reminders (see [Notifications](#notifications)
+and [Login / Profile](#login--profile)) — a heart icon next to the bell on
+fighters and events. Favoriting pins an entry to the top of its list and
+shows it in the profile; it has nothing to do with push/local
+notifications.
+
+- **No push-token anchor for anonymous users, unlike follows:**
+  `push_subscriptions` can have an anonymous row because the device push
+  token is a stable anonymous identity to key rows on. Favorites have no
+  equivalent, so anonymous favoriting (`src/lib/favorites.ts`) is **fully
+  local** — a plain array of ids in AsyncStorage
+  (`mma-pocket:favorites:fighters` / `:events`) — until login, at which
+  point reads/writes switch to the `fighter_favorites`/`event_favorites`
+  tables (`user_id` + `fighter_id`/`event_id`, unique constraint, RLS
+  scoped to `auth.uid() = user_id`, no anonymous rows at all — see
+  `supabase/migrations/002_favorites.sql`).
+- **Claim on login:** `claimLocalFavorites(userId)`, called from
+  `src/lib/auth.tsx`'s `SIGNED_IN` handler alongside
+  `claimAnonymousFollows()`, upserts the locally-stored ids into the
+  account tables so favorites made before login aren't lost. Local storage
+  is left in place afterwards (harmless if the user logs out again).
+- **UI:** `FighterFavoriteHeart`/`EventFavoriteHeart` (`src/components/`)
+  mirror `FighterFollowBell`/`EventReminderBell`, built on the same
+  `BellIconButton`, now generalized with an `icon` prop (heart vs. bell
+  glyph) and an `offsetRight` prop so both icons can sit side by side on
+  one card. `FighterListScreen`/`EventListScreen` sort favorited entries
+  to the top of the list (stable sort, existing order preserved within
+  each group) using a favorite-id `Set` kept in sync via each heart's
+  `onToggle` callback, refreshed from `getFighterFavoriteIds()`/
+  `getEventFavoriteIds()` on load and pull-to-refresh.
 
 ## balldontlie sync
 
