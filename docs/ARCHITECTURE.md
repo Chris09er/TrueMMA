@@ -1,4 +1,10 @@
-# MMA Pocket — Technical Architecture
+# MMAPocket — Technical Architecture
+
+Project name is "MMAPocket" as of 2026-07-15 (renamed from "MMA Pocket";
+GitHub repo, `package.json`, and `app.json` display name updated — the
+EAS project slug and Supabase-adjacent identifiers were intentionally left
+as `mma-pocket`/`mmapocket` to avoid disrupting live infrastructure
+mid-build; revisit if/when the final go-live name is chosen).
 
 Living document. Update this alongside the code whenever a feature, schema
 change, or architectural decision lands — not as a separate cleanup pass.
@@ -189,6 +195,19 @@ after seeding data doesn't create duplicate organizations) →
   rebuild needed.
 - Run `npx expo install --check` (or `--fix`) after any dependency change
   to catch drift from the SDK's expected versions before it causes this.
+- **Known bad transitive dependency:** `@expo/vector-icons@15.1.x` pulls in
+  `expo-font@56.x`, which calls an `expo-modules-core` API
+  (`ReturnTypeKt.getDirectConverter`) that doesn't exist in SDK 54's
+  `expo-modules-core@3.0.x` — throws the exact same
+  `NoSuchMethodError`/`getDirectConverter` crash as a stale dev client,
+  even on a *freshly built* one, which is what made this one confusing to
+  diagnose (looked like the rebuild didn't help). `package.json` pins
+  `@expo/vector-icons` to exactly `15.0.3` (no `^`) and adds
+  `"overrides": { "expo-font": "14.0.12" }` to force the compatible
+  version. If this crash reappears after a routine `npm install`, check
+  these two versions first — `npx expo install --check` alone does **not**
+  catch this, since it only validates directly-declared dependencies, not
+  what a dependency pulls in transitively.
 
 ## Known open items
 
