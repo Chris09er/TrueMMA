@@ -33,6 +33,11 @@ export default function FighterFollowBell({ fighterId }: Props) {
         return;
       }
       setActive(!active);
+      if (active) {
+        Alert.alert(t.notifications.fighterFollowOffTitle, t.notifications.fighterFollowOffBody);
+      } else {
+        Alert.alert(t.notifications.fighterFollowOnTitle, t.notifications.fighterFollowOnBody);
+      }
     } catch (err) {
       // resolvePushToken() can throw (e.g. getExpoPushTokenAsync failing) —
       // without this, the rejection was silently swallowed and the bell

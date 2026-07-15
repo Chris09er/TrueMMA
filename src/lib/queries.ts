@@ -119,7 +119,10 @@ export async function getFightsForEvent(eventId: string): Promise<Fight[]> {
       'id, event_id, weight_class, is_main_event, is_title_fight, card_position, result_winner_id, result_method, result_round, result_time, fighter1:fighter1_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url), fighter2:fighter2_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url)'
     )
     .eq('event_id', eventId)
-    .order('card_position', { ascending: true });
+    // Main event first — nullsFirst must be explicit, Postgres' default for
+    // DESC is NULLS FIRST, which would otherwise push manually-entered
+    // fights without a card_position (e.g. OKTAGON) above the main event.
+    .order('card_position', { ascending: false, nullsFirst: false });
 
   if (error) throw error;
   return (data ?? []) as unknown as Fight[];

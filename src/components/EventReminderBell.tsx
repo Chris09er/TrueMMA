@@ -35,6 +35,7 @@ export default function EventReminderBell({ eventId, eventName, eventDateIso }: 
       if (active) {
         await cancelEventReminder(eventId);
         setActive(false);
+        Alert.alert(t.notifications.eventReminderOffTitle, t.notifications.eventReminderOffBody);
         // Best-effort: the local reminder is the source of truth for this
         // bell, event_follows only mirrors it for the profile screen.
         if (user) unfollowEvent(user.id, eventId).catch(() => {});
@@ -51,7 +52,10 @@ export default function EventReminderBell({ eventId, eventName, eventDateIso }: 
           t.notifications.eventReminderBody(eventName)
         );
         setActive(scheduled);
-        if (scheduled && user) followEvent(user.id, eventId).catch(() => {});
+        if (scheduled) {
+          Alert.alert(t.notifications.eventReminderOnTitle, t.notifications.eventReminderOnBody);
+          if (user) followEvent(user.id, eventId).catch(() => {});
+        }
       }
     } finally {
       setBusy(false);

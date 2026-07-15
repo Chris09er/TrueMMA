@@ -5,6 +5,7 @@ import {
   Linking,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,11 +15,13 @@ import type { Fighter } from '../lib/types';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
+import FilterButton from '../components/FilterButton';
 
 export default function FighterListScreen() {
   const { t } = useLocale();
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [search, setSearch] = useState('');
+  const [selectedNationality, setSelectedNationality] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,15 +46,25 @@ export default function FighterListScreen() {
     setRefreshing(false);
   }, [loadFighters]);
 
+  const nationalities = useMemo(() => {
+    const set = new Set<string>();
+    for (const fighter of fighters) {
+      if (fighter.nationality) set.add(fighter.nationality);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [fighters]);
+
   const visibleFighters = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return fighters;
-    return fighters.filter(
-      (fighter) =>
+    return fighters.filter((fighter) => {
+      const matchesQuery =
+        !query ||
         fighter.name.toLowerCase().includes(query) ||
-        fighter.nickname?.toLowerCase().includes(query)
-    );
-  }, [fighters, search]);
+        fighter.nickname?.toLowerCase().includes(query);
+      const matchesNationality = !selectedNationality || fighter.nationality === selectedNationality;
+      return matchesQuery && matchesNationality;
+    });
+  }, [fighters, search, selectedNationality]);
 
   if (loading) {
     return <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />;
@@ -68,13 +81,36 @@ export default function FighterListScreen() {
       data={visibleFighters}
       keyExtractor={(item) => item.id}
       ListHeaderComponent={
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder={t.fighterList.searchPlaceholder}
-          placeholderTextColor={colors.textSecondary}
-          style={styles.searchInput}
-        />
+        <>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder={t.fighterList.searchPlaceholder}
+            placeholderTextColor={colors.textSecondary}
+            style={styles.searchInput}
+          />
+          {nationalities.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterRow}
+            >
+              <FilterButton
+                label={t.fighterList.filterAll}
+                active={selectedNationality === undefined}
+                onPress={() => setSelectedNationality(undefined)}
+              />
+              {nationalities.map((nationality) => (
+                <FilterButton
+                  key={nationality}
+                  label={nationality}
+                  active={selectedNationality === nationality}
+                  onPress={() => setSelectedNationality(nationality)}
+                />
+              ))}
+            </ScrollView>
+          )}
+        </>
       }
       refreshControl={
         <RefreshControl
@@ -124,6 +160,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     color: colors.textPrimary,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
   },
   card: {
     padding: 14,

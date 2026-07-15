@@ -63,15 +63,21 @@ else (UFC + 9 other leagues) is populated by
   (EventList → EventDetail, native stack nested inside the Events tab).
 - **Screens** (`src/screens/`):
   - `EventListScreen` — upcoming/past toggle, org filter (UFC/OKTAGON
-    pinned first via `PINNED_ORG_ORDER` in `queries.ts`, rest alphabetical),
-    text search (client-side substring match), pull-to-refresh, per-event
-    reminder bell (only rendered for events where `isEventUpcoming()` is
-    true).
-  - `EventDetailScreen` — event header + fight card list; shows main
-    event/title fight tags, weight class, and (for past fights) the result
-    (winner highlighted gold, method/round/time).
-  - `FighterListScreen` — search, pull-to-refresh, per-fighter follow bell.
-    Tapping a fighter opens their Tapology/Sherdog profile if one exists.
+    pinned first via `PINNED_ORG_ORDER` in `queries.ts`, rest alphabetical;
+    horizontally scrollable — the org list is longer than one screen width,
+    e.g. PFL only shows up if you scroll), text search (client-side
+    substring match), pull-to-refresh, per-event reminder bell (only
+    rendered for events where `isEventUpcoming()` is true).
+  - `EventDetailScreen` — event header + fight card list, **main event
+    first** (`getFightsForEvent` orders `card_position` descending,
+    `nullsFirst: false` so manually-entered fights without a
+    `card_position` sort last, not first); shows main event/title fight
+    tags, weight class, and (for past fights) the result (winner
+    highlighted gold, method/round/time).
+  - `FighterListScreen` — search, nationality filter (derived client-side
+    from the loaded fighters, horizontally scrollable, same
+    `FilterButton` component as the event org filter), pull-to-refresh,
+    per-fighter follow bell.
   - `LanguageScreen`, `ContactScreen` — simple settings-style screens.
   - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
     flow. Logged-in: nickname, change email/password, followed
@@ -95,7 +101,11 @@ else (UFC + 9 other leagues) is populated by
   - `notifications.ts` / `pushSubscriptions.ts` — see below.
 - **Components** (`src/components/`): `BellIconButton` (shared
   presentational icon-button), `EventReminderBell`, `FighterFollowBell`
-  (each wraps `BellIconButton` with its own state/data logic).
+  (each wraps `BellIconButton` with its own state/data logic — both now
+  also show an `Alert` after a successful toggle explaining what
+  enabling/disabling the reminder does, since it wasn't obvious from the
+  icon alone). `FilterButton` (shared filter-chip, used by the event org
+  filter and the fighter nationality filter).
 
 ## Notifications
 
@@ -222,6 +232,12 @@ if that becomes worth the complexity.
   unexpectedly, check `externalIdMap`/pagination first before assuming
   it's balldontlie's bug.
 - balldontlie does **not** cover OKTAGON — it stays fully manual.
+- balldontlie's **Bellator MMA coverage is essentially empty**: the league
+  exists in their `/leagues` list (id 3), but `/events?league_ids[]=3`
+  returns only 3 events total, all from 2016 — despite Bellator running
+  until 2023. Confirmed by querying the API directly, not a bug in this
+  sync script. If Bellator events are wanted, they'd need the same manual
+  entry treatment as OKTAGON.
 - Fighter objects are fully embedded in `/fights` responses, so there's no
   separate `/fighters` crawl; the fighter set is derived from whichever
   fights got synced.

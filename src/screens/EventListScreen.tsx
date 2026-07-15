@@ -4,6 +4,7 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,6 +18,7 @@ import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import EventReminderBell from '../components/EventReminderBell';
+import FilterButton from '../components/FilterButton';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventList'>;
 type Timeframe = 'upcoming' | 'past';
@@ -86,7 +88,11 @@ export default function EventListScreen({ navigation }: Props) {
         style={styles.searchInput}
       />
 
-      <View style={styles.filterRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRow}
+      >
         <FilterButton
           label={t.eventList.filterAll}
           active={selectedOrgId === undefined}
@@ -100,7 +106,7 @@ export default function EventListScreen({ navigation }: Props) {
             onPress={() => setSelectedOrgId(org.id)}
           />
         ))}
-      </View>
+      </ScrollView>
 
       {loading && <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />}
       {!loading && error && <Text style={commonStyles.error}>{error}</Text>}
@@ -151,27 +157,6 @@ export default function EventListScreen({ navigation }: Props) {
   );
 }
 
-function FilterButton({
-  label,
-  active,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.filterButton, active && styles.filterButtonActive]}
-    >
-      <Text style={[styles.filterButtonText, active && styles.filterButtonTextActive]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -197,23 +182,8 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: 'row',
     gap: spacing.sm,
-    padding: spacing.md,
-  },
-  filterButton: {
-    paddingHorizontal: 14,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-  },
-  filterButtonActive: {
-    backgroundColor: colors.textPrimary,
-  },
-  filterButtonText: {
-    color: colors.textSecondary,
-    fontWeight: '600',
-  },
-  filterButtonTextActive: {
-    color: colors.background,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
   },
   list: {
     padding: spacing.md,
