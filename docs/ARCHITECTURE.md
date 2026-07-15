@@ -378,12 +378,18 @@ after seeding data doesn't create duplicate organizations) →
   only valid in a trigger context) but unnecessary attack surface;
   revoking doesn't affect trigger firing.
 - **`pg_net` extension lives in the `public` schema** (linter:
-  `extension_in_public`) — Supabase recommends a dedicated schema
-  instead. Deliberately **not** included in the migration above: the
-  `notify_fighter_added_to_fight()` trigger body needs to be checked for
-  how it references pg_net's objects before moving the extension's
-  schema, otherwise this could silently break fighter-follow push
-  delivery. Left as an open item until that's verified.
+  `extension_in_public`) — **deliberately left as-is, not a planned
+  fix.** Verified against the live database (2026-07-16): `pg_net`'s
+  `extnamespace` is `public`, but its `http_post` function physically
+  lives in a separate `net` schema (a known pg_net quirk — its objects
+  aren't confined to the extension's registered schema). The
+  `notify_fighter_added_to_fight()` trigger calls `net.http_post(...)`
+  explicitly. `ALTER EXTENSION pg_net SET SCHEMA ...` would attempt to
+  relocate all of the extension's member objects, including the `net`
+  schema's functions — if that succeeds, `net.http_post` would move to
+  the new schema and the trigger's hardcoded `net.http_post` call would
+  break. The risk of breaking fighter-follow push delivery outweighs
+  silencing a WARN-level linter finding with no real exploit path.
 - Auth emails (signup confirmation, password reset) currently go through
   Supabase's built-in test mailer, which is fine for development but
   heavily rate-limited — a custom SMTP provider (e.g. Resend, SendGrid,
