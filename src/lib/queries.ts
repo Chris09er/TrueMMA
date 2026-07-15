@@ -1,6 +1,10 @@
 import { supabase } from './supabase';
 import type { EventDetail, EventListItem, Fight, Fighter, Organization } from './types';
 
+// DACH audience cares about these first; every other league (auto-synced from
+// balldontlie) still shows up, just after, alphabetically.
+const PINNED_ORG_ORDER = ['UFC', 'OKTAGON'];
+
 export async function getOrganizations(): Promise<Organization[]> {
   const { data, error } = await supabase
     .from('organizations')
@@ -8,7 +12,18 @@ export async function getOrganizations(): Promise<Organization[]> {
     .order('short_name', { ascending: true });
 
   if (error) throw error;
-  return (data ?? []) as Organization[];
+  const organizations = (data ?? []) as Organization[];
+
+  return organizations.sort((a, b) => {
+    const aPin = PINNED_ORG_ORDER.indexOf(a.short_name);
+    const bPin = PINNED_ORG_ORDER.indexOf(b.short_name);
+    if (aPin !== -1 || bPin !== -1) {
+      if (aPin === -1) return 1;
+      if (bPin === -1) return -1;
+      return aPin - bPin;
+    }
+    return a.short_name.localeCompare(b.short_name);
+  });
 }
 
 export async function getUpcomingEvents(organizationId?: string): Promise<EventListItem[]> {
