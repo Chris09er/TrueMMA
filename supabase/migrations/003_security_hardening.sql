@@ -8,18 +8,15 @@
 -- read/write/delete ANY row regardless of user_id. Confirmed via the
 -- Supabase linter (rls_policy_always_true), which reported their real
 -- names: "public can subscribe" (INSERT) and "public can unsubscribe"
--- (DELETE). A third, "public can view subscriptions" (SELECT), isn't
+-- (DELETE). A third, "public can view own subscriptions" (SELECT), isn't
 -- flagged by that linter check (SELECT `using (true)` is intentionally
 -- excluded) but is dropped here too for consistency — the scoped
 -- "push_subscriptions select" policy from 001 already covers the
--- legitimate anonymous-read case (`user_id is null`).
---
--- IMPORTANT: verify these exact names first —
---   select policyname from pg_policies where tablename = 'push_subscriptions';
--- — adjust the names below if yours differ before running.
+-- legitimate anonymous-read case (`user_id is null`). Names confirmed
+-- against the live database via pg_policies on 2026-07-16.
 drop policy if exists "public can subscribe" on push_subscriptions;
 drop policy if exists "public can unsubscribe" on push_subscriptions;
-drop policy if exists "public can view subscriptions" on push_subscriptions;
+drop policy if exists "public can view own subscriptions" on push_subscriptions;
 
 -- 2. Lock down SECURITY DEFINER trigger functions so they aren't also
 -- exposed as public RPC endpoints (/rest/v1/rpc/<function>). Neither is
