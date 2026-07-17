@@ -191,11 +191,11 @@ items](#known-open-items) if that changes.
   password reset uses Supabase's OTP flow: `resetPasswordForEmail()` →
   user receives a 6-digit code by email → app calls
   `supabase.auth.verifyOtp({ type: 'recovery', ... })` +
-  `updateUser({ password })`. **Requires a one-time Supabase dashboard
-  change:** the "Reset Password" email template must reference `{{ .Token
-  }}` (the OTP code) instead of the default magic-link `{{ .ConfirmationURL
-  }}`, otherwise users get a link instead of a code and the in-app flow
-  breaks.
+  `updateUser({ password })`. Required a one-time Supabase dashboard
+  change (done, see [Auth emails](#auth-emails) below): the "Reset
+  Password" email template references `{{ .Token }}` (the OTP code)
+  instead of the default magic-link `{{ .ConfirmationURL }}` — without
+  that, users get a link instead of a code and the in-app flow breaks.
 - **Anonymous → account linking:** fighter-follow (`push_subscriptions`)
   keeps working without login, keyed by push token as before, now with an
   additional nullable `user_id`. On sign-in, `claimAnonymousFollows()`
@@ -221,6 +221,35 @@ items](#known-open-items) if that changes.
   pre-existing anon `push_subscriptions` policies must be looked up and
   dropped by their actual name before the new scoped policies are created,
   since their names weren't recorded anywhere in this repo.
+
+### Auth emails
+
+Supabase's built-in email service (used during early development) is
+heavily rate-limited and only meant for testing — it also doesn't allow
+editing email templates at all without a custom SMTP provider configured,
+which is a hard requirement, not just a "nice to have for scale."
+
+- **Domain:** `true-mma.com`, purchased 2026-07-16 specifically to get a
+  real sender domain for auth emails — **not necessarily the app's final
+  name** (see the `MMAPocket` naming note at the top of this doc; the
+  business name is still undecided). Cheap to replace later: swapping to
+  a different domain only means re-verifying it with the SMTP
+  provider and updating the sender address in Supabase — no app code
+  depends on this domain at all.
+- **SMTP provider:** IONOS (the domain registrar's own mailbox/SMTP
+  service — no separate service like Resend/SendGrid needed, since IONOS
+  already provides authenticated SMTP per mailbox). Configured in
+  Supabase under Authentication → Emails → Custom SMTP:
+  - Host: `smtp.ionos.de`, port `465`, SSL/TLS
+  - Username/sender: a mailbox on `true-mma.com` (e.g.
+    `noreply@true-mma.com`)
+- **Reset Password template:** updated in the Supabase dashboard
+  (Authentication → Email Templates → Reset Password) to render `{{
+  .Token }}` (the OTP code) instead of the default `{{ .ConfirmationURL
+  }}` magic link — required for the OTP-based reset flow described
+  above. This is dashboard-only configuration, not stored anywhere in
+  this repo; if the template needs to change again, it must be edited
+  directly in the Supabase dashboard.
 
 ## Favorites
 
@@ -358,10 +387,6 @@ after seeding data doesn't create duplicate organizations) →
   unfollow on someone else's behalf. Rows tied to a logged-in user
   (`user_id = auth.uid()`) are scoped. Not currently a planned fix for
   the anonymous case.
-- Password-reset OTP flow (see [Login / Profile](#login--profile)) needs
-  the Supabase "Reset Password" email template switched to `{{ .Token }}`
-  in the dashboard — not yet done as of this writing, must happen before
-  the reset flow works end-to-end.
 - **Supabase database linter findings (2026-07-16), fixed via
   `supabase/migrations/003_security_hardening.sql`, applied to the live
   database on 2026-07-16:** the original fully-open `push_subscriptions`
@@ -390,11 +415,6 @@ after seeding data doesn't create duplicate organizations) →
   the new schema and the trigger's hardcoded `net.http_post` call would
   break. The risk of breaking fighter-follow push delivery outweighs
   silencing a WARN-level linter finding with no real exploit path.
-- Auth emails (signup confirmation, password reset) currently go through
-  Supabase's built-in test mailer, which is fine for development but
-  heavily rate-limited — a custom SMTP provider (e.g. Resend, SendGrid,
-  Postmark) must be configured in Supabase before real users sign up.
-  Same rough timing as the privacy-policy item below.
 - Once notifications/data collection ship to the app stores, a privacy
   policy + Apple/Google data-safety disclosures are required before
   release (flagged, not yet done).
