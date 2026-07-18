@@ -1,20 +1,130 @@
+import { DarkTheme, NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import type { EventsStackParamList, FightersStackParamList, RootTabParamList } from './src/navigation';
+import { LocaleProvider, useLocale } from './src/lib/i18n';
+import { AuthProvider } from './src/lib/auth';
+import { colors } from './src/lib/theme';
+import EventDetailScreen from './src/screens/EventDetailScreen';
+import EventListScreen from './src/screens/EventListScreen';
+import FighterListScreen from './src/screens/FighterListScreen';
+import FighterDetailScreen from './src/screens/FighterDetailScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
+import LanguageScreen from './src/screens/LanguageScreen';
+import ContactScreen from './src/screens/ContactScreen';
 
-export default function App() {
+const EventsStack = createNativeStackNavigator<EventsStackParamList>();
+const FightersStack = createNativeStackNavigator<FightersStackParamList>();
+const Tab = createBottomTabNavigator<RootTabParamList>();
+
+const navTheme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: colors.background,
+    card: colors.surface,
+    border: colors.border,
+    text: colors.textPrimary,
+    primary: colors.accentGold,
+  },
+};
+
+const screenOptions = {
+  headerStyle: { backgroundColor: colors.surface },
+  headerTitleStyle: { color: colors.textPrimary },
+  headerTintColor: colors.textPrimary,
+};
+
+function EventsStackNavigator() {
+  const { t } = useLocale();
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <EventsStack.Navigator screenOptions={screenOptions}>
+      <EventsStack.Screen
+        name="EventList"
+        component={EventListScreen}
+        options={{ title: t.eventList.title }}
+      />
+      <EventsStack.Screen
+        name="EventDetail"
+        component={EventDetailScreen}
+        options={({ route }) => ({ title: route.params.eventName })}
+      />
+    </EventsStack.Navigator>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+function FightersStackNavigator() {
+  const { t } = useLocale();
+  return (
+    <FightersStack.Navigator screenOptions={screenOptions}>
+      <FightersStack.Screen
+        name="FighterList"
+        component={FighterListScreen}
+        options={{ title: t.fighterList.title }}
+      />
+      <FightersStack.Screen
+        name="FighterDetail"
+        component={FighterDetailScreen}
+        options={({ route }) => ({ title: route.params.fighterName })}
+      />
+    </FightersStack.Navigator>
+  );
+}
+
+function RootTabs() {
+  const { t } = useLocale();
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        ...screenOptions,
+        headerShown: false,
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
+        tabBarActiveTintColor: colors.accentGold,
+        tabBarInactiveTintColor: colors.textSecondary,
+        tabBarIcon: ({ color, size }) => {
+          const icons: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
+            EventsTab: 'calendar',
+            FightersTab: 'people',
+            ProfileTab: 'person',
+            LanguageTab: 'language',
+            ContactTab: 'mail',
+          };
+          return <Ionicons name={icons[route.name as keyof RootTabParamList]} size={size} color={color} />;
+        },
+      })}
+    >
+      <Tab.Screen name="EventsTab" component={EventsStackNavigator} options={{ title: t.tabs.events }} />
+      <Tab.Screen name="FightersTab" component={FightersStackNavigator} options={{ title: t.tabs.fighters }} />
+      <Tab.Screen
+        name="ProfileTab"
+        component={ProfileScreen}
+        options={{ title: t.tabs.profile, headerShown: true, headerTitle: t.profile.title }}
+      />
+      <Tab.Screen
+        name="LanguageTab"
+        component={LanguageScreen}
+        options={{ title: t.tabs.language, headerShown: true, headerTitle: t.language.title }}
+      />
+      <Tab.Screen
+        name="ContactTab"
+        component={ContactScreen}
+        options={{ title: t.tabs.contact, headerShown: true, headerTitle: t.contact.title }}
+      />
+    </Tab.Navigator>
+  );
+}
+
+export default function App() {
+  return (
+    <LocaleProvider>
+      <AuthProvider>
+        <NavigationContainer theme={navTheme}>
+          <StatusBar style="light" />
+          <RootTabs />
+        </NavigationContainer>
+      </AuthProvider>
+    </LocaleProvider>
+  );
+}
