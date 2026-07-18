@@ -19,7 +19,10 @@ export default function LanguageScreen() {
               style={[styles.row, active && styles.rowActive]}
               onPress={() => setLocale(item.code)}
             >
-              <Text style={styles.label}>{item.label}</Text>
+              <View style={styles.labelRow}>
+                <Text style={styles.flag}>{item.flag}</Text>
+                <Text style={styles.label}>{item.label}</Text>
+              </View>
               {active && <Ionicons name="checkmark" size={20} color={colors.accentGold} />}
             </Pressable>
           );
@@ -50,6 +53,14 @@ const styles = StyleSheet.create({
   },
   rowActive: {
     borderColor: colors.accentGold,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  flag: {
+    fontSize: 20,
   },
   label: {
     fontSize: 16,

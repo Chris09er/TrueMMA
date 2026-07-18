@@ -11,7 +11,7 @@ export type FightersStackParamList = {
 };
 
 export type RootTabParamList = {
-  EventsTab: undefined;
+  EventsTab: NavigatorScreenParams<EventsStackParamList> | undefined;
   FightersTab: NavigatorScreenParams<FightersStackParamList> | undefined;
   ProfileTab: undefined;
   LanguageTab: undefined;

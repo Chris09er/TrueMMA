@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NavigationProp } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { FightersStackParamList } from '../navigation';
+import type { FightersStackParamList, RootTabParamList } from '../navigation';
 import { getFighterById, getFighterFights, isEventUpcoming } from '../lib/queries';
 import type { Fighter, FightWithEvent } from '../lib/types';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
@@ -103,17 +105,37 @@ function FightRow({
   locale: string;
   t: ReturnType<typeof useLocale>['t'];
 }) {
+  const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const opponent = fight.fighter1?.id === fighterId ? fight.fighter2 : fight.fighter1;
   const isWinner = fight.result_winner_id === fighterId;
   const hasResult = fight.result_winner_id !== null;
 
   return (
     <View style={styles.fightRow}>
-      <Text style={styles.fightOpponent}>
+      <Text
+        style={[styles.fightOpponent, opponent && styles.fightRowLink]}
+        onPress={
+          opponent
+            ? () =>
+                navigation.navigate('FightersTab', {
+                  screen: 'FighterDetail',
+                  params: { fighterId: opponent.id, fighterName: opponent.name },
+                })
+            : undefined
+        }
+      >
         {t.fighterDetail.vs} {opponent?.name ?? 'TBA'}
       </Text>
       {fight.event && (
-        <Text style={styles.fightEventMeta}>
+        <Text
+          style={[styles.fightEventMeta, styles.fightRowLink]}
+          onPress={() =>
+            navigation.navigate('EventsTab', {
+              screen: 'EventDetail',
+              params: { eventId: fight.event!.id, eventName: fight.event!.name },
+            })
+          }
+        >
           {fight.event.name} · {formatEventDate(fight.event.event_date, locale)}
         </Text>
       )}
@@ -204,6 +226,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  fightRowLink: {
+    textDecorationLine: 'underline',
   },
   fightResult: {
     fontSize: 12,

@@ -111,6 +111,7 @@ export default function FighterListScreen({ navigation }: Props) {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
+              style={styles.filterRowContainer}
               contentContainerStyle={styles.filterRow}
             >
               <FilterButton
@@ -178,6 +179,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     color: colors.textPrimary,
+  },
+  filterRowContainer: {
+    flexGrow: 0,
   },
   filterRow: {
     flexDirection: 'row',

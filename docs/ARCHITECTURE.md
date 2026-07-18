@@ -65,13 +65,15 @@ else (UFC + 9 other leagues) is populated by
   FightersTab, ProfileTab, LanguageTab, ContactTab) +
   `EventsStackParamList` (EventList → EventDetail) and
   `FightersStackParamList` (FighterList → FighterDetail), both native
-  stacks nested inside their tab. `RootTabParamList.FightersTab` is typed
-  as `NavigatorScreenParams<FightersStackParamList>` (not `undefined`) so
-  that tapping a fighter from `EventDetailScreen` — which lives in the
-  Events stack — can type-check a cross-tab navigation into the Fighters
-  stack: `navigation.navigate('FightersTab', { screen: 'FighterDetail',
-  params: {...} })`. This is a standard React Navigation pattern, not a
-  workaround.
+  stacks nested inside their tab. Both `RootTabParamList.EventsTab` and
+  `.FightersTab` are typed as `NavigatorScreenParams<...>` (not
+  `undefined`) so cross-tab navigation type-checks in both directions —
+  tapping a fighter from `EventDetailScreen` (Events stack → Fighters
+  stack) and tapping an opponent/event from `FighterDetailScreen`
+  (Fighters stack → Events stack): `navigation.navigate('FightersTab', {
+  screen: 'FighterDetail', params: {...} })` / `navigation.navigate
+  ('EventsTab', { screen: 'EventDetail', params: {...} })`. Standard React
+  Navigation pattern, not a workaround.
 - **Screens** (`src/screens/`):
   - `EventListScreen` — list/calendar view toggle (top row); list mode:
     upcoming/past toggle, org filter (UFC/OKTAGON pinned first via
@@ -85,12 +87,17 @@ else (UFC + 9 other leagues) is populated by
     a day filters the list below to that day; org filter applies in both
     modes. Per-event reminder bell + favorite heart (only bell rendered
     for events where `isEventUpcoming()` is true, heart always).
-  - `EventDetailScreen` — event header + fight card list, **main event
-    first** (`getFightsForEvent` orders `card_position` descending,
-    `nullsFirst: false` so manually-entered fights without a
-    `card_position` sort last, not first); shows main event/title fight
-    tags, weight class, and (for past fights) the result (winner
-    highlighted gold, method/round/time).
+  - `EventDetailScreen` — event header + fight card list in **chronological
+    fight-night order** (opener first, main event last —
+    `getFightsForEvent` orders `card_position` descending, since
+    balldontlie's `fight_order` numbers the main event lowest and
+    increases toward the undercard; `nullsFirst: false` so manually-entered
+    fights without a `card_position` sort last, not first). This direction
+    was flipped twice during testing (main-event-first was the original
+    ask, then reversed to chronological after live testing — see git
+    history on `queries.ts` if this needs revisiting again); shows main
+    event/title fight tags, weight class, and (for past fights) the result
+    (winner highlighted gold, method/round/time).
   - `FighterListScreen` — search, nationality filter (derived client-side
     from the loaded fighters, horizontally scrollable, same
     `FilterButton` component as the event org filter), pull-to-refresh,
@@ -105,8 +112,12 @@ else (UFC + 9 other leagues) is populated by
     `.or()`, sorted by the embedded event's date client-side). Reachable
     both from `FighterListScreen` and from tapping a fighter's name in
     `EventDetailScreen`'s fight card (cross-tab navigation, see
-    Navigation above).
+    Navigation above). Within each upcoming/history row, the opponent name
+    and event name are themselves tappable, navigating on to that
+    opponent's `FighterDetail` or the event's `EventDetail` respectively.
   - `LanguageScreen`, `ContactScreen` — simple settings-style screens.
+    `LanguageScreen` shows a flag emoji per entry (`SUPPORTED_LOCALES` in
+    `i18n.tsx` now carries a `flag` field alongside `code`/`label`).
   - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
     flow. Logged-in: nickname, change email/password, followed and
     favorited fighters/events (reusing the same bell/heart components to
@@ -133,7 +144,17 @@ else (UFC + 9 other leagues) is populated by
   a successful toggle explaining what enabling/disabling the reminder
   does), `EventFavoriteHeart`, `FighterFavoriteHeart` (same pattern, see
   [Favorites](#favorites)). `FilterButton` (shared filter-chip, used by
-  the event org filter and the fighter nationality filter).
+  the event org filter and the fighter nationality filter) — always
+  resolves to a concrete style object per state (`active ? styleA :
+  styleB`, never a bare `false` in a style array) with an explicit
+  `minHeight`, after a real-device Android bug where inactive chips
+  rendered as an unreadable blank/white sliver until the row was
+  otherwise forced to re-layout. The wrapping horizontal `ScrollView` in
+  both `EventListScreen` and `FighterListScreen` also needs an explicit
+  `style={{ flexGrow: 0 }}` (separate from `contentContainerStyle`) —
+  without it, RN's default `flexGrow` behavior lets the row collapse when
+  a flex-column sibling (the list/calendar below) claims space on
+  re-layout.
 
 ## Notifications
 
@@ -399,9 +420,22 @@ after seeding data doesn't create duplicate organizations) →
   defeating the scoping. Also revoked public `EXECUTE` on the
   `handle_new_user()`/`notify_fighter_added_to_fight()` trigger
   functions, which were otherwise callable as public RPC endpoints
-  (`/rest/v1/rpc/...`) — not directly exploitable (both reference `NEW`,
-  only valid in a trigger context) but unnecessary attack surface;
-  revoking doesn't affect trigger firing.
+  (`/rest/v1/rpc/...`).
+- **Regression from the above, fixed via
+  `supabase/migrations/004_fix_execute_revoke_regression.sql`:**
+  `revoke execute ... from public` turned out to affect trigger firing
+  after all — it revoked EXECUTE from every role, including Supabase's
+  own internal roles that fire these triggers (`supabase_auth_admin`
+  inserting into `auth.users` on signup, `service_role`/`postgres`
+  inserting into `fights` during the balldontlie sync), not just the
+  externally-callable `anon`/`authenticated` roles the linter actually
+  flagged. This broke signup outright (`POST /auth/v1/signup` → 500,
+  discovered via live testing 2026-07-18). 004 re-grants `EXECUTE` to
+  `postgres`/`service_role`/`supabase_auth_admin` and narrows the revoke
+  to just `anon`/`authenticated`, which was the linter's actual concern.
+  **Lesson:** `revoke ... from public` on a trigger function is not safe
+  to assume no-op for trigger firing — verify end-to-end before trusting
+  that reasoning again.
 - **`pg_net` extension lives in the `public` schema** (linter:
   `extension_in_public`) — **deliberately left as-is, not a planned
   fix.** Verified against the live database (2026-07-16): `pg_net`'s

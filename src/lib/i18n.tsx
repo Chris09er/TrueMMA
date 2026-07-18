@@ -4,9 +4,9 @@ import type { ReactNode } from 'react';
 
 export type Locale = 'de' | 'en';
 
-export const SUPPORTED_LOCALES: { code: Locale; label: string }[] = [
-  { code: 'de', label: 'Deutsch' },
-  { code: 'en', label: 'English' },
+export const SUPPORTED_LOCALES: { code: Locale; label: string; flag: string }[] = [
+  { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
+  { code: 'en', label: 'English', flag: '🇬🇧' },
 ];
 
 const STORAGE_KEY = 'mma-pocket:locale';

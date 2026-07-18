@@ -192,7 +192,12 @@ export default function EventListScreen({ navigation }: Props) {
         </>
       )}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterRowContainer}
+        contentContainerStyle={styles.filterRow}
+      >
         <FilterButton
           label={t.eventList.filterAll}
           active={selectedOrgId === undefined}
@@ -300,6 +305,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     color: colors.textPrimary,
+  },
+  filterRowContainer: {
+    flexGrow: 0,
   },
   filterRow: {
     flexDirection: 'row',
