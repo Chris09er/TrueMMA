@@ -14,6 +14,17 @@ import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 
 type Props = NativeStackScreenProps<FightersStackParamList, 'FighterDetail'>;
 
+function inchesToCm(inches: number): number {
+  return Math.round(inches * 2.54);
+}
+
+function formatRecord(fighter: Fighter): string | null {
+  const { record_wins: wins, record_losses: losses, record_draws: draws, record_no_contests: nc } = fighter;
+  if (wins === null && losses === null && draws === null) return null;
+  const base = `${wins ?? 0}-${losses ?? 0}-${draws ?? 0}`;
+  return nc ? `${base} (${nc} NC)` : base;
+}
+
 export default function FighterDetailScreen({ route }: Props) {
   const { fighterId, fighterName } = route.params;
   const { t, locale } = useLocale();
@@ -59,6 +70,7 @@ export default function FighterDetailScreen({ route }: Props) {
             {[fighter?.nickname && `"${fighter.nickname}"`, fighter?.nationality].filter(Boolean).join(' · ')}
           </Text>
         )}
+        {fighter && formatRecord(fighter) && <Text style={styles.record}>{formatRecord(fighter)}</Text>}
         <View style={styles.linkRow}>
           {fighter?.tapology_url && (
             <Pressable style={styles.linkButton} onPress={() => Linking.openURL(fighter.tapology_url!)}>
@@ -72,6 +84,8 @@ export default function FighterDetailScreen({ route }: Props) {
           )}
         </View>
       </View>
+
+      {fighter && <TaleOfTheTape fighter={fighter} locale={locale} t={t} />}
 
       {upcomingFights.length > 0 && (
         <View style={styles.section}>
@@ -91,6 +105,49 @@ export default function FighterDetailScreen({ route }: Props) {
         )}
       </View>
     </ScrollView>
+  );
+}
+
+function TaleOfTheTape({
+  fighter,
+  locale,
+  t,
+}: {
+  fighter: Fighter;
+  locale: string;
+  t: ReturnType<typeof useLocale>['t'];
+}) {
+  const rows: { label: string; value: string }[] = [];
+  if (fighter.weight_class) rows.push({ label: t.fighterDetail.weightClass, value: fighter.weight_class });
+  if (fighter.height_inches) {
+    rows.push({ label: t.fighterDetail.height, value: `${inchesToCm(fighter.height_inches)} cm` });
+  }
+  if (fighter.reach_inches) {
+    rows.push({ label: t.fighterDetail.reach, value: `${inchesToCm(fighter.reach_inches)} cm` });
+  }
+  if (fighter.stance) rows.push({ label: t.fighterDetail.stance, value: fighter.stance });
+  if (fighter.date_of_birth) {
+    rows.push({
+      label: t.fighterDetail.dateOfBirth,
+      value: new Date(fighter.date_of_birth).toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US'),
+    });
+  }
+  if (fighter.birth_place) rows.push({ label: t.fighterDetail.birthPlace, value: fighter.birth_place });
+
+  if (rows.length === 0) return null;
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{t.fighterDetail.taleOfTheTape}</Text>
+      <View style={styles.tapeCard}>
+        {rows.map((row) => (
+          <View key={row.label} style={styles.tapeRow}>
+            <Text style={styles.tapeLabel}>{row.label}</Text>
+            <Text style={styles.tapeValue}>{row.value}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -142,7 +199,9 @@ function FightRow({
       {hasResult && (
         <Text style={[styles.fightResult, isWinner ? styles.fightResultWin : styles.fightResultLoss]}>
           {isWinner ? t.fighterDetail.resultWin : t.fighterDetail.resultLoss}
-          {fight.result_method ? ` · ${fight.result_method}` : ''}
+          {fight.result_method_detail || fight.result_method
+            ? ` · ${fight.result_method_detail ?? fight.result_method}`
+            : ''}
           {fight.result_round ? ` · ${t.eventDetail.round} ${fight.result_round}` : ''}
         </Text>
       )}
@@ -181,6 +240,36 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 4,
     textAlign: 'center',
+  },
+  record: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.accentGold,
+    marginTop: 6,
+  },
+  tapeCard: {
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  tapeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  tapeLabel: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  tapeValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary,
   },
   linkRow: {
     flexDirection: 'row',

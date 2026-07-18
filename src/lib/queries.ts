@@ -27,7 +27,12 @@ export async function getOrganizations(): Promise<Organization[]> {
 }
 
 const EVENT_LIST_COLUMNS =
-  'id, organization_id, name, event_date, city, country, venue, poster_url, organizations(short_name)';
+  'id, organization_id, name, event_date, city, country, venue, venue_state, poster_url, status, main_card_start_time, prelims_start_time, early_prelims_start_time, organizations(short_name)';
+
+const FIGHTER_COLUMNS =
+  'id, name, nickname, nationality, photo_url, tapology_url, sherdog_url, record_wins, record_losses, record_draws, record_no_contests, weight_class, height_inches, reach_inches, weight_lbs, stance, date_of_birth, birth_place, active';
+
+const FIGHT_COLUMNS = `id, event_id, weight_class, is_main_event, is_title_fight, card_position, card_segment, status, scheduled_rounds, result_winner_id, result_method, result_method_detail, result_round, result_time, fighter1:fighter1_id(${FIGHTER_COLUMNS}), fighter2:fighter2_id(${FIGHTER_COLUMNS})`;
 
 // Single source of truth for "is this event upcoming" — matches the `>=`
 // used by the events query below, so a screen deciding whether to show the
@@ -92,28 +97,30 @@ export async function getEventsInRange(
 export async function getFighters(): Promise<Fighter[]> {
   const { data, error } = await supabase
     .from('fighters')
-    .select('id, name, nickname, nationality, photo_url, tapology_url, sherdog_url')
+    .select(FIGHTER_COLUMNS)
     .order('name', { ascending: true });
 
   if (error) throw error;
-  return (data ?? []) as Fighter[];
+  return (data ?? []) as unknown as Fighter[];
 }
 
 export async function getFighterById(fighterId: string): Promise<Fighter> {
   const { data, error } = await supabase
     .from('fighters')
-    .select('id, name, nickname, nationality, photo_url, tapology_url, sherdog_url')
+    .select(FIGHTER_COLUMNS)
     .eq('id', fighterId)
     .single();
 
   if (error) throw error;
-  return data as Fighter;
+  return data as unknown as Fighter;
 }
 
 export async function getEventDetail(eventId: string): Promise<EventDetail> {
   const { data, error } = await supabase
     .from('events')
-    .select('id, name, event_date, city, country, venue, poster_url, organizations(short_name)')
+    .select(
+      'id, name, event_date, city, country, venue, venue_state, poster_url, status, main_card_start_time, prelims_start_time, early_prelims_start_time, organizations(short_name)'
+    )
     .eq('id', eventId)
     .single();
 
@@ -124,7 +131,7 @@ export async function getEventDetail(eventId: string): Promise<EventDetail> {
 export async function getFollowedFighters(userId: string): Promise<Fighter[]> {
   const { data, error } = await supabase
     .from('push_subscriptions')
-    .select('fighters(id, name, nickname, nationality, photo_url, tapology_url, sherdog_url)')
+    .select(`fighters(${FIGHTER_COLUMNS})`)
     .eq('user_id', userId)
     .not('fighter_id', 'is', null);
 
@@ -149,9 +156,7 @@ export async function getFollowedEvents(userId: string): Promise<EventListItem[]
 export async function getFighterFights(fighterId: string): Promise<FightWithEvent[]> {
   const { data, error } = await supabase
     .from('fights')
-    .select(
-      'id, event_id, weight_class, is_main_event, is_title_fight, card_position, result_winner_id, result_method, result_round, result_time, fighter1:fighter1_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url), fighter2:fighter2_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url), event:event_id(id,name,event_date)'
-    )
+    .select(`${FIGHT_COLUMNS}, event:event_id(id,name,event_date)`)
     .or(`fighter1_id.eq.${fighterId},fighter2_id.eq.${fighterId}`);
 
   if (error) throw error;
@@ -166,7 +171,7 @@ export async function getFighterFights(fighterId: string): Promise<FightWithEven
 export async function getFavoritedFighters(userId: string): Promise<Fighter[]> {
   const { data, error } = await supabase
     .from('fighter_favorites')
-    .select('fighters(id, name, nickname, nationality, photo_url, tapology_url, sherdog_url)')
+    .select(`fighters(${FIGHTER_COLUMNS})`)
     .eq('user_id', userId);
 
   if (error) throw error;
@@ -187,22 +192,39 @@ export async function getFavoritedEvents(userId: string): Promise<EventListItem[
     .filter((event): event is EventListItem => event !== null);
 }
 
+// balldontlie's card_position (fight_order) restarts at 1 separately for
+// each card_segment (main card / prelims / early prelims) — confirmed
+// against live data: e.g. UFC Fight Night: Du Plessis vs. Usman had both
+// "Delgado vs Bashi" (prelims) and "Usman vs Du Plessis" (main_card) at
+// card_position 1. Sorting by card_position alone therefore interleaves
+// fights from different segments; card_segment must be the primary sort
+// key, with card_position only breaking ties within a segment. Cancelled
+// fights (status === 'cancelled') sort last regardless of segment.
+// Manually-entered fights (e.g. OKTAGON) have no card_segment/position at
+// all and fall back to the end, in whatever order they were inserted.
+const CARD_SEGMENT_ORDER: Record<string, number> = { main_card: 0, prelims: 1, early_prelims: 2 };
+
+function sortFightCard(fights: Fight[]): Fight[] {
+  return [...fights].sort((a, b) => {
+    const aCancelled = a.status === 'cancelled' ? 1 : 0;
+    const bCancelled = b.status === 'cancelled' ? 1 : 0;
+    if (aCancelled !== bCancelled) return aCancelled - bCancelled;
+
+    const aSegment = a.card_segment ? CARD_SEGMENT_ORDER[a.card_segment] ?? 99 : 99;
+    const bSegment = b.card_segment ? CARD_SEGMENT_ORDER[b.card_segment] ?? 99 : 99;
+    if (aSegment !== bSegment) return aSegment - bSegment;
+
+    const aPos = a.card_position ?? Infinity;
+    const bPos = b.card_position ?? Infinity;
+    if (aPos !== bPos) return aPos - bPos;
+
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export async function getFightsForEvent(eventId: string): Promise<Fight[]> {
-  const { data, error } = await supabase
-    .from('fights')
-    .select(
-      'id, event_id, weight_class, is_main_event, is_title_fight, card_position, result_winner_id, result_method, result_round, result_time, fighter1:fighter1_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url), fighter2:fighter2_id(id,name,nickname,nationality,photo_url,tapology_url,sherdog_url)'
-    )
-    .eq('event_id', eventId)
-    // Chronological fight-night order (opener first, main event last) —
-    // confirmed with the maintainer after testing both directions.
-    // balldontlie's fight_order (mapped to card_position) numbers the
-    // main event lowest (1) and increases toward the undercard, so this
-    // needs descending order to end with the main event.
-    // nullsFirst: false keeps manually-entered fights without a
-    // card_position (e.g. OKTAGON) at the end instead of jumping first.
-    .order('card_position', { ascending: false, nullsFirst: false });
+  const { data, error } = await supabase.from('fights').select(FIGHT_COLUMNS).eq('event_id', eventId);
 
   if (error) throw error;
-  return (data ?? []) as unknown as Fight[];
+  return sortFightCard((data ?? []) as unknown as Fight[]);
 }

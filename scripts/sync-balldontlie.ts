@@ -1,5 +1,6 @@
 // Syncs upcoming MMA events/fighters/fights from the balldontlie API into
-// our own Supabase tables. Run manually/locally, never from the app:
+// our own Supabase tables. Run manually/locally, or via the scheduled
+// GitHub Actions workflow (.github/workflows/sync-balldontlie-full.yml):
 //   npx tsx scripts/sync-balldontlie.ts
 //
 // Requires SUPABASE_SERVICE_ROLE_KEY + BALLDONTLIE_API_KEY in .env (server-side
@@ -14,138 +15,25 @@
 //   for exactly the events we kept via `event_ids[]`.
 // - Fighter objects are fully embedded in fight responses, so a separate
 //   /fighters crawl isn't needed — we derive the fighter set from fights.
-import 'dotenv/config';
-import { createClient } from '@supabase/supabase-js';
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing required env var ${name}`);
-  return value;
-}
-
-const BDL_API_KEY = requireEnv('BALLDONTLIE_API_KEY');
-const SUPABASE_URL = requireEnv('EXPO_PUBLIC_SUPABASE_URL');
-const SUPABASE_SERVICE_ROLE_KEY = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-const BDL_BASE = 'https://api.balldontlie.io/mma/v1';
-
-// ALL-STAR tier allows 60 req/min; stay comfortably under that.
-const MIN_REQUEST_INTERVAL_MS = 1100;
-let lastRequestAt = 0;
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-const MAX_RATE_LIMIT_RETRIES = 5;
-
-async function bdlFetch<T>(path: string, params: [string, string][] = [], attempt = 0): Promise<T> {
-  const wait = MIN_REQUEST_INTERVAL_MS - (Date.now() - lastRequestAt);
-  if (wait > 0) await sleep(wait);
-
-  const url = new URL(BDL_BASE + path);
-  for (const [key, value] of params) url.searchParams.append(key, value);
-
-  const res = await fetch(url.toString(), { headers: { Authorization: BDL_API_KEY } });
-  lastRequestAt = Date.now();
-
-  if (res.status === 429) {
-    if (attempt >= MAX_RATE_LIMIT_RETRIES) {
-      throw new Error(`balldontlie ${path} rate-limited after ${MAX_RATE_LIMIT_RETRIES} retries, giving up`);
-    }
-    console.warn(`  Rate limited, waiting 10s... (attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`);
-    await sleep(10000);
-    return bdlFetch(path, params, attempt + 1);
-  }
-  if (!res.ok) {
-    throw new Error(`balldontlie ${path} failed: ${res.status} ${await res.text()}`);
-  }
-  return res.json() as Promise<T>;
-}
-
-async function paginateAll<T>(path: string, baseParams: [string, string][] = []): Promise<T[]> {
-  const results: T[] = [];
-  let cursor: string | undefined;
-  do {
-    const params: [string, string][] = [...baseParams, ['per_page', '100']];
-    if (cursor) params.push(['cursor', cursor]);
-    const page = await bdlFetch<{ data: T[]; meta: { next_cursor?: number } }>(path, params);
-    results.push(...page.data);
-    cursor = page.meta.next_cursor !== undefined ? String(page.meta.next_cursor) : undefined;
-  } while (cursor);
-  return results;
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
-  return chunks;
-}
-
-async function upsertBatched(table: string, rows: Record<string, unknown>[], batchSize = 500) {
-  for (const batch of chunk(rows, batchSize)) {
-    if (batch.length === 0) continue;
-    const { error } = await supabase.from(table).upsert(batch, { onConflict: 'external_id' });
-    if (error) throw new Error(`Failed to upsert into ${table}: ${error.message}`);
-  }
-}
-
-// Supabase/PostgREST caps unpaginated selects at 1000 rows by default — for
-// tables that can grow past that (fighters, fights) an unpaginated select
-// here would silently return a partial map with no error, corrupting every
-// downstream upsert that depends on it. Page through explicitly instead.
-const SUPABASE_PAGE_SIZE = 1000;
-
-async function externalIdMap(table: string): Promise<Map<number, string>> {
-  const map = new Map<number, string>();
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from(table)
-      .select('id, external_id')
-      .not('external_id', 'is', null)
-      .range(from, from + SUPABASE_PAGE_SIZE - 1);
-    if (error) throw error;
-
-    for (const row of data ?? []) {
-      if (row.external_id !== null) map.set(row.external_id as number, row.id as string);
-    }
-
-    if (!data || data.length < SUPABASE_PAGE_SIZE) break;
-    from += SUPABASE_PAGE_SIZE;
-  }
-
-  return map;
-}
-
-type BdlLeague = { id: number; name: string; abbreviation: string | null };
-type BdlWeightClass = { id: number; name: string } | null;
-type BdlFighter = { id: number; name: string; nickname: string | null; nationality: string | null };
-type BdlEvent = {
-  id: number;
-  name: string;
-  date: string;
-  venue_name: string | null;
-  venue_city: string | null;
-  venue_country: string | null;
-  league: BdlLeague | null;
-};
-type BdlFight = {
-  id: number;
-  event: BdlEvent | null;
-  fighter1: BdlFighter;
-  fighter2: BdlFighter;
-  winner: BdlFighter | null;
-  weight_class: BdlWeightClass;
-  is_main_event: boolean;
-  is_title_fight: boolean;
-  fight_order: number | null;
-  result_method: string | null;
-  result_round: number | null;
-  result_time: string | null;
-};
+//
+// For a lightweight, frequent update of whatever event is happening right
+// now, see sync-live-event.ts instead — this script always walks the full
+// history and is too slow/heavy to run more than a few times a day.
+import {
+  bdlFetch,
+  chunk,
+  eventRow,
+  externalIdMap,
+  fighterRow,
+  fightRow,
+  paginateAll,
+  supabase,
+  upsertBatched,
+  type BdlEvent,
+  type BdlFight,
+  type BdlFighter,
+  type BdlLeague,
+} from './lib/balldontlie';
 
 async function syncLeagues(): Promise<Map<number, string>> {
   console.log('Syncing leagues...');
@@ -218,17 +106,7 @@ async function syncEvents(orgMap: Map<number, string>): Promise<Map<number, stri
       console.warn(`  Skipping event "${event.name}" — unknown league ${event.league?.id}`);
       return [];
     }
-    return [
-      {
-        external_id: event.id,
-        organization_id: organizationId,
-        name: event.name,
-        event_date: event.date,
-        city: event.venue_city,
-        country: event.venue_country,
-        venue: event.venue_name,
-      },
-    ];
+    return [eventRow(event, organizationId)];
   });
 
   await upsertBatched('events', rows);
@@ -256,15 +134,7 @@ async function syncFightersAndFights(eventMap: Map<number, string>): Promise<voi
   }
 
   console.log(`Syncing ${fightersById.size} fighters...`);
-  await upsertBatched(
-    'fighters',
-    [...fightersById.values()].map((fighter) => ({
-      external_id: fighter.id,
-      name: fighter.name,
-      nickname: fighter.nickname,
-      nationality: fighter.nationality,
-    }))
-  );
+  await upsertBatched('fighters', [...fightersById.values()].map(fighterRow));
   const fighterMap = await externalIdMap('fighters');
 
   console.log(`Syncing ${allFights.length} fights...`);
@@ -276,22 +146,8 @@ async function syncFightersAndFights(eventMap: Map<number, string>): Promise<voi
       console.warn(`  Skipping fight ${fight.id} — missing mapped reference`);
       return [];
     }
-    return [
-      {
-        external_id: fight.id,
-        event_id: eventId,
-        fighter1_id: fighter1Id,
-        fighter2_id: fighter2Id,
-        weight_class: fight.weight_class?.name ?? null,
-        is_main_event: fight.is_main_event,
-        is_title_fight: fight.is_title_fight,
-        card_position: fight.fight_order,
-        result_winner_id: fight.winner ? fighterMap.get(fight.winner.id) ?? null : null,
-        result_method: fight.result_method,
-        result_round: fight.result_round,
-        result_time: fight.result_time,
-      },
-    ];
+    const winnerId = fight.winner ? fighterMap.get(fight.winner.id) ?? null : null;
+    return [fightRow(fight, eventId, fighter1Id, fighter2Id, winnerId)];
   });
 
   await upsertBatched('fights', fightRows);

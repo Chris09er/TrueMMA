@@ -308,6 +308,7 @@ const styles = StyleSheet.create({
   },
   filterRowContainer: {
     flexGrow: 0,
+    marginBottom: spacing.sm,
   },
   filterRow: {
     flexDirection: 'row',

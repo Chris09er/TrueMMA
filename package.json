@@ -30,7 +30,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "sync:balldontlie": "tsx scripts/sync-balldontlie.ts"
+    "sync:balldontlie": "tsx scripts/sync-balldontlie.ts",
+    "sync:live": "tsx scripts/sync-live-event.ts"
   },
   "overrides": {
     "expo-font": "14.0.12"

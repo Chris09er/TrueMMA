@@ -19,9 +19,15 @@ conversations/decisions with the maintainer; this file is technical only.
   view — pure JS, no native module.
 - **Backend:** Supabase (Postgres + PostgREST + `pg_net`), region
   eu-central-1. No custom server — the only "backend logic" is SQL
-  (triggers/functions) plus a standalone local Node sync script.
+  (triggers/functions) plus Node sync scripts run on a schedule.
 - **External data source:** balldontlie.io MMA API (paid ALL-STAR tier),
-  synced into Supabase on demand, never called from the app itself.
+  synced into Supabase on a schedule via GitHub Actions (see
+  [balldontlie sync](#balldontlie-sync)), never called from the app itself.
+- **Repo:** `Chris09er/MMAPocket` on GitHub, **public** (since 2026-07-18 —
+  needed for unmetered GitHub Actions minutes for the live-event sync; git
+  history was checked for leaked secrets before flipping visibility, none
+  found — real secrets only ever lived in `.env` (gitignored) and GitHub
+  Actions repo secrets, neither of which visibility affects).
 - **Build:** EAS Build for a development client (required — see
   [Push notifications](#notifications) for why Expo Go isn't enough).
 
@@ -32,9 +38,9 @@ Tables (Supabase Postgres), all with RLS enabled:
 | Table | Purpose | Client write access |
 |---|---|---|
 | `organizations` | Leagues/promotions (UFC, OKTAGON, + 9 auto-synced) | none (read-only) |
-| `fighters` | Fighter roster | none (read-only) |
-| `events` | Event calendar entries | none (read-only) |
-| `fights` | Matchups within an event, incl. results | none (read-only) |
+| `fighters` | Fighter roster + record + tale-of-the-tape | none (read-only) |
+| `events` | Event calendar entries + status + broadcast segment times | none (read-only) |
+| `fights` | Matchups within an event, incl. results + card segment | none (read-only) |
 | `push_subscriptions` | Device push token ↔ followed fighter, optional `user_id` | **insert/select/delete** (anon, or own rows if logged in) |
 | `profiles` | Login-only: nickname per account (`id` = `auth.users.id`) | own row only |
 | `event_follows` | Login-only: user ↔ followed event (profile visibility) | own rows only |
@@ -87,28 +93,44 @@ else (UFC + 9 other leagues) is populated by
     a day filters the list below to that day; org filter applies in both
     modes. Per-event reminder bell + favorite heart (only bell rendered
     for events where `isEventUpcoming()` is true, heart always).
-  - `EventDetailScreen` — event header + fight card list in **chronological
-    fight-night order** (opener first, main event last —
-    `getFightsForEvent` orders `card_position` descending, since
-    balldontlie's `fight_order` numbers the main event lowest and
-    increases toward the undercard; `nullsFirst: false` so manually-entered
-    fights without a `card_position` sort last, not first). This direction
-    was flipped twice during testing (main-event-first was the original
-    ask, then reversed to chronological after live testing — see git
-    history on `queries.ts` if this needs revisiting again); shows main
-    event/title fight tags, weight class, and (for past fights) the result
-    (winner highlighted gold, method/round/time).
+  - `EventDetailScreen` — event header (venue incl. `venue_state`, a red
+    "Event cancelled" banner if `event.status === 'cancelled'`, and
+    Early Prelims/Prelims/Main Card broadcast start times when
+    balldontlie provides them) + fight card list in **chronological
+    fight-night order** (main card first with the true main event on top,
+    then prelims, then early prelims — see `sortFightCard()` in
+    `queries.ts`: **`card_segment` is the primary sort key, `card_position`
+    only breaks ties within a segment.** balldontlie's `card_position`
+    (`fight_order`) restarts at 1 separately per segment — sorting by
+    `card_position` alone interleaves fights from different segments,
+    confirmed against live data where a card's real main event and its
+    prelims' own headliner both had `card_position: 1`. Cancelled fights
+    (`status === 'cancelled'`) always sort last and render at 50% opacity
+    with a red "Abgesagt"/"Cancelled" tag — not yet observed in the wild
+    as of this writing, since balldontlie doesn't always mark a pulled
+    fight cancelled promptly, but the sort/tag both key off the real
+    `status` field so this activates automatically whenever balldontlie
+    does flag one, no code change needed). Each fight card also shows a
+    main-event tag, a separate outlined "Prelims Main Event" tag (the
+    lowest-`card_position` fight within `card_segment === 'prelims'`),
+    title-fight tag, scheduled rounds, and (for past fights) the result
+    incl. `result_method_detail` when balldontlie has it (more specific
+    than `result_method`, e.g. exact submission type).
   - `FighterListScreen` — search, nationality filter (derived client-side
     from the loaded fighters, horizontally scrollable, same
     `FilterButton` component as the event org filter), pull-to-refresh,
     per-fighter follow bell. Tapping a fighter opens `FighterDetailScreen`
     (used to jump straight to Tapology/Sherdog — now shows an in-app
     profile first, external links are explicit buttons there).
-  - `FighterDetailScreen` — photo/name/nickname/nationality, Tapology/
-    Sherdog link buttons, follow bell, upcoming fight (if any, via
-    `isEventUpcoming`) and full fight history (opponent, event, win/loss
-    by comparing `result_winner_id`), fed by `getFighterFights()` in
-    `queries.ts` (fetches both `fighter1_id`/`fighter2_id` sides via
+  - `FighterDetailScreen` — photo/name/nickname/nationality, W-L-D record
+    (`record_wins`/`record_losses`/`record_draws`, plus a "(N NC)" suffix
+    if `record_no_contests > 0`), a "Tale of the Tape" card (weight class,
+    height/reach converted from balldontlie's inches to cm, stance, date
+    of birth, birth place — section only renders the rows that have data),
+    Tapology/Sherdog link buttons, follow bell, upcoming fight (if any,
+    via `isEventUpcoming`) and full fight history (opponent, event,
+    win/loss by comparing `result_winner_id`), fed by `getFighterFights()`
+    in `queries.ts` (fetches both `fighter1_id`/`fighter2_id` sides via
     `.or()`, sorted by the embedded event's date client-side). Reachable
     both from `FighterListScreen` and from tapping a fighter's name in
     `EventDetailScreen`'s fight card (cross-tab navigation, see
@@ -307,16 +329,58 @@ notifications.
 
 ## balldontlie sync
 
-`scripts/sync-balldontlie.ts`, run manually: `npm run sync:balldontlie`.
-Needs `SUPABASE_SERVICE_ROLE_KEY` + `BALLDONTLIE_API_KEY` in `.env`
-(server-side only — never `EXPO_PUBLIC_`-prefixed, never shipped in the
-app; the service-role key bypasses RLS, which is required since this is
-the only thing that writes to the otherwise read-only tables).
+Two scripts share `scripts/lib/balldontlie.ts` (the balldontlie HTTP
+client with rate-limiting/retry, Supabase upsert helpers, and the
+`Bdl*` → row-mapping functions — `fighterRow()`/`eventRow()`/`fightRow()`
+— so a new synced field only needs to be added in one place):
 
-**Why a local script and not a scheduled job:** thinnest option that fits
-the project's "no backend beyond Supabase" principle; the maintainer runs
-it on demand. Nothing prevents wiring it into a cron/GitHub Action later
-if that becomes worth the complexity.
+- **`scripts/sync-balldontlie.ts`** (`npm run sync:balldontlie`) — the
+  full sync, walks balldontlie's entire history every time (see API
+  quirks below for why). Scheduled every 6 hours via
+  `.github/workflows/sync-balldontlie-full.yml`.
+- **`scripts/sync-live-event.ts`** (`npm run sync:live`) — a lightweight
+  companion, scheduled every 5 minutes via
+  `.github/workflows/sync-balldontlie-live.yml`. It first checks (one
+  cheap Supabase query, zero balldontlie calls) whether any event's
+  earliest known broadcast segment
+  (`early_prelims_start_time` ?? `prelims_start_time` ??
+  `main_card_start_time` ?? `event_date`) has started and is still within
+  a ~6h estimated card-duration buffer (balldontlie gives start times but
+  no end time) — if nothing is "live" right now, it exits immediately.
+  If something is live, it re-fetches just that event + its fights (a
+  handful of records, not the full history) so late changes — an added
+  replacement fight, an updated result, a card_segment/status flip —
+  land within minutes instead of waiting for the next 6-hour full sync.
+  This is what would have caught the stale-data incident below in
+  minutes instead of however long it actually went unnoticed.
+
+Both need `SUPABASE_SERVICE_ROLE_KEY` + `BALLDONTLIE_API_KEY` (+
+`EXPO_PUBLIC_SUPABASE_URL`) available as env vars — locally via `.env`,
+in CI via GitHub Actions repo secrets of the same names (Settings →
+Secrets and variables → Actions). The service-role key bypasses RLS,
+which is required since this is the only thing that writes to the
+otherwise read-only tables.
+
+**Why GitHub Actions and not a paid scheduler:** the repo is public
+specifically so these can run on GitHub-hosted runners for free with no
+per-minute cap — the 5-minute live-check alone is ~8,600 runs/month,
+which would blow through the 2,000 free minutes/month a private repo
+gets (GitHub bills a minimum of 1 minute per job run even for an
+instant no-op). Git history was checked for leaked secrets before
+flipping the repo public (`git log --all -p` grepped for key/token
+patterns) — none found; real secrets only ever lived in `.env`
+(gitignored) and GitHub Actions secrets, neither of which repo
+visibility affects.
+
+**Incident, 2026-07-18 — why regular syncing matters:** while testing
+fight card ordering, our stored data for a live event (UFC Fight Night:
+Du Plessis vs. Usman) was found to be stale — missing an entire fight
+that balldontlie had added since the last manual sync, and disagreeing
+with balldontlie's own current `card_position` numbers for the fights it
+did have. The full sync had simply never been re-run since that fight
+got added upstream. This is the direct reason the two scheduled
+workflows above exist now instead of staying a "run it when you
+remember" local script.
 
 **API quirks (all discovered empirically, not documented by balldontlie):**
 - `/fights` requires the paid ALL-STAR tier ($9.99/mo); `/leagues`,
@@ -355,6 +419,23 @@ if that becomes worth the complexity.
 - Rate limit on ALL-STAR: 60 req/min. The script paces requests
   (`MIN_REQUEST_INTERVAL_MS`) and retries once on 429 with a capped number
   of attempts (`MAX_RATE_LIMIT_RETRIES`) rather than retrying forever.
+- **`card_segment`** (`main_card` / `prelims` / `early_prelims`) is a real
+  balldontlie field that was simply never synced before 2026-07-18 — it's
+  what makes `card_position` (`fight_order`) unambiguous, since that
+  number restarts at 1 separately per segment (see `sortFightCard()` in
+  `src/lib/queries.ts`). Found by inspecting the full raw fight object
+  (`JSON.stringify` a single `/fights` result) rather than trusting the
+  handful of fields the original implementation had cherry-picked —
+  worth doing again if a UI feature ever seems to need data balldontlie
+  "doesn't have"; check the raw response before assuming that.
+- As of 2026-07-18 the sync pulls **every** field balldontlie exposes for
+  fighters/events/fights that has a plausible use, not just what the UI
+  needed at the time — storage is free and it's already part of the same
+  API response, so there's no reason to re-touch schema + sync script
+  every time a new UI idea needs one more field. See the fighter
+  record/tale-of-the-tape fields and event broadcast-time fields in
+  [Data model](#data-model) and the `FighterDetailScreen`/
+  `EventDetailScreen` bullets above.
 
 **Sync flow:** `syncLeagues()` (also backfills `external_id` onto
 pre-existing manually-entered orgs matched by `short_name`, so re-running
