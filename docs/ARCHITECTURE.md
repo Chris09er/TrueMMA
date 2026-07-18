@@ -1,10 +1,24 @@
-# MMAPocket — Technical Architecture
+# True MMA — Technical Architecture
 
-Project name is "MMAPocket" as of 2026-07-15 (renamed from "MMA Pocket";
-GitHub repo, `package.json`, and `app.json` display name updated — the
-EAS project slug and Supabase-adjacent identifiers were intentionally left
-as `mma-pocket`/`mmapocket` to avoid disrupting live infrastructure
-mid-build; revisit if/when the final go-live name is chosen).
+Project name is "True MMA" as of 2026-07-18 (renamed from "MMAPocket",
+itself renamed from "MMA Pocket" on 2026-07-15). Unlike the previous
+rename, this one went all the way through: GitHub repo
+(`Chris09er/MMAPocket` → `Chris09er/TrueMMA`, old URL redirects
+automatically), `app.json` (`name`, `slug: mma-pocket` → `true-mma`,
+`ios.bundleIdentifier`/`android.package: com.mmapocket.app` →
+`com.truemma.app`), `package.json` name, AsyncStorage key prefixes
+(`mma-pocket:*` → `true-mma:*` in `notifications.ts`/`i18n.tsx`/
+`favorites.ts` — harmless since no app store release has happened yet, so
+no real user data is at stake), and the EAS project itself (slug can't be
+changed on an existing project, so this created a **new** EAS project,
+`@chris09er/true-mma`, id `3bac330a-fffa-4c5c-b561-c12757f6c72d` — the old
+`@chris09er/mma-pocket` project, id `b1268f4e-d87a-450b-b2aa-1aaeaad172f2`,
+still exists on EAS but is now orphaned/unused). `EXPO_PUBLIC_SUPABASE_URL`
+/ `EXPO_PUBLIC_SUPABASE_ANON_KEY` were re-registered as EAS env vars on the
+new project for all three environments. The Supabase project itself was
+**not** renamed/recreated — same backend, only the client-facing identity
+changed. Domain (`true-mma.com`) and IONOS SMTP setup already matched this
+name from the previous rename, so nothing needed to change there.
 
 Living document. Update this alongside the code whenever a feature, schema
 change, or architectural decision lands — not as a separate cleanup pass.
@@ -23,7 +37,7 @@ conversations/decisions with the maintainer; this file is technical only.
 - **External data source:** balldontlie.io MMA API (paid ALL-STAR tier),
   synced into Supabase on a schedule via GitHub Actions (see
   [balldontlie sync](#balldontlie-sync)), never called from the app itself.
-- **Repo:** `Chris09er/MMAPocket` on GitHub, **public** (since 2026-07-18 —
+- **Repo:** `Chris09er/TrueMMA` on GitHub, **public** (since 2026-07-18 —
   needed for unmetered GitHub Actions minutes for the live-event sync; git
   history was checked for leaked secrets before flipping visibility, none
   found — real secrets only ever lived in `.env` (gitignored) and GitHub
@@ -186,7 +200,7 @@ constraints:
 1. **Event reminders** (`src/lib/notifications.ts`) — **local** device
    notifications via `expo-notifications`, scheduled on-device for a
    specific event's start time, tracked in AsyncStorage
-   (`mma-pocket:event-reminder:<eventId>` → notification id). No backend
+   (`true-mma:event-reminder:<eventId>` → notification id). No backend
    involved. Works in Expo Go.
 2. **Fighter-follow push** (`src/lib/pushSubscriptions.ts`) — **real**
    push notifications, since the app needs to notify a user even when it's
@@ -273,12 +287,9 @@ editing email templates at all without a custom SMTP provider configured,
 which is a hard requirement, not just a "nice to have for scale."
 
 - **Domain:** `true-mma.com`, purchased 2026-07-16 specifically to get a
-  real sender domain for auth emails — **not necessarily the app's final
-  name** (see the `MMAPocket` naming note at the top of this doc; the
-  business name is still undecided). Cheap to replace later: swapping to
-  a different domain only means re-verifying it with the SMTP
-  provider and updating the sender address in Supabase — no app code
-  depends on this domain at all.
+  real sender domain for auth emails — turned out to match the final app
+  name ("True MMA", decided 2026-07-18, see the naming note at the top of
+  this doc) purely by luck, not by design at the time of purchase.
 - **SMTP provider:** IONOS (the domain registrar's own mailbox/SMTP
   service — no separate service like Resend/SendGrid needed, since IONOS
   already provides authenticated SMTP per mailbox). Configured in
@@ -307,7 +318,7 @@ notifications.
   token is a stable anonymous identity to key rows on. Favorites have no
   equivalent, so anonymous favoriting (`src/lib/favorites.ts`) is **fully
   local** — a plain array of ids in AsyncStorage
-  (`mma-pocket:favorites:fighters` / `:events`) — until login, at which
+  (`true-mma:favorites:fighters` / `:events`) — until login, at which
   point reads/writes switch to the `fighter_favorites`/`event_favorites`
   tables (`user_id` + `fighter_id`/`event_id`, unique constraint, RLS
   scoped to `auth.uid() = user_id`, no anonymous rows at all — see
@@ -446,9 +457,9 @@ after seeding data doesn't create duplicate organizations) →
 
 ## Build & deployment
 
-- **EAS project:** `@chris09er/mma-pocket`, `app.json` →
+- **EAS project:** `@chris09er/true-mma`, `app.json` →
   `extra.eas.projectId`. Android package / iOS bundle id:
-  `com.mmapocket.app`.
+  `com.truemma.app`.
 - **`eas.json` profiles:** `development` (dev client, internal APK),
   `preview` (internal APK), `production`.
 - **Environment variables for builds:** `EXPO_PUBLIC_SUPABASE_URL` /
@@ -456,6 +467,19 @@ after seeding data doesn't create duplicate organizations) →
   (`eas env:create`) for all three environments — EAS builds do **not**
   read the local `.env` file, so these must be kept in sync manually if
   they ever change.
+- **`app.config.js`** (dynamic config, wraps the static `app.json`) exists
+  solely to resolve `android.googleServicesFile` at build time from
+  `process.env.GOOGLE_SERVICES_JSON`, falling back to a local
+  `./google-services.json` for local builds. The file itself is gitignored
+  (repo is public) and instead stored as an EAS **file-type env var**
+  (`eas env:create --type file --name GOOGLE_SERVICES_JSON`, one per
+  environment) — EAS downloads it to a temp path and points the env var at
+  that path during `eas build`, so `app.config.js` never needs to know
+  where the file physically lives. This is the general pattern for any
+  future secret file this project needs (as opposed to GitHub Actions
+  secrets, which only exist for the balldontlie sync scripts — see
+  [balldontlie sync](#balldontlie-sync) — since those run on GitHub's
+  runners, not EAS's).
 - **Rebuild triggers:** any native module change (new package installed
   via `npx expo install` that isn't pure JS, or native config changes in
   `app.json`/`eas.json`) requires a fresh `eas build --profile
@@ -530,9 +554,16 @@ after seeding data doesn't create duplicate organizations) →
   the new schema and the trigger's hardcoded `net.http_post` call would
   break. The risk of breaking fighter-follow push delivery outweighs
   silencing a WARN-level linter finding with no real exploit path.
-- Once notifications/data collection ship to the app stores, a privacy
-  policy + Apple/Google data-safety disclosures are required before
-  release (flagged, not yet done).
+- **Privacy policy drafted 2026-07-18**, not yet published:
+  [`docs/legal/privacy-policy.de.md`](legal/privacy-policy.de.md) (the
+  legally authoritative version — data controller is registered in
+  Hamburg, Germany) + [`.en.md`](legal/privacy-policy.en.md) (courtesy
+  translation), plus a Play/App Store data-safety-form cheat sheet at
+  [`docs/legal/store-data-safety.md`](legal/store-data-safety.md). Both
+  are drafts — **need a lawyer's review before publishing**, and both
+  stores require a publicly reachable Privacy Policy URL at submission
+  time, so the drafted markdown needs to be hosted somewhere (e.g.
+  `true-mma.com/privacy`) before it's usable in either console.
 - `AGENTS.md` still points at the SDK 57 docs even though the project
   runs SDK 54 (downgraded to match the currently-published Expo Go app) —
   minor staleness, worth fixing if SDK is bumped again.

@@ -1,0 +1,132 @@
+<!--
+DRAFT — have a lawyer review before publishing. Not legal advice.
+Based on the data model documented in docs/ARCHITECTURE.md (as of
+2026-07-18) — update here whenever that model changes (new table, new
+personal-data field, new third-party processor). Keep in sync with
+privacy-policy.de.md (the German version is the legally authoritative one
+for our German data controller; this English version is a courtesy
+translation for the app's English-language users and store listings).
+-->
+
+# Privacy Policy — True MMA
+
+Last updated: July 18, 2026
+
+## 1. Data controller
+
+Christoph Ickels
+Hegholt 17
+22179 Hamburg
+Germany
+
+Email: support@true-mma.com
+
+## 2. Overview
+
+True MMA works fully without an account. Creating an account is optional
+and never gates a feature that would otherwise be locked — it only lets
+you sync your favorites/follows across devices and set a nickname. We do
+not use any advertising or analytics SDKs, and there is no tracking for
+advertising purposes.
+
+## 3. What data we process
+
+### 3.1 Without an account (anonymous use)
+
+| Data | Purpose | Where it's stored |
+|---|---|---|
+| Language preference | Display the app in German/English | Locally on your device only (AsyncStorage) |
+| Favorited fighters/events | Pin to the top of the list | Locally on your device only |
+| Event reminders | Local notification at event start time | Locally on your device only (`expo-notifications`), no server involved |
+| Push token + followed fighter | Deliver a push notification when a followed fighter gets a new fight | `push_subscriptions` table in our database (Supabase, EU) |
+
+The push token is a device- and app-specific identifier issued by
+Apple/Google/Firebase with no inherent name or account attached. Without
+login, the row in `push_subscriptions` is tied only to this device, not to
+any identity.
+
+### 3.2 With an account (optional)
+
+Signing up requires an email address and password. An optional nickname
+can additionally be set.
+
+| Data | Purpose | Where it's stored |
+|---|---|---|
+| Email address | Login, password reset, account management | Supabase Auth (EU, Frankfurt) |
+| Password | Login (stored only as a hash — we never see it in plaintext) | Supabase Auth |
+| Nickname (optional) | Displayed in your profile | `profiles` table |
+| Followed events | Shown in your profile | `event_follows` table |
+| Favorited fighters/events | Shown in your profile, sorting in lists | `fighter_favorites` / `event_favorites` tables |
+| Push token (fighter follow) | Push notification delivery, now linked to your account | `push_subscriptions` table |
+
+We deliberately do not collect any further personal data — no name, no
+address, no date of birth, no payment data (the app is free with no
+in-app purchases).
+
+## 4. Recipients / processors
+
+We use the following service providers, who process data on our behalf:
+
+- **Supabase** (database, authentication) — server region eu-central-1
+  (Frankfurt, Germany/EU).
+- **IONOS** (auth email delivery, e.g. password reset) — servers located
+  in Germany.
+- **Expo / 650 Industries, Inc.** (USA) — push notification delivery
+  (`exp.host`) receives the push token and notification content to relay
+  it to Apple/Google.
+- **Google LLC / Firebase Cloud Messaging** (USA) — technical
+  infrastructure for delivering push notifications on Android devices.
+- **Apple Inc.** (USA) — technical infrastructure for delivering push
+  notifications on iOS devices (APNs).
+
+Where a provider is based in the US, transfers rely on Standard
+Contractual Clauses and/or the EU-U.S. Data Privacy Framework where the
+provider is certified under it.
+
+**Balldontlie.io** supplies us with public sports data (fighters, events,
+results) — no user data is ever sent to them; the connection is one-way,
+from our server to balldontlie, and never carries user data.
+
+## 5. Legal basis
+
+- Art. 6(1)(b) GDPR (performance of a contract) — account creation,
+  login, syncing favorites/follows.
+- Art. 6(1)(f) GDPR (legitimate interest) — storing an anonymous push
+  token without an account (interest: offering "follow a fighter" without
+  forcing registration) and for security/abuse prevention.
+- Art. 6(1)(a) GDPR (consent) — the OS-level permission prompt
+  (iOS/Android) required before any push notification can be delivered.
+
+## 6. Retention
+
+- Account data: until the account is deleted.
+- Anonymous `push_subscriptions` rows (no account): until you unfollow in
+  the app, or the push token is invalidated by the OS.
+- Local-only data (language, pre-login favorites, reminders): stays on
+  your device until app data is cleared or the app is uninstalled.
+
+## 7. Your rights
+
+You have the right to access (Art. 15 GDPR), rectification (Art. 16),
+erasure (Art. 17), restriction of processing (Art. 18), data portability
+(Art. 20), and objection (Art. 21). Contact support@true-mma.com to
+exercise any of these. Account deletion (including all associated data in
+`profiles`, `event_follows`, `fighter_favorites`, `event_favorites`,
+`push_subscriptions`) can be requested by email, no specific form
+required.
+
+You also have the right to lodge a complaint with a data protection
+supervisory authority, e.g. the Hamburg Commissioner for Data Protection
+and Freedom of Information (competent for our registered location in
+Hamburg).
+
+## 8. Children
+
+True MMA is not directed at children under 16. We are not aware of
+processing any children's personal data, since we only collect an email
+address and an optional nickname and do not ask for age.
+
+## 9. Changes to this policy
+
+We'll update this policy whenever our data model or service providers
+change. The date above reflects the last update.

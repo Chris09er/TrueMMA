@@ -8,8 +8,8 @@ import { supabase } from './supabase';
 type Kind = 'fighter' | 'event';
 
 const STORAGE_KEYS: Record<Kind, string> = {
-  fighter: 'mma-pocket:favorites:fighters',
-  event: 'mma-pocket:favorites:events',
+  fighter: 'true-mma:favorites:fighters',
+  event: 'true-mma:favorites:events',
 };
 
 const TABLES: Record<Kind, string> = {

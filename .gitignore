@@ -34,6 +34,9 @@ yarn-error.*
 .env
 .env*.local
 
+# Firebase config (project-specific, uploaded to EAS as a file secret instead)
+google-services.json
+
 # typescript
 *.tsbuildinfo
 

@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "MMAPocket",
-    "slug": "mma-pocket",
+    "name": "True MMA",
+    "slug": "true-mma",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mmapocket.app"
+      "bundleIdentifier": "com.truemma.app"
     },
     "android": {
-      "package": "com.mmapocket.app",
+      "package": "com.truemma.app",
       "adaptiveIcon": {
         "backgroundColor": "#0d0d0f",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -23,11 +23,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "owner": "chris09er",
     "extra": {
       "eas": {
-        "projectId": "b1268f4e-d87a-450b-b2aa-1aaeaad172f2"
+        "projectId": "3bac330a-fffa-4c5c-b561-c12757f6c72d"
       }
-    },
-    "owner": "chris09er"
+    }
   }
 }
