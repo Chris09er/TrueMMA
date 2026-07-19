@@ -19,7 +19,7 @@
   </div>
 
   <h1>Datenschutzerklärung — True MMA</h1>
-  <p class="updated">Stand: 18. Juli 2026</p>
+  <p class="updated">Stand: 19. Juli 2026</p>
 
   <h2>1. Verantwortlicher</h2>
   <p>
@@ -49,13 +49,22 @@
       <tr><td>Favorisierte Kämpfer/Events</td><td>Anzeige oben in der Liste</td><td>Nur lokal auf dem Gerät</td></tr>
       <tr><td>Erinnerungen (Event-Reminder)</td><td>Lokale Benachrichtigung zum Event-Start</td><td>Nur lokal auf dem Gerät (expo-notifications), kein Server beteiligt</td></tr>
       <tr><td>Push-Token + gefolgter Kämpfer</td><td>Zustellung einer Push-Benachrichtigung bei neuem Kampf eines gefolgten Kämpfers</td><td>Tabelle push_subscriptions in unserer Datenbank (Supabase, EU)</td></tr>
+      <tr><td>Push-Token + gefolgte Liga</td><td>Zustellung einer Push-Benachrichtigung, sobald ein Event der gefolgten Liga startet</td><td>Tabelle organization_follows in unserer Datenbank (Supabase, EU)</td></tr>
+      <tr><td>Geräte-Kennung + abgegebene Stimme ("Wer gewinnt?")</td><td>Anzeige der Community-Abstimmung zu einem Kampf</td><td>Tabelle fight_votes in unserer Datenbank (Supabase, EU)</td></tr>
     </tbody>
   </table>
   <p>
     Der Push-Token ist eine von Apple/Google/Firebase vergebene, geräte- und
     app-spezifische Kennung ohne direkten Namens- oder Kontobezug. Ohne
-    Login ist die Zeile in <code>push_subscriptions</code> nicht mit einer
-    Identität verknüpft, nur mit diesem Gerät.
+    Login ist die Zeile in <code>push_subscriptions</code>/<code>organization_follows</code>
+    nicht mit einer Identität verknüpft, nur mit diesem Gerät.
+  </p>
+  <p>
+    Die Geräte-Kennung für Abstimmungen ist eine von der App selbst zufällig
+    erzeugte, rein lokal gespeicherte Kennung (kein Push-Token, keine
+    Geräte-ID des Betriebssystems) — bewusst getrennt vom Push-Token, damit
+    das Abstimmen nie die Berechtigungsabfrage für Benachrichtigungen
+    auslöst.
   </p>
 
   <h3>3.2 Mit Nutzerkonto (optional)</h3>
@@ -72,6 +81,7 @@
       <tr><td>Gefolgte Events</td><td>Anzeige im Profil, welche Events du verfolgst</td><td>Tabelle event_follows</td></tr>
       <tr><td>Favorisierte Kämpfer/Events</td><td>Anzeige im Profil, Sortierung in Listen</td><td>Tabellen fighter_favorites / event_favorites</td></tr>
       <tr><td>Push-Token (bei Kämpfer-Follow)</td><td>Zustellung von Push-Benachrichtigungen, jetzt mit Konto verknüpft</td><td>Tabelle push_subscriptions</td></tr>
+      <tr><td>Gefolgte Ligen</td><td>Anzeige im Profil, welche Ligen du verfolgst; Push-Token jetzt mit Konto verknüpft</td><td>Tabelle organization_follows</td></tr>
     </tbody>
   </table>
   <p>
@@ -115,7 +125,8 @@
   <h2>6. Speicherdauer</h2>
   <ul>
     <li>Konto-Daten: bis zur Löschung des Kontos durch die Nutzerin/den Nutzer.</li>
-    <li>Anonyme push_subscriptions-Zeilen (ohne Konto): bis zum expliziten Entfollowen über die App oder bis der Push-Token durch das Betriebssystem ungültig wird.</li>
+    <li>Anonyme push_subscriptions-/organization_follows-Zeilen (ohne Konto): bis zum expliziten Entfollowen über die App oder bis der Push-Token durch das Betriebssystem ungültig wird (letzteres erkennen wir automatisiert an der Zustellquittung von Expo und löschen die Zeile dann).</li>
+    <li>fight_votes-Zeilen (Geräte-Kennung + Stimme): unbegrenzt, da an keine Löschauslöser (Entfollowen, Kontolöschung) gekoppelt — es gibt aktuell keine Funktion zum Zurückziehen einer Stimme außer dem Ändern der eigenen Wahl.</li>
     <li>Lokale Daten (Sprache, Favoriten vor Login, Erinnerungen): verbleiben auf dem Gerät, bis die App-Daten gelöscht oder die App deinstalliert wird.</li>
   </ul>
 
@@ -127,8 +138,8 @@
     Verarbeitung. Wende dich dazu an
     <a href="mailto:support@true-mma.com">support@true-mma.com</a>.
     Kontolöschung (inkl. aller zugehörigen Daten in profiles, event_follows,
-    fighter_favorites, event_favorites, push_subscriptions) kannst du formlos
-    per E-Mail anfragen.
+    fighter_favorites, event_favorites, push_subscriptions,
+    organization_follows) kannst du formlos per E-Mail anfragen.
   </p>
   <p>
     Du hast außerdem das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu
