@@ -45,6 +45,105 @@ conversations/decisions with the maintainer; this file is technical only.
 - **Build:** EAS Build for a development client (required — see
   [Push notifications](#notifications) for why Expo Go isn't enough).
 
+## Environments (dev / stage / main)
+
+Set up 2026-07-19, modeled on a Salesforce-style org promotion pipeline
+(the maintainer's background) adapted to a stack with no declarative
+UI/org to develop against:
+
+- **`dev` branch** — local development only, no dedicated backend or
+  infra. There's nothing analogous to a "dev org" here since this is
+  plain code, not declarative metadata — a developer's own machine plus
+  whichever Supabase project they point their local `.env` at is enough.
+- **`stage` branch** — a real, persistent test environment: its own
+  Supabase project (`true-mma-stage`, ref `qvjgsbeugllobgwabebv`,
+  eu-central-1, **free tier**), its own EAS build profile (`preview` in
+  `eas.json`, already existed — just repointed its EAS env vars at the
+  stage project instead of prod), and its own GitHub Actions
+  environment/secrets (see below).
+- **`main` branch** — production. Existing Supabase project
+  (`mytdfwceuzgqopndqmjt`), EAS `production` profile.
+- **Promotion flow:** PR `dev` → `stage` (test), PR `stage` → `main`
+  (release) — mirrors the org-promotion pattern directly.
+
+**Why two free-tier Supabase projects instead of Supabase Branching:**
+Branching would require upgrading the *existing prod* project to the Pro
+plan (~$25/mo, Branching hangs off the project it branches from) plus
+~$0.01344/hour per active branch (~$9.68/mo for one always-on branch) —
+roughly $35/mo total, for a pre-launch app with zero users. Two separate
+free-tier projects cost $0 (Supabase allows 2 free active projects per
+org). Deliberate, discussed trade-off, not a default — see
+[Known open items](#known-open-items) for when to revisit (Branching
+becomes attractive once the app needs Pro-tier features on prod anyway,
+e.g. better backups before a real store release — at that point the
+switch is cheap since stage only ever holds disposable test data).
+
+**Supabase CLI adoption:** this project had no CLI-based migration
+runner before this — all SQL was pasted by hand into the dashboard's SQL
+Editor (see `supabase/migrations_archive/`, kept for historical
+reference but no longer replayed). Adopting the CLI properly surfaced an
+important gap: `organizations`/`fighters`/`events`/`fights`/
+`push_subscriptions` — the tables the very first hand-written migration
+already assumed existed — were **never captured as SQL anywhere in this
+repo**; they were created directly in the dashboard before any migration
+tracking existed. `supabase/migrations/000_baseline_schema.sql` fixes
+this: a single squashed baseline captured via `supabase db dump --linked`
++ `supabase db pull` (declarative diff) against the live prod database,
+reconciled onto prod's migration history via `supabase migration repair`,
+then replayed cleanly onto the new stage project via `supabase db push`.
+Going forward, both environments start from the same known-good baseline
+and diverge only through new files in `supabase/migrations/`.
+
+- `supabase db pull`/`db diff` need a local Docker-backed shadow
+  database (Postgres running in a container) — Docker Desktop is now a
+  project prerequisite for anyone doing schema work with the CLI. Plain
+  `supabase db dump --linked` (used for the initial baseline capture)
+  does **not** need the shadow database, only Docker itself (to run the
+  correctly-versioned `pg_dump` in a container) — useful to know if
+  Docker Desktop / WSL2 isn't set up yet on a given machine.
+- No DB password needed for any of this, locally or in CI — a
+  `SUPABASE_ACCESS_TOKEN` (personal access token) is sufficient for
+  `supabase link`/`db push`/`db pull` etc. against a project the token's
+  account owns; Supabase mediates the Postgres connection via the
+  Management API rather than requiring the raw DB password.
+
+**GitHub Actions:**
+- Two GitHub **Environments** exist (`production`, `stage`), each with
+  its own scoped secrets: `EXPO_PUBLIC_SUPABASE_URL`,
+  `SUPABASE_SERVICE_ROLE_KEY`, `BALLDONTLIE_API_KEY` (same balldontlie
+  key/quota reused across both — a second ALL-STAR subscription wasn't
+  considered worth it pre-launch). A single repo-level secret,
+  `SUPABASE_ACCESS_TOKEN`, is shared across environments since it's an
+  account-level credential, not project-specific; each environment has
+  its own `SUPABASE_PROJECT_REF` **variable** (not a secret — project
+  refs aren't sensitive).
+- **`.github/workflows/deploy-migrations.yml`** (new) — runs
+  `supabase db push` on every push to `main`/`stage` that touches
+  `supabase/migrations/**`, targeting the matching environment via
+  `environment: ${{ github.ref_name == 'main' && 'production' ||
+  'stage' }}`. This is the actual promotion mechanism for schema changes
+  — write a migration once, it deploys to whichever branch it lands on.
+- The two balldontlie sync workflows
+  (`sync-balldontlie-full.yml`/`sync-balldontlie-live.yml`, see
+  [balldontlie sync](#balldontlie-sync)) each got split into
+  `sync-production` and `sync-stage` jobs, each pinned to its
+  environment/branch/secrets. Stage's full sync runs hourly instead of
+  prod's 6-hourly cadence (shorter feedback loop while testing); the
+  5-minute live-event check stays the same cadence for both since it's
+  already near-free when nothing is live.
+- **Important GitHub platform quirk, hit while setting this up:** a
+  *brand-new* workflow file is not `workflow_dispatch`-able at all —
+  not even against the branch it was authored on — until it exists on
+  the repo's **default branch** (`main`). Scheduled (`cron`) triggers
+  have the same restriction (GitHub only reads `schedule:` from the
+  default branch's copy of a workflow, regardless of what other branches
+  contain). This is why `deploy-migrations.yml` had to be merged all the
+  way to `main` before it could be test-triggered at all — budget for
+  this when adding a new workflow in the future, it can't be validated
+  in isolation on a feature branch first.
+- Not yet done: EAS Update (OTA) channels mapped to branches — see
+  [Known open items](#known-open-items).
+
 ## Data model
 
 Tables (Supabase Postgres), all with RLS enabled:
@@ -506,6 +605,20 @@ after seeding data doesn't create duplicate organizations) →
 
 ## Known open items
 
+- **EAS Update (OTA) channels not set up yet** — would let JS-only
+  changes push to `stage`/`production` builds without a full native
+  rebuild, mapped to branches the same way the rest of the
+  [Environments](#environments-dev--stage--main) pipeline is. Requires
+  installing `expo-updates` (a native module — needs a fresh EAS dev
+  build once added, see the rebuild-triggers note in
+  [Build & deployment](#build--deployment)). Deliberately deferred
+  2026-07-19 to a follow-up session rather than stacking another native
+  rebuild onto the same session as the FCM V1 one.
+- **Revisit Supabase Branching vs. two free-tier projects** before a real
+  store release — see the trade-off written up in
+  [Environments](#environments-dev--stage--main). Switching to Branching
+  later is expected to be cheap since stage only ever holds disposable
+  test data.
 - `push_subscriptions` anonymous rows (`user_id is null`) are still fully
   public by design (`user_id is null or user_id = auth.uid()`) —
   acceptable for MVP (low-sensitivity data: device token ↔ fighter id),
