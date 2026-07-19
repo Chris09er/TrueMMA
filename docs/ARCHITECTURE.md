@@ -986,6 +986,24 @@ after seeding data doesn't create duplicate organizations) →
 
 ## Known open items
 
+- ~~`main` had never received any of the dev/stage/main pipeline's work~~ —
+  **resolved 2026-07-19.** First promotion since the pipeline was set up:
+  PR #11 merged all 21 commits from `stage` into `main` in one go (sync-cost
+  optimization, the two live-sync bug fixes, the league-start push and its
+  006/007 security fix — shipped together deliberately, see
+  [Notifications](#notifications) — auth/voting/favorites/org-follows, OTA
+  channel setup, and this session's push-chunking/receipts work).
+  `deploy-migrations.yml` applied migrations 001–008 to the production
+  Supabase project without error; `publish-ota-update.yml` published to the
+  `production` EAS Update channel (a no-op today — no production build has
+  ever embedded `expo-updates`, so nothing is listening on that channel
+  yet). `main` and `stage` are now at the same commit. Verified against the
+  production project post-merge via `supabase login` (CLI-level access
+  token, kept separate from local `.env` — which deliberately still holds
+  only the stage service-role key, see below) + `supabase projects
+  api-keys --reveal`: `league_start_push_health()` returns
+  `job_scheduled`/`job_active` true and a recent `succeeded` run on
+  production, same as already confirmed on stage.
 - ~~EAS Update (OTA) channels configured but not yet live end-to-end~~ —
   **resolved 2026-07-19.** `EXPO_TOKEN` repo secret created (an Expo
   **robot user** token, not a personal one — see [Build &
