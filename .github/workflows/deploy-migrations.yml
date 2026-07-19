@@ -7,15 +7,25 @@ on:
       - 'supabase/migrations/**'
   workflow_dispatch: {}
 
+# Never let two migration deploys race against the same database — `supabase
+# db push` is stateful (it advances the remote migration history), so a second
+# concurrent run could apply against a half-migrated schema. Queue instead of
+# cancelling: a cancelled deploy could leave migrations half-applied.
+concurrency:
+  group: deploy-migrations-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: ${{ github.ref_name == 'main' && 'production' || 'stage' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
       - run: npm ci
       - run: npx supabase link --project-ref "$SUPABASE_PROJECT_REF"
         env:

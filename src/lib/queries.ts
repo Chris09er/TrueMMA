@@ -30,7 +30,7 @@ const EVENT_LIST_COLUMNS =
   'id, organization_id, name, event_date, city, country, venue, venue_state, poster_url, status, main_card_start_time, prelims_start_time, early_prelims_start_time, organizations(short_name)';
 
 const FIGHTER_COLUMNS =
-  'id, name, nickname, nationality, photo_url, tapology_url, sherdog_url, record_wins, record_losses, record_draws, record_no_contests, weight_class, height_inches, reach_inches, weight_lbs, stance, date_of_birth, birth_place, active';
+  'id, name, nickname, nationality, photo_url, tapology_url, sherdog_url, record_wins, record_losses, record_draws, record_no_contests, weight_class, height_inches, reach_inches, weight_lbs, stance, date_of_birth, birth_place, active, primary_organization_id';
 
 const FIGHT_COLUMNS = `id, event_id, weight_class, is_main_event, is_title_fight, card_position, card_segment, status, scheduled_rounds, result_winner_id, result_method, result_method_detail, result_round, result_time, fighter1:fighter1_id(${FIGHTER_COLUMNS}), fighter2:fighter2_id(${FIGHTER_COLUMNS})`;
 
@@ -40,6 +40,21 @@ const FIGHT_COLUMNS = `id, event_id, weight_class, is_main_event, is_title_fight
 // actually landed in.
 export function isEventUpcoming(eventDateIso: string): boolean {
   return new Date(eventDateIso).getTime() >= Date.now();
+}
+
+// balldontlie gives us broadcast start times but no end time. A full card
+// (early prelims through main event) rarely runs past ~6 hours from its
+// earliest segment's start — same generous buffer used by
+// scripts/sync-live-event.ts, kept in sync with that file if it ever changes.
+const CARD_DURATION_BUFFER_MS = 6 * 60 * 60 * 1000;
+
+export function isEventLive(event: Pick<EventListItem, 'event_date' | 'early_prelims_start_time' | 'prelims_start_time' | 'main_card_start_time'>): boolean {
+  const earliestStart = new Date(
+    event.early_prelims_start_time ?? event.prelims_start_time ?? event.main_card_start_time ?? event.event_date
+  ).getTime();
+  const estimatedEnd = earliestStart + CARD_DURATION_BUFFER_MS;
+  const now = Date.now();
+  return now >= earliestStart && now <= estimatedEnd;
 }
 
 async function getEvents(
@@ -94,6 +109,31 @@ export async function getEventsInRange(
   return (data ?? []) as unknown as EventListItem[];
 }
 
+// Local YYYY-MM-DD, from the device's own calendar fields — deliberately not
+// via toISOString(), which converts to UTC and would name the previous day
+// for any positive-UTC-offset zone (all of Europe).
+function localDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// "Today" = events whose local calendar date is today, plus anything still
+// live from before midnight (see isEventLive) so a card that started late
+// last night doesn't disappear from "today" the moment the day rolls over.
+export async function getTodayEvents(organizationId?: string): Promise<EventListItem[]> {
+  const now = new Date();
+  const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const todayKey = localDateKey(now);
+
+  const events = await getEventsInRange(startOfYesterday.toISOString(), startOfTomorrow.toISOString(), organizationId);
+  // Compare the event's *local* calendar date, not event_date.slice(0, 10)
+  // (which is the UTC date) — both sides must be in the device's zone.
+  return events.filter((event) => localDateKey(new Date(event.event_date)) === todayKey || isEventLive(event));
+}
+
 export async function getFighters(): Promise<Fighter[]> {
   const { data, error } = await supabase
     .from('fighters')
@@ -119,7 +159,7 @@ export async function getEventDetail(eventId: string): Promise<EventDetail> {
   const { data, error } = await supabase
     .from('events')
     .select(
-      'id, name, event_date, city, country, venue, venue_state, poster_url, status, main_card_start_time, prelims_start_time, early_prelims_start_time, organizations(short_name)'
+      'id, organization_id, name, event_date, city, country, venue, venue_state, poster_url, status, main_card_start_time, prelims_start_time, early_prelims_start_time, organizations(short_name)'
     )
     .eq('id', eventId)
     .single();
@@ -151,6 +191,18 @@ export async function getFollowedEvents(userId: string): Promise<EventListItem[]
   return ((data ?? []) as unknown as { events: EventListItem | null }[])
     .map((row) => row.events)
     .filter((event): event is EventListItem => event !== null);
+}
+
+export async function getFollowedOrganizations(userId: string): Promise<Organization[]> {
+  const { data, error } = await supabase
+    .from('organization_follows')
+    .select('organizations(id, name, short_name, logo_url)')
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  return ((data ?? []) as unknown as { organizations: Organization | null }[])
+    .map((row) => row.organizations)
+    .filter((org): org is Organization => org !== null);
 }
 
 export async function getFighterFights(fighterId: string): Promise<FightWithEvent[]> {

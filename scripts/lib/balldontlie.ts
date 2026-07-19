@@ -85,16 +85,23 @@ export async function upsertBatched(table: string, rows: Record<string, unknown>
 // downstream upsert that depends on it. Page through explicitly instead.
 const SUPABASE_PAGE_SIZE = 1000;
 
-export async function externalIdMap(table: string): Promise<Map<number, string>> {
+// `externalIds`, when given, restricts the lookup to just those ids instead of
+// loading the whole table. The live sync needs a map for one event's ~24
+// fighters — without this it would page through every fighter row on every
+// poll. Omit it for the full sync, which genuinely needs the whole map.
+export async function externalIdMap(table: string, externalIds?: number[]): Promise<Map<number, string>> {
   const map = new Map<number, string>();
+  if (externalIds && externalIds.length === 0) return map;
   let from = 0;
 
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from(table)
       .select('id, external_id')
-      .not('external_id', 'is', null)
-      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+      .not('external_id', 'is', null);
+    if (externalIds) query = query.in('external_id', externalIds);
+
+    const { data, error } = await query.range(from, from + SUPABASE_PAGE_SIZE - 1);
     if (error) throw error;
 
     for (const row of data ?? []) {
@@ -161,7 +168,12 @@ export type BdlFight = {
   result_time: string | null;
 };
 
-export function fighterRow(fighter: BdlFighter): Record<string, unknown> {
+// organizationId is the org of the fight/event this fighter was just synced
+// from — best-effort "primary organization" (most-recently-synced org
+// wins; a fighter who has switched orgs won't show a full history, see
+// docs/ARCHITECTURE.md). Omitted when a fighter is synced outside of an
+// event/fight context.
+export function fighterRow(fighter: BdlFighter, organizationId?: string): Record<string, unknown> {
   return {
     external_id: fighter.id,
     name: fighter.name,
@@ -179,6 +191,7 @@ export function fighterRow(fighter: BdlFighter): Record<string, unknown> {
     record_no_contests: fighter.record_no_contests,
     active: fighter.active,
     weight_class: fighter.weight_class?.name ?? null,
+    ...(organizationId ? { primary_organization_id: organizationId } : {}),
   };
 }
 

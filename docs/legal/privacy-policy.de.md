@@ -1,14 +1,14 @@
 <!--
 ENTWURF — vor Veröffentlichung von einem Anwalt/einer Anwältin prüfen lassen.
 Kein Ersatz für Rechtsberatung. Basiert auf dem in docs/ARCHITECTURE.md
-dokumentierten Datenmodell (Stand 2026-07-18) — bei jeder Änderung am
+dokumentierten Datenmodell (Stand 2026-07-19) — bei jeder Änderung am
 Datenmodell (neue Tabelle, neues Feld mit Personenbezug, neuer
 Drittanbieter) hier nachziehen.
 -->
 
 # Datenschutzerklärung — True MMA
 
-Stand: 18. Juli 2026
+Stand: 19. Juli 2026
 
 ## 1. Verantwortlicher
 
@@ -37,11 +37,19 @@ Analyse-SDKs eingesetzt, es findet kein Tracking zu Werbezwecken statt.
 | Favorisierte Kämpfer/Events | Anzeige oben in der Liste | Nur lokal auf dem Gerät |
 | Erinnerungen (Event-Reminder) | Lokale Benachrichtigung zum Event-Start | Nur lokal auf dem Gerät (`expo-notifications`), kein Server beteiligt |
 | Push-Token + gefolgter Kämpfer | Zustellung einer Push-Benachrichtigung bei neuem Kampf eines gefolgten Kämpfers | Tabelle `push_subscriptions` in unserer Datenbank (Supabase, EU) |
+| Push-Token + gefolgte Liga | Zustellung einer Push-Benachrichtigung, sobald ein Event der gefolgten Liga startet | Tabelle `organization_follows` in unserer Datenbank (Supabase, EU) |
+| Geräte-Kennung + abgegebene Stimme ("Wer gewinnt?") | Anzeige der Community-Abstimmung zu einem Kampf | Tabelle `fight_votes` in unserer Datenbank (Supabase, EU) |
 
 Der Push-Token ist eine von Apple/Google/Firebase vergebene, geräte- und
 app-spezifische Kennung ohne direkten Namens- oder Kontobezug. Ohne
-Login ist die Zeile in `push_subscriptions` nicht mit einer Identität
-verknüpft, nur mit diesem Gerät.
+Login ist die Zeile in `push_subscriptions`/`organization_follows` nicht
+mit einer Identität verknüpft, nur mit diesem Gerät.
+
+Die Geräte-Kennung für Abstimmungen ist eine von der App selbst zufällig
+erzeugte, rein lokal gespeicherte Kennung (kein Push-Token, keine
+Geräte-ID des Betriebssystems) — bewusst getrennt vom Push-Token, damit
+das Abstimmen nie die Berechtigungsabfrage für Benachrichtigungen
+auslöst.
 
 ### 3.2 Mit Nutzerkonto (optional)
 
@@ -56,6 +64,7 @@ freiwillig: ein Spitzname.
 | Gefolgte Events | Anzeige im Profil, welche Events du verfolgst | Tabelle `event_follows` |
 | Favorisierte Kämpfer/Events | Anzeige im Profil, Sortierung in Listen | Tabellen `fighter_favorites` / `event_favorites` |
 | Push-Token (bei Kämpfer-Follow) | Zustellung von Push-Benachrichtigungen, jetzt mit Konto verknüpft | Tabelle `push_subscriptions` |
+| Gefolgte Ligen | Anzeige im Profil, welche Ligen du verfolgst; Push-Token jetzt mit Konto verknüpft | Tabelle `organization_follows` |
 
 Wir erheben bewusst keine weiteren personenbezogenen Daten (kein Name,
 keine Adresse, kein Geburtsdatum, keine Zahlungsdaten — die App ist
@@ -106,9 +115,14 @@ nie mit Nutzerdaten angereichert.
 ## 6. Speicherdauer
 
 - Konto-Daten: bis zur Löschung des Kontos durch die Nutzerin/den Nutzer.
-- Anonyme `push_subscriptions`-Zeilen (ohne Konto): bis zum expliziten
-  Entfollowen über die App oder bis der Push-Token durch das Betriebssystem
-  ungültig wird.
+- Anonyme `push_subscriptions`-/`organization_follows`-Zeilen (ohne Konto):
+  bis zum expliziten Entfollowen über die App oder bis der Push-Token durch
+  das Betriebssystem ungültig wird (letzteres erkennen wir automatisiert an
+  der Zustellquittung von Expo und löschen die Zeile dann).
+- `fight_votes`-Zeilen (Geräte-Kennung + Stimme): unbegrenzt, da an keine
+  Löschauslöser (Entfollowen, Kontolöschung) gekoppelt — es gibt aktuell
+  keine Funktion zum Zurückziehen einer Stimme außer dem Ändern der eigenen
+  Wahl.
 - Lokale Daten (Sprache, Favoriten vor Login, Erinnerungen): verbleiben auf
   dem Gerät, bis die App-Daten gelöscht oder die App deinstalliert wird.
 
@@ -119,8 +133,8 @@ Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18),
 Datenübertragbarkeit (Art. 20) sowie Widerspruch (Art. 21) gegen die
 Verarbeitung. Wende dich dazu an support@true-mma.com. Kontolöschung
 (inkl. aller zugehörigen Daten in `profiles`, `event_follows`,
-`fighter_favorites`, `event_favorites`, `push_subscriptions`) kannst du
-formlos per E-Mail anfragen.
+`fighter_favorites`, `event_favorites`, `push_subscriptions`,
+`organization_follows`) kannst du formlos per E-Mail anfragen.
 
 Du hast außerdem das Recht, dich bei einer Datenschutz-Aufsichtsbehörde
 zu beschweren, z. B. beim Hamburgischen Beauftragten für Datenschutz und

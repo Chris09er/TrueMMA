@@ -18,7 +18,8 @@ Yes.
 |---|---|---|---|---|---|
 | Email address | Yes | No (Supabase/IONOS act as processors, not "sharing" under Play's definition — see note) | Account management | Optional (account is opt-in) | Yes, if account created |
 | User-generated content (nickname) | Yes | No | App functionality (profile display) | Optional | Yes, if account created |
-| Device or other IDs (push token) | Yes | No | App functionality (push notifications) | Optional (only if user enables follow/reminders) | Only if account exists, otherwise not linked |
+| Device or other IDs (push token, fighter/organization follow) | Yes | No | App functionality (push notifications) | Optional (only if user enables follow/reminders) | Only if account exists, otherwise not linked |
+| Device or other IDs (voting identifier) | Yes | No | App functionality (community fight predictions) | Optional (only if user casts a vote) | Never — no account-linking path exists for `fight_votes` |
 
 **Note on "shared":** Expo (push relay), Firebase Cloud Messaging, and
 IONOS (SMTP) are service providers processing data strictly to operate the
@@ -46,12 +47,16 @@ cross-app/cross-site tracking.)
   Functionality.
 - **Other Data → Other User Content** — the optional nickname.
 - **Identifiers → Device ID** — the push token, *only* when a
-  `push_subscriptions` row is linked to a logged-in `user_id`.
+  `push_subscriptions`/`organization_follows` row is linked to a
+  logged-in `user_id`.
 
 **Data Not Linked to You:**
 - **Identifiers → Device ID** — the push token for anonymous
   (not-logged-in) follows, since Apple's "linked" definition is about
   linkage to the user's identity, and an anonymous row has none.
+- **Identifiers → Device ID** — the app-generated voting identifier
+  (`fight_votes`), which never links to an account at all, logged in or
+  not (see [Voting](../ARCHITECTURE.md#voting)).
 
 **Data collection purposes to select, per data type above:** "App
 Functionality" only — none of these are used for Analytics, Advertising,
@@ -61,7 +66,7 @@ Third-Party Advertising, or Product Personalization.
 
 - If [FCM V1 / Android push](../ARCHITECTURE.md#notifications) or the
   auth/email provider ever changes, re-check both forms — they're
-  currently accurate as of 2026-07-18's data model.
+  currently accurate as of 2026-07-19's data model.
 - Both stores require a **published, reachable Privacy Policy URL** at
   submission time — the drafts in this folder need to be hosted somewhere
   public (e.g. a static page at `true-mma.com/privacy`) before they can be
