@@ -32,4 +32,4 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - run: npx eas-cli update --environment "$EAS_ENVIRONMENT" --channel "$EAS_CHANNEL" --branch "$EAS_CHANNEL" --message "${{ github.event.head_commit.message }}" --non-interactive
+      - run: npx eas-cli update --environment "$EAS_ENVIRONMENT" --channel "$EAS_CHANNEL" --message "${{ github.event.head_commit.message }}" --non-interactive
