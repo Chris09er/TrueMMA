@@ -485,6 +485,71 @@ constraints:
    rather than sent late. That divergence is intentional — don't "fix" it by
    unifying the two buffers.
 
+**Chunking and delivery receipts, added 2026-07-19
+(`supabase/migrations/008_push_chunking_and_receipts.sql`).** Both push paths
+above used to build one `net.http_post` per event/fight containing every
+matching subscriber — a hard cliff past Expo's 100-message-per-request limit,
+and blind to individual message failures (Expo returns HTTP 200 even when a
+message fails, most importantly `DeviceNotRegistered` for an uninstalled
+app). Both gaps came from the same missing piece — neither path tracked
+individual messages past the point of firing `net.http_post` — so this adds
+that tracking once, shared by both callers, instead of patching each path
+separately:
+
+- **`send_expo_push_chunked(messages, source)`** — the shared replacement for
+  both paths' inline `net.http_post`. Splits `messages` into ≤100-message
+  chunks (Expo's limit), fires one request per chunk, and records each in
+  `push_send_batches` (`net_request_id`, the chunk's ordered `push_tokens`,
+  a `source` tag). Returns the request ids it generated, for callers that
+  need their own success tracking.
+- **`reconcile_push_send_batches()`** — once a batch's response lands in
+  `net._http_response`, parses Expo's per-message tickets (positional —
+  Expo's response array order matches the request order, it doesn't echo
+  the token back) into one `push_tickets` row per message. A send-time
+  `DeviceNotRegistered` (no ticket issued at all) triggers immediate
+  cleanup; everything else waits for a receipt.
+- **`request_push_receipts()` / `reconcile_push_receipts()`** — ≥20 minutes
+  after a ticket was created (Expo recommends waiting ≥15 min), batches
+  ticket ids (≤1000 per Expo's `/getReceipts` limit) and polls it, updating
+  `push_tickets.receipt_status`. A `DeviceNotRegistered` receipt deletes
+  every `push_subscriptions`/`organization_follows` row with that
+  `push_token` — checked on both tables regardless of which path the ticket
+  came from, since a stale token is stale everywhere.
+- **`push_maintenance()`** runs the three reconcile/request functions above
+  in order, guarded by its own `pg_try_advisory_lock` (independent of
+  `send_league_start_pushes`'s lock — different concern). Registered as a
+  new `pg_cron` job, `push-maintenance`, on a 5-minute cadence (receipts have
+  a built-in 20-minute floor before anything is actionable, so the 1-minute
+  cadence `league-start-pushes` needs for latency would just be wasted
+  ticks).
+- `notify_fighter_added_to_fight()` and `send_league_start_pushes()` both now
+  call `send_expo_push_chunked()` instead of `net.http_post` directly.
+  League-start's own event-level "did it succeed" tracking (Phase 1/2 in
+  [pg_cron above](#notifications)) is unaffected in spirit but now covers an
+  *array* of request ids per event
+  (`events.league_start_push_request_ids`, replacing the old scalar
+  `league_start_push_request_id`) since one event's push can now span
+  multiple chunks — stamped `sent_at` only once every chunk in the array
+  succeeded.
+- `push_send_batches`/`push_tickets`/`push_receipt_batches` are purely
+  operational bookkeeping — RLS enabled, no policies, no anon/authenticated
+  grants, same treatment as `events_pending_league_start_push`.
+- **Verified locally** via `supabase db reset` + fabricated
+  `net._http_response` rows (same technique 006/007 used), including a
+  discovery made while doing so: the local Supabase Postgres's `pg_net`
+  actually performs real outbound HTTP calls (there is network access from
+  the container), so a manually-inserted response row can collide with a
+  genuine one on the same `net_request_id` if a real `net.http_post` for
+  that id was also issued in the test — the fabricated-response tests here
+  used request ids from rows inserted directly into `push_send_batches`/
+  `push_receipt_batches` (never passed through the real chunked-send
+  function) to avoid that collision. Confirmed: >100-follower chunking (150
+  followers → 2 batches of 100/50), ticket creation with correct
+  token-to-ticket pairing, immediate cleanup on a send-time
+  `DeviceNotRegistered`, and cleanup on a delayed (receipt-time) one. **Not
+  yet verified against a real uninstalled app** — same caveat the
+  league-start push already carries for real end-to-end delivery.
+
 `resolvePushToken()` in `pushSubscriptions.ts` deliberately never prompts
 for permission just to *check* follow-state (`isFollowingFighter`) — only
 an explicit `followFighter()` call (interactive) may trigger the OS
@@ -987,21 +1052,17 @@ after seeding data doesn't create duplicate organizations) →
   `cron.unschedule()` instead, wrapped in an exception block since it
   raises when the job doesn't exist. Caught by local replay, see the
   Supabase CLI notes in [Environments](#environments-dev--stage--main).
-- **Neither push path chunks messages to Expo's 100-per-request limit.**
-  `notify_fighter_added_to_fight()` and `send_league_start_pushes()` both
-  build one `net.http_post` containing every matching subscriber. Below
-  ~100 followers per fighter/org this is fine and it's why it hasn't
-  surfaced pre-launch, but it's a hard cliff, not a gradual degradation.
-  Fix both together when it matters — they share the shape, and fixing only
-  one would leave the trap in place.
-- **Neither push path reads Expo's push tickets.** Expo returns HTTP 200
-  even when individual messages fail (most importantly
-  `DeviceNotRegistered`, i.e. the app was uninstalled), so
-  `league_start_push_sent_at` records "Expo accepted the batch", not "the
-  user got it". Stale tokens therefore accumulate in `push_subscriptions`/
-  `organization_follows` forever. Proper handling means storing the ticket
-  ids and polling Expo's receipts endpoint later — a real feature, worth
-  doing before a store release, not before.
+- ~~Neither push path chunks messages to Expo's 100-per-request limit~~ /
+  ~~Neither push path reads Expo's push tickets~~ — **resolved 2026-07-19**
+  by `supabase/migrations/008_push_chunking_and_receipts.sql`, see
+  [Notifications](#notifications). Both gaps shared one root cause (neither
+  path tracked individual messages past `net.http_post`), fixed together: a
+  shared `send_expo_push_chunked()` splits into ≤100-message chunks, and a
+  new `push_maintenance()` pg_cron job polls Expo's `/getReceipts` endpoint
+  and deletes `push_subscriptions`/`organization_follows` rows for any
+  token that comes back `DeviceNotRegistered`. Verified locally via
+  fabricated `net._http_response` rows; not yet verified against a real
+  uninstalled app.
 - **Revisit Supabase Branching vs. two free-tier projects** before a real
   store release — see the trade-off written up in
   [Environments](#environments-dev--stage--main). Switching to Branching

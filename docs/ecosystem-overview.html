@@ -572,11 +572,23 @@
         <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
         <div class="node"><span class="n-name">Expo → FCM</span><span class="n-sub">wie oben</span></div>
       </div>
+      <div class="chain">
+        <div class="node"><span class="n-name">pg_cron</span><span class="n-sub">alle 5 Min</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Expo /getReceipts</span><span class="n-sub">≥20 Min nach Versand</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Tote Tokens löschen</span><span class="n-sub">DeviceNotRegistered</span></div>
+      </div>
       <div class="note">
         <strong>Warum zweiphasig?</strong> <code>pg_net</code> arbeitet asynchron und startet den
         Request erst nach dem Commit — ein Durchlauf kann also gar nicht wissen, ob der Push ankam.
         Deshalb gleicht jeder Tick zuerst das Ergebnis des vorherigen ab, bevor er neue Requests
         stellt. Erst eine bestätigte 2xx-Antwort markiert das Event als erledigt.
+        <br><br>
+        Beide oberen Pfade versenden seit 2026-07-19 in ≤100er-Blöcken (Expos Limit pro Request)
+        über eine gemeinsame Funktion, die auch die dritte Zeile hier speist: Expo liefert HTTP 200
+        selbst wenn einzelne Nachrichten fehlschlagen, daher fragt ein dritter, unabhängiger
+        <code>pg_cron</code>-Job Zustellquittungen ab und räumt deinstallierte Geräte auf.
         <br><br>
         Der <strong>Event-Reminder</strong> ist bewusst kein Push: Er wird lokal auf dem Gerät
         geplant und braucht überhaupt keinen Server.
@@ -713,22 +725,6 @@
     <h2>Bekannte Lücken</h2>
     <p>Nichts davon blockiert die Entwicklung — aber alles davon sollte vor einem Store-Release entschieden sein.</p>
     <div class="gaps">
-
-      <div class="gap">
-        <span class="sev" style="color: var(--crit)">vor Release</span>
-        <div>
-          <h3>Push-Quittungen werden nicht gelesen</h3>
-        </div>
-        <p>Expo antwortet auch dann mit 200, wenn einzelne Nachrichten scheitern — etwa weil die App deinstalliert wurde. „Gesendet" heißt hier also nur „Expo hat den Stapel angenommen". Tote Tokens sammeln sich unbegrenzt an. Betrifft beide Push-Wege.</p>
-      </div>
-
-      <div class="gap">
-        <span class="sev" style="color: var(--crit)">vor Release</span>
-        <div>
-          <h3>Kein Chunking auf 100 Nachrichten</h3>
-        </div>
-        <p>Beide Push-Wege bauen einen einzigen Request mit allen Empfängern. Unter ~100 Followern unauffällig, darüber eine harte Kante statt einer langsamen Verschlechterung.</p>
-      </div>
 
       <div class="gap">
         <span class="sev" style="color: var(--warn)">bewusst</span>
