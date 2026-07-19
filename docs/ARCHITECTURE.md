@@ -108,6 +108,17 @@ then replayed cleanly onto the new stage project via `supabase db push`.
 Going forward, both environments start from the same known-good baseline
 and diverge only through new files in `supabase/migrations/`.
 
+- **`supabase/config.toml` exists as of 2026-07-19** (`supabase init`).
+  The repo never had one, which is why migrations could previously only be
+  validated by deploying them. With it, `npx supabase start` (optionally
+  `-x studio,realtime,storage-api,...` to boot only the database) plus
+  `npx supabase db reset` replays every migration from `000` against a
+  local Postgres — the fastest way to catch a broken migration. Doing
+  exactly this caught the `cron.job` permission error in `006` before it
+  ever reached an environment. **Run it before pushing any migration.**
+  On Windows/Git Bash, prefix `docker cp`/`docker exec` calls that take
+  container paths with `MSYS_NO_PATHCONV=1`, or the path gets rewritten
+  into a Windows path and the command fails confusingly.
 - `supabase db pull`/`db diff` need a local Docker-backed shadow
   database (Postgres running in a container) — Docker Desktop is now a
   project prerequisite for anyone doing schema work with the CLI. Plain
@@ -141,10 +152,29 @@ and diverge only through new files in `supabase/migrations/`.
   (`sync-balldontlie-full.yml`/`sync-balldontlie-live.yml`, see
   [balldontlie sync](#balldontlie-sync)) each got split into
   `sync-production` and `sync-stage` jobs, each pinned to its
-  environment/branch/secrets. Stage's full sync runs hourly instead of
-  prod's 6-hourly cadence (shorter feedback loop while testing); the
-  5-minute live-event check stays the same cadence for both since it's
-  already near-free when nothing is live.
+  environment/branch/secrets. The 5-minute live-event check uses the same
+  cadence for both since it's already near-free when nothing is live (but
+  see the delivery caveat under [balldontlie sync](#balldontlie-sync) — that
+  cadence is not what actually runs).
+- Stage's full sync ran **hourly** until 2026-07-19, now **twice daily**
+  (`41 4,16 * * *`). Hourly meant 24 full syncs/day against deliberately
+  disposable test data, and its slots drifted into production's — two
+  concurrent syncs each pacing at ~54 req/min against balldontlie's
+  60 req/min ALL-STAR limit could push past it, and a sustained 429 run
+  aborts the sync after `MAX_RATE_LIMIT_RETRIES`. The `league_ids[]` fix
+  (see [balldontlie sync](#balldontlie-sync)) largely defuses this on its
+  own, but the cadence and the guard below are the actual fix.
+- **All four workflows now declare a `concurrency:` group** (added
+  2026-07-19). Previously none did, so a slow run plus the next scheduled
+  trigger could overlap. `deploy-migrations.yml` is the one that mattered
+  most: `supabase db push` advances remote migration history, so two
+  concurrent runs could apply against a half-migrated schema — it queues
+  (`cancel-in-progress: false`) rather than cancelling, since a cancelled
+  migration deploy could leave migrations half-applied. `publish-ota-update`
+  uses `cancel-in-progress: true` (only the newest bundle matters). All jobs
+  also got `timeout-minutes`, so a hung run fails in minutes instead of
+  occupying a runner until GitHub's 6-hour default, and `setup-node` now
+  caches npm downloads.
 - **Important GitHub platform quirk, hit while setting this up:** a
   *brand-new* workflow file is not `workflow_dispatch`-able at all —
   not even against the branch it was authored on — until it exists on
@@ -388,15 +418,43 @@ constraints:
 3. **League-follow push** (`src/lib/organizationFollows.ts`, added
    2026-07-19) — same push-token/anonymous-follow shape as fighter-follow,
    but fires when a followed organization's event actually **starts**, not
-   when it's created — so it can't be a simple `AFTER INSERT` trigger.
-   Instead, `scripts/sync-live-event.ts`'s existing 5-minute "is anything
-   live right now?" poll (see [balldontlie sync](#balldontlie-sync)) got a
-   `sendLeagueStartPushes()` step: for each event that just went live and
-   hasn't been notified yet (`events.league_start_push_sent_at is null`),
-   it looks up `organization_follows` for that org and POSTs to the same
-   Expo push endpoint directly from Node (not SQL, since the "is it live"
-   logic already lives here in JS), then stamps
-   `league_start_push_sent_at` so it only fires once per event.
+   when it's created, so it can't be a simple `AFTER INSERT` trigger. It
+   needs something that ticks on a timer.
+
+   **Driven by `pg_cron` inside Supabase since 2026-07-19**
+   (`supabase/migrations/006_league_start_push_pg_cron.sql`). It originally
+   piggybacked on `scripts/sync-live-event.ts`'s 5-minute GitHub Actions
+   poll, but GitHub delivers that schedule only about hourly (measured —
+   see [balldontlie sync](#balldontlie-sync)), so a "starts now" push could
+   land hours late. `pg_cron` runs in the database on a real timer and
+   actually ticks every minute. **Only the push moved**; the live *data*
+   refresh stays in Node, since it needs an outbound API call with a key
+   and JSON mapping — work that doesn't belong in PL/pgSQL — and data
+   freshness tolerates the latency that a notification doesn't.
+
+   **Two-phase delivery, because `pg_net` is asynchronous.**
+   `net.http_post` returns a request id and, per pg_net's docs, doesn't even
+   start the request until the surrounding transaction commits — so a single
+   pass cannot know whether the push succeeded. Each tick therefore:
+   1. **reconciles** request ids issued by an earlier tick against
+      `net._http_response` — a 2xx stamps `events.league_start_push_sent_at`
+      (the single source of truth for "done"); anything else clears the
+      attempt so it retries;
+   2. **issues** new requests for events that just went live, recording the
+      request id in `events.league_start_push_request_id`.
+
+   This keeps the retry-on-transient-failure property the Node version had.
+   A `pg_try_advisory_lock` guard prevents two ticks from overlapping and
+   double-sending.
+
+   **The "just went live" window is 30 minutes, deliberately not the ~6 h
+   card-duration buffer** used by `isEventLive()`/`sync-live-event.ts`.
+   Those answer "is this card still on air" (right for refreshing fight
+   data); this answers "did it just start". A push announcing that an event
+   is starting has no business firing five hours in, so if the database is
+   unreachable longer than that window the push is correctly *dropped*
+   rather than sent late. That divergence is intentional — don't "fix" it by
+   unifying the two buffers.
 
 `resolvePushToken()` in `pushSubscriptions.ts` deliberately never prompts
 for permission just to *check* follow-state (`isFollowingFighter`) — only
@@ -548,7 +606,16 @@ trigger the OS notification-permission prompt).
   allows anonymous insert/select/update outright (same trust model already
   accepted for `push_subscriptions`'s anonymous rows: client self-reports
   its own identifier, low-sensitivity data, no server-verifiable anti-abuse
-  beyond the per-device uniqueness constraint).
+  beyond the per-device uniqueness constraint). Concretely, the `update`
+  policy is `using (true)` with no `device_id` scoping, so vote counts are
+  fully attacker-mutable: anyone with the anon key can not only stuff the
+  tally with forged `device_id`s (the uniqueness constraint only stops
+  duplicates, not distinct fakes) but also **overwrite existing rows created
+  by other devices** in a single `PATCH`. Accepted for MVP — these are
+  anonymous, non-PII "who wins?" tallies with no server-verifiable device
+  identity to scope against — but treat the counts as indicative, not
+  trustworthy. If they ever need to be trustworthy, casting has to move
+  behind a `security definer` RPC / service-role path.
 - **Fetching:** `getEventVotes()` batches one query per event load (all
   fight ids via `.in()`) rather than one query per fight card, then counts
   votes per fighter client-side — small enough per event that a dedicated
@@ -570,6 +637,23 @@ client with rate-limiting/retry, Supabase upsert helpers, and the
   full sync, walks balldontlie's entire history every time (see API
   quirks below for why). Scheduled every 6 hours via
   `.github/workflows/sync-balldontlie-full.yml`.
+- **Two latent bugs in `sync-live-event.ts`, found and fixed 2026-07-19
+  while optimizing:**
+  1. The event re-fetch first scanned page 1 of an *unfiltered* `/events`
+     list (100 of ~28k rows) hoping the live event was on it, falling back
+     to `/events/{id}` on a miss — the scan essentially always missed, so it
+     was a wasted request every run. Now goes straight to `/events/{id}`.
+  2. That fallback was typed as `{ data: BdlEvent[] }`, but `/events/{id}`
+     returns `data` as a **single object, not an array** — so `data[0]` was
+     always `undefined` and **the event row was in practice never refreshed
+     by the live sync at all**, only its fights. Exactly the mid-card status
+     flips and shifted segment start times this script exists to catch were
+     silently not landing. Verified against the live API before fixing.
+- **`externalIdMap()` now takes an optional `externalIds` filter.** The live
+  sync called it unscoped, paging through the *entire* `fighters` and
+  `events` tables on every poll just to map one event's ~24 fighters. The
+  full sync still calls it unscoped, which is correct — it genuinely needs
+  the whole map.
 - **`scripts/sync-live-event.ts`** (`npm run sync:live`) — a lightweight
   companion, scheduled every 5 minutes via
   `.github/workflows/sync-balldontlie-live.yml`. It first checks (one
@@ -595,10 +679,27 @@ otherwise read-only tables.
 
 **Why GitHub Actions and not a paid scheduler:** the repo is public
 specifically so these can run on GitHub-hosted runners for free with no
-per-minute cap — the 5-minute live-check alone is ~8,600 runs/month,
+per-minute cap — a true 5-minute live-check would be ~8,600 runs/month,
 which would blow through the 2,000 free minutes/month a private repo
 gets (GitHub bills a minimum of 1 minute per job run even for an
-instant no-op). Git history was checked for leaked secrets before
+instant no-op).
+
+**The 5-minute live cron is not delivered as scheduled — measured
+2026-07-19.** Actual gaps between delivered `schedule` runs of
+`sync-balldontlie-live.yml` were **45–75 minutes**, with observed gaps up
+to 3.7 h (00:10 → 03:51). GitHub aggressively sheds high-frequency
+`schedule` triggers on public repos; there is no setting that changes
+this, and `workflow_dispatch` runs are unaffected (they fire immediately).
+Consequences to keep in mind:
+- The real figure is ~700 runs/month, not ~8,600 — the cost reasoning
+  above is even safer than it looks, but for the wrong reason.
+- The live sync's premise ("late changes land within minutes instead of
+  waiting for the 6-hour full sync") holds only loosely — in practice
+  it's ~1 h, occasionally several.
+- **The league-start push inherits this latency**, since it piggybacks on
+  this poll (see [Notifications](#notifications)). A "starts now" push can
+  arrive an hour or more after the event actually started. Not yet
+  addressed — see [Known open items](#known-open-items). Git history was checked for leaked secrets before
 flipping the repo public (`git log --all -p` grepped for key/token
 patterns) — none found; real secrets only ever lived in `.env`
 (gitignored) and GitHub Actions secrets, neither of which repo
@@ -619,11 +720,32 @@ remember" local script.
   `/events`, `/fighters` are on the free tier.
 - Neither `statuses[]=scheduled` nor date-range params (`start_date`,
   `dates[]`) are honored by `/events` — confirmed identical responses with
-  and without them. Every sync paginates through balldontlie's **entire**
-  history (~28k events across 10 leagues) and filters by date client-side.
-  This is why the sync also keeps a rolling past window
-  (`PAST_WINDOW_DAYS = 365`, see below) — it costs nothing extra since the
-  full pagination pass is unavoidable anyway.
+  and without them. Date filtering therefore happens client-side
+  (`PAST_WINDOW_DAYS = 365`, see below).
+- **`league_ids[]` *is* honored by `/events`, on every cursor page** —
+  measured 2026-07-19, and the single biggest cost lever in this project.
+  The original implementation assumed *all* filters broke past page one and
+  so walked the entire history every run. Both variants were walked to
+  completion and their event ids diffed:
+
+  | | events | requests |
+  |---|---|---|
+  | unfiltered (old behavior) | 27,933 | **280** |
+  | `league_ids[]`, all 10 leagues | 361 | **4** |
+
+  Zero eligible events missing from the filtered walk (361 of 361). The
+  ~27.6k difference is events with `league: null` — regional shows the sync
+  discards anyway; they were the ~212 "unknown league" skip lines per run.
+  Cuts the full sync from ~6.5 min to well under a minute and removes ~98.6%
+  of its balldontlie calls. **Lesson: "the API ignores filters" was verified
+  for two parameters and then generalized to all of them — that assumption
+  cost 280 requests per run for months. Verify per parameter.**
+- **balldontlie's league coverage is far thinner than the ~28k event count
+  suggests:** across their *entire* history only 361 events carry a league
+  at all — UFC 189, PFL 76, LFA 37, DWCS 20, CW 16, ONE 10, RIZIN 7,
+  Invicta 3, Bellator 3. The Bellator gap noted below is not an outlier;
+  ONE and Invicta are effectively unusable too. Treat any "league X is
+  covered" assumption as needing a count check first.
 - `/fights` also doesn't reliably honor filters past the first page of
   cursor pagination — instead of filtering, we fetch fights in batches via
   `event_ids[]` for exactly the event ids we already trust (kept from the
@@ -778,18 +900,67 @@ after seeding data doesn't create duplicate organizations) →
   `expo-updates` built in. `preview`/`production` builds still need one
   fresh build each before they can receive OTA updates, same reasoning —
   any build made before 2026-07-19 predates `expo-updates` entirely.
+- **Local `.env` is currently in a broken half-state (found 2026-07-19).**
+  `EXPO_PUBLIC_SUPABASE_URL` points at **stage** (`qvjgsbeugllobgwabebv`)
+  but `SUPABASE_SERVICE_ROLE_KEY` is still the **prod** key, so the two
+  disagree and any local `npm run sync:balldontlie`/`sync:live` fails auth
+  (verified with a read-only query). Fetch the stage service-role key
+  (`supabase projects api-keys --project-ref qvjgsbeugllobgwabebv --reveal`,
+  or the stage dashboard) and replace it. Until then, sync changes can only
+  be validated in CI, not locally.
+- ~~League-start push latency~~ — **resolved 2026-07-19** by moving the
+  trigger to `pg_cron`, see [Notifications](#notifications). Verified
+  against a local Supabase Postgres: the job registers active on
+  `* * * * *` and executes on the minute, and all six branches of
+  `send_league_start_pushes()` behave correctly (fires when just started;
+  ignores events outside the 30-minute window, cancelled events, and
+  not-yet-started events; stamps an org with no followers without an HTTP
+  call; a simulated 500 releases the attempt and re-issues within the same
+  tick; a 200 stamps `league_start_push_sent_at` and stops). **Still
+  unverified against a real event and a real device** — the Expo POST
+  itself was simulated by injecting `net._http_response` rows, so the
+  push has never actually been delivered end-to-end. Worth watching the
+  first real event on stage.
+- **`cron.job` is not writable by the migration role.** `delete from
+  cron.job ...` fails with "permission denied for table job"; go through
+  `cron.unschedule()` instead, wrapped in an exception block since it
+  raises when the job doesn't exist. Caught by local replay, see the
+  Supabase CLI notes in [Environments](#environments-dev--stage--main).
+- **Neither push path chunks messages to Expo's 100-per-request limit.**
+  `notify_fighter_added_to_fight()` and `send_league_start_pushes()` both
+  build one `net.http_post` containing every matching subscriber. Below
+  ~100 followers per fighter/org this is fine and it's why it hasn't
+  surfaced pre-launch, but it's a hard cliff, not a gradual degradation.
+  Fix both together when it matters — they share the shape, and fixing only
+  one would leave the trap in place.
+- **Neither push path reads Expo's push tickets.** Expo returns HTTP 200
+  even when individual messages fail (most importantly
+  `DeviceNotRegistered`, i.e. the app was uninstalled), so
+  `league_start_push_sent_at` records "Expo accepted the batch", not "the
+  user got it". Stale tokens therefore accumulate in `push_subscriptions`/
+  `organization_follows` forever. Proper handling means storing the ticket
+  ids and polling Expo's receipts endpoint later — a real feature, worth
+  doing before a store release, not before.
 - **Revisit Supabase Branching vs. two free-tier projects** before a real
   store release — see the trade-off written up in
   [Environments](#environments-dev--stage--main). Switching to Branching
   later is expected to be cheap since stage only ever holds disposable
   test data.
-- `push_subscriptions` anonymous rows (`user_id is null`) are still fully
-  public by design (`user_id is null or user_id = auth.uid()`) —
-  acceptable for MVP (low-sensitivity data: device token ↔ fighter id),
-  but means anyone holding a given push token could theoretically
-  unfollow on someone else's behalf. Rows tied to a logged-in user
-  (`user_id = auth.uid()`) are scoped. Not currently a planned fix for
-  the anonymous case.
+- `push_subscriptions` **and `organization_follows`** anonymous rows
+  (`user_id is null`) are still fully public by design (`user_id is null or
+  user_id = auth.uid()`, identical policy on both tables) — acceptable for
+  MVP (low-sensitivity data: device token ↔ fighter id / org id), but has
+  two consequences worth stating plainly: (1) anyone holding a given push
+  token could unfollow on someone else's behalf, and (2) the `select`
+  policy makes every anonymous row world-readable to any anon-key client,
+  so the full set of anonymous Expo push tokens can be enumerated — a
+  harvested token is a valid `to:` target for Expo's unauthenticated push
+  API, i.e. an unsolicited-push (spam) vector, though not account access.
+  Rows tied to a logged-in user (`user_id = auth.uid()`) are scoped. Not
+  currently a planned fix for the anonymous case; the clean fix, if
+  revisited, is to route anonymous follow/unfollow through a `security
+  definer` RPC that never returns tokens to clients, so `select` can be
+  tightened to `user_id = auth.uid()` only.
 - **Supabase database linter findings (2026-07-16), fixed via
   `supabase/migrations/003_security_hardening.sql`, applied to the live
   database on 2026-07-16:** the original fully-open `push_subscriptions`

@@ -9,8 +9,10 @@
 // API quirks discovered while building this:
 // - /fights requires the paid ALL-STAR tier; /leagues, /events, /fighters are free.
 // - Neither `statuses[]` nor date filters are reliably honored by /events
-//   past the first page of cursor pagination — we always get back the full
-//   ~30-year history and filter by date ourselves (see PAST_WINDOW_DAYS).
+//   past the first page of cursor pagination — we filter by date ourselves
+//   (see PAST_WINDOW_DAYS). `league_ids[]` however IS honored on every page,
+//   and is what keeps this sync from walking the full ~28k-event history —
+//   see the note in syncEvents() for the measurement behind that.
 // - /fights doesn't honor `statuses[]` either, so we instead fetch fights
 //   for exactly the events we kept via `event_ids[]`.
 // - Fighter objects are fully embedded in fight responses, so a separate
@@ -75,19 +77,34 @@ async function syncLeagues(): Promise<Map<number, string>> {
   return map;
 }
 
-// How far back to keep past events/fights. We already have to paginate
-// through balldontlie's full history to find the upcoming events (their
-// `statuses[]`/date filters aren't reliably honored — see below), so keeping
-// a recent-past window too costs zero extra API calls.
+// How far back to keep past events/fights. Still costs no extra /events calls
+// — balldontlie has no honored date filter, so the league-filtered walk
+// returns their whole history for those leagues either way (only ~4 requests
+// total). It does cost extra /fights calls, since fights are fetched per kept
+// event; that's the real price of widening this window.
 const PAST_WINDOW_DAYS = 365;
 
 async function syncEvents(orgMap: Map<number, string>): Promise<Map<number, string>> {
-  console.log('Fetching events...');
-  const fetched = await paginateAll<BdlEvent>('/events', [['statuses[]', 'scheduled']]);
+  // `league_ids[]` IS honored server-side across every cursor page — unlike
+  // `statuses[]`/date filters, which aren't (see the header comment). Verified
+  // 2026-07-19 by walking both variants to completion and diffing the ids:
+  // the unfiltered walk returned 27,933 events over 280 requests, of which
+  // exactly 361 carried a league; the filtered walk returned those same 361
+  // over 4 requests, with zero eligible events missing. The other ~27.6k are
+  // regional shows with `league: null`, which this sync discards anyway (they
+  // used to show up as ~212 "unknown league" skip lines per run).
+  //
+  // orgMap's keys are precisely the leagues we can map to an organization row,
+  // so filtering on them can't drop anything the mapping step would have kept.
+  const leagueIds = [...orgMap.keys()];
+  console.log(`Fetching events for ${leagueIds.length} leagues...`);
+  const fetched = await paginateAll<BdlEvent>(
+    '/events',
+    leagueIds.map((id) => ['league_ids[]', String(id)])
+  );
 
-  // `statuses[]=scheduled` isn't reliably honored past the first page of
-  // cursor pagination (observed historical events leaking through, e.g.
-  // "UFC 1" from 1993) — re-filter by date ourselves as the source of truth.
+  // Date filtering still has to happen client-side — that's the filter kind
+  // balldontlie doesn't honor.
   const now = Date.now();
   const pastCutoff = now - PAST_WINDOW_DAYS * 24 * 60 * 60 * 1000;
   const events = fetched.filter((event) => {

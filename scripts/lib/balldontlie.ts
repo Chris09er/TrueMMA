@@ -85,16 +85,23 @@ export async function upsertBatched(table: string, rows: Record<string, unknown>
 // downstream upsert that depends on it. Page through explicitly instead.
 const SUPABASE_PAGE_SIZE = 1000;
 
-export async function externalIdMap(table: string): Promise<Map<number, string>> {
+// `externalIds`, when given, restricts the lookup to just those ids instead of
+// loading the whole table. The live sync needs a map for one event's ~24
+// fighters — without this it would page through every fighter row on every
+// poll. Omit it for the full sync, which genuinely needs the whole map.
+export async function externalIdMap(table: string, externalIds?: number[]): Promise<Map<number, string>> {
   const map = new Map<number, string>();
+  if (externalIds && externalIds.length === 0) return map;
   let from = 0;
 
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from(table)
       .select('id, external_id')
-      .not('external_id', 'is', null)
-      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+      .not('external_id', 'is', null);
+    if (externalIds) query = query.in('external_id', externalIds);
+
+    const { data, error } = await query.range(from, from + SUPABASE_PAGE_SIZE - 1);
     if (error) throw error;
 
     for (const row of data ?? []) {

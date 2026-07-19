@@ -11,9 +11,16 @@ on:
       - '**.md'
   workflow_dispatch: {}
 
+# Only the newest commit's bundle matters — if pushes land in quick succession,
+# superseded publishes are wasted work and could otherwise finish out of order.
+concurrency:
+  group: publish-ota-${{ github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: ${{ github.ref_name == 'main' && 'production' || 'stage' }}
     env:
       # EAS environment names (holds the EXPO_PUBLIC_SUPABASE_* project env
@@ -27,9 +34,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
       - run: npm ci
       - uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - run: npx eas-cli update --environment "$EAS_ENVIRONMENT" --channel "$EAS_CHANNEL" --message "${{ github.event.head_commit.message }}" --non-interactive
+      - env:
+          # Pass the commit message through the environment rather than
+          # interpolating ${{ ... }} straight into the run: line — otherwise a
+          # crafted commit message (e.g. from a merged PR) could break out of
+          # the shell string and execute arbitrary code with EXPO_TOKEN in scope.
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: npx eas-cli update --environment "$EAS_ENVIRONMENT" --channel "$EAS_CHANNEL" --message "${COMMIT_MSG:-$GITHUB_SHA}" --non-interactive

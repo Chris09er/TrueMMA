@@ -56,24 +56,27 @@ async function syncLiveEvent(bdlEventId: number): Promise<void> {
   console.log(`Live event ${bdlEventId} — refreshing fights...`);
 
   // Re-fetch the event itself too — status can flip to "cancelled" or
-  // segment start times can shift mid-day.
-  const { data: eventPage } = await bdlFetch<{ data: BdlEvent[] }>('/events', [
-    ['statuses[]', 'scheduled'],
-  ]).then(async (page) => {
-    const match = page.data.find((event) => event.id === bdlEventId);
-    if (match) return { data: [match] };
-    // Fallback: the single-event endpoint if the list page didn't include it
-    // (e.g. status already flipped away from "scheduled").
-    return bdlFetch<{ data: BdlEvent[] }>(`/events/${bdlEventId}`).catch(() => ({ data: [] as BdlEvent[] }));
-  });
+  // segment start times can shift mid-day. Straight to the single-event
+  // endpoint: this used to first scan page 1 of an unfiltered /events list
+  // (100 of ~28k rows) and only fall back to /events/{id} on a miss, which
+  // meant a wasted request on essentially every run. Note /events/{id}
+  // returns `data` as a single object, not an array — the old fallback typed
+  // it as an array, so `data[0]` was always undefined and the event row was
+  // in practice never refreshed here at all.
+  const event = await bdlFetch<{ data: BdlEvent }>(`/events/${bdlEventId}`)
+    .then((res) => res.data)
+    .catch((err) => {
+      console.warn(`  Could not re-fetch event ${bdlEventId}: ${err.message}`);
+      return null;
+    });
 
   const orgMap = await externalIdMap('organizations');
-  const organizationId = eventPage[0]?.league ? orgMap.get(eventPage[0].league.id) : undefined;
-  if (eventPage[0] && organizationId) {
-    await upsertBatched('events', [eventRow(eventPage[0], organizationId)]);
+  const organizationId = event?.league ? orgMap.get(event.league.id) : undefined;
+  if (event && organizationId) {
+    await upsertBatched('events', [eventRow(event, organizationId)]);
   }
 
-  const eventMap = await externalIdMap('events');
+  const eventMap = await externalIdMap('events', [bdlEventId]);
   const eventId = eventMap.get(bdlEventId);
   if (!eventId) {
     console.warn(`  Event ${bdlEventId} not found locally after refresh, skipping fights.`);
@@ -90,7 +93,7 @@ async function syncLiveEvent(bdlEventId: number): Promise<void> {
     if (fight.winner) fightersById.set(fight.winner.id, fight.winner);
   }
   await upsertBatched('fighters', [...fightersById.values()].map((fighter) => fighterRow(fighter, organizationId)));
-  const fighterMap = await externalIdMap('fighters');
+  const fighterMap = await externalIdMap('fighters', [...fightersById.keys()]);
 
   const fightRows = fights.flatMap((fight) => {
     const fighter1Id = fighterMap.get(fight.fighter1.id);
@@ -107,53 +110,14 @@ async function syncLiveEvent(bdlEventId: number): Promise<void> {
   console.log(`  ${fightRows.length} fights synced for event ${bdlEventId}.`);
 }
 
-// Push must fire when the event actually starts, not when it's created —
-// so this can't be a simple AFTER INSERT trigger like the fighter-follow
-// one. Piggybacks on this script's existing 5-minute "is it live?" poll;
-// league_start_push_sent_at ensures it only fires once per event.
-async function sendLeagueStartPushes(liveExternalIds: number[]): Promise<void> {
-  if (liveExternalIds.length === 0) return;
-
-  const { data: liveEvents, error } = await supabase
-    .from('events')
-    .select('id, name, organization_id, organizations(short_name)')
-    .in('external_id', liveExternalIds)
-    .is('league_start_push_sent_at', null);
-  if (error) throw error;
-
-  for (const event of liveEvents ?? []) {
-    const { data: follows, error: followsError } = await supabase
-      .from('organization_follows')
-      .select('push_token')
-      .eq('organization_id', event.organization_id);
-
-    if (followsError) {
-      console.warn(`  Failed to load organization_follows for event ${event.id}: ${followsError.message}`);
-      continue;
-    }
-
-    if (follows && follows.length > 0) {
-      const orgName = (event.organizations as { short_name?: string } | null)?.short_name ?? '';
-      const messages = follows.map((f) => ({
-        to: f.push_token,
-        title: 'Es geht los!',
-        body: `${orgName}: ${event.name} startet jetzt.`,
-      }));
-      const res = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(messages),
-      });
-      if (!res.ok) {
-        console.warn(`  League-start push failed for event ${event.id}: ${res.status} ${await res.text()}`);
-      } else {
-        console.log(`  Sent league-start push to ${messages.length} follower(s) for "${event.name}".`);
-      }
-    }
-
-    await supabase.from('events').update({ league_start_push_sent_at: new Date().toISOString() }).eq('id', event.id);
-  }
-}
+// NOTE: the league-start push used to be sent from here, piggybacking on this
+// script's poll. It moved to the database in
+// supabase/migrations/006_league_start_push_pg_cron.sql — GitHub delivers this
+// workflow's `*/5` schedule only about hourly (measured), which made a
+// "starts now" push arrive up to hours late. pg_cron ticks reliably every
+// minute. Do not reintroduce a push here: both paths key off
+// events.league_start_push_sent_at, so running both would race and could
+// double-send.
 
 async function main() {
   const liveEventIds = await findLiveEventExternalIds();
@@ -161,8 +125,6 @@ async function main() {
     console.log('No live event right now, skipping.');
     return;
   }
-
-  await sendLeagueStartPushes(liveEventIds);
 
   for (const bdlEventId of liveEventIds) {
     await syncLiveEvent(bdlEventId);

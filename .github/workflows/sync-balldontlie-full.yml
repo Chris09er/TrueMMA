@@ -5,15 +5,24 @@ on:
     # Production: every 6 hours. Off the exact hour to avoid piling onto
     # GitHub's shared scheduler load at :00.
     - cron: '13 */6 * * *'
-    # Stage: every hour, so schema/data changes made on the stage branch
-    # show up quickly during testing.
-    - cron: '7 * * * *'
+    # Stage: twice a day. Was hourly, which meant 24 full syncs/day against
+    # disposable test data — and its runs overlapped production's (both pace
+    # at ~54 req/min against balldontlie's 60 req/min ALL-STAR limit, so two
+    # concurrent syncs could push past it). Offset well clear of prod's slots.
+    - cron: '41 4,16 * * *'
   workflow_dispatch: {}
+
+# One full sync at a time. Without this, a slow run plus the next scheduled
+# run could overlap and double the request rate against balldontlie.
+concurrency:
+  group: sync-balldontlie-full
+  cancel-in-progress: false
 
 jobs:
   sync-production:
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '13 */6 * * *'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +31,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
       - run: npm ci
       - run: npm run sync:balldontlie
         env:
@@ -30,8 +40,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
   sync-stage:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '7 * * * *'
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '41 4,16 * * *'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: stage
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +51,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
       - run: npm ci
       - run: npm run sync:balldontlie
         env:

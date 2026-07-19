@@ -109,18 +109,29 @@ export async function getEventsInRange(
   return (data ?? []) as unknown as EventListItem[];
 }
 
+// Local YYYY-MM-DD, from the device's own calendar fields — deliberately not
+// via toISOString(), which converts to UTC and would name the previous day
+// for any positive-UTC-offset zone (all of Europe).
+function localDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 // "Today" = events whose local calendar date is today, plus anything still
 // live from before midnight (see isEventLive) so a card that started late
 // last night doesn't disappear from "today" the moment the day rolls over.
 export async function getTodayEvents(organizationId?: string): Promise<EventListItem[]> {
   const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  const todayKey = startOfToday.toISOString().slice(0, 10);
+  const todayKey = localDateKey(now);
 
   const events = await getEventsInRange(startOfYesterday.toISOString(), startOfTomorrow.toISOString(), organizationId);
-  return events.filter((event) => event.event_date.slice(0, 10) === todayKey || isEventLive(event));
+  // Compare the event's *local* calendar date, not event_date.slice(0, 10)
+  // (which is the UTC date) — both sides must be in the device's zone.
+  return events.filter((event) => localDateKey(new Date(event.event_date)) === todayKey || isEventLive(event));
 }
 
 export async function getFighters(): Promise<Fighter[]> {
