@@ -10,7 +10,7 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const STORAGE_PREFIX = 'mma-pocket:event-reminder:';
+const STORAGE_PREFIX = 'true-mma:event-reminder:';
 
 export async function requestNotificationPermission(): Promise<boolean> {
   const { status: existing } = await Notifications.getPermissionsAsync();

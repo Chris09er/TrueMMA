@@ -9,7 +9,7 @@ export const SUPPORTED_LOCALES: { code: Locale; label: string; flag: string }[] 
   { code: 'en', label: 'English', flag: '🇬🇧' },
 ];
 
-const STORAGE_KEY = 'mma-pocket:locale';
+const STORAGE_KEY = 'true-mma:locale';
 const DEFAULT_LOCALE: Locale = 'de';
 
 // Add a new language by adding its code to Locale, an entry in SUPPORTED_LOCALES,
@@ -19,7 +19,7 @@ const translations = {
     tabs: { events: 'Veranstaltungen', fighters: 'Kämpfer', language: 'Sprache', contact: 'Kontakt', profile: 'Profil' },
     common: { loading: 'Lädt...', error: 'Fehler beim Laden' },
     eventList: {
-      title: 'MMA Pocket',
+      title: 'True MMA',
       filterAll: 'Alle',
       empty: 'Keine kommenden Events gefunden.',
       emptyPast: 'Keine vergangenen Events gefunden.',
@@ -142,7 +142,7 @@ const translations = {
     tabs: { events: 'Events', fighters: 'Fighters', language: 'Language', contact: 'Contact', profile: 'Profile' },
     common: { loading: 'Loading...', error: 'Failed to load' },
     eventList: {
-      title: 'MMA Pocket',
+      title: 'True MMA',
       filterAll: 'All',
       empty: 'No upcoming events found.',
       emptyPast: 'No past events found.',

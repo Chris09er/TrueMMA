@@ -2,16 +2,41 @@ name: Sync balldontlie (full)
 
 on:
   schedule:
-    # Every 6 hours. Off the exact hour to avoid piling onto GitHub's
-    # shared scheduler load at :00.
+    # Production: every 6 hours. Off the exact hour to avoid piling onto
+    # GitHub's shared scheduler load at :00.
     - cron: '13 */6 * * *'
+    # Stage: every hour, so schema/data changes made on the stage branch
+    # show up quickly during testing.
+    - cron: '7 * * * *'
   workflow_dispatch: {}
 
 jobs:
-  sync:
+  sync-production:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '13 */6 * * *'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run sync:balldontlie
+        env:
+          BALLDONTLIE_API_KEY: ${{ secrets.BALLDONTLIE_API_KEY }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+  sync-stage:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '7 * * * *'
+    runs-on: ubuntu-latest
+    environment: stage
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: stage
       - uses: actions/setup-node@v4
         with:
           node-version: 22
