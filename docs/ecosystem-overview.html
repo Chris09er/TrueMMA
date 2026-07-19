@@ -1,0 +1,768 @@
+<!--
+  True MMA — Ökosystem-Übersicht (Systemkarte).
+
+  Zweck: schnelles Wieder-Reinfinden. WAS es gibt, WIE die Teile zusammenhängen,
+  WAS es kostet, WO es klemmt. Die Detailtiefe lebt in ARCHITECTURE.md — diese
+  Seite ist die Karte, nicht das Handbuch.
+
+  Veröffentlicht als Artifact:
+  https://claude.ai/code/artifact/a8462a15-1334-48b2-9c05-4663882a3f46
+  Zum Aktualisieren dieselbe URL als `url` an das Artifact-Tool übergeben, sonst
+  entsteht eine zweite Seite unter neuer Adresse.
+
+  ABSICHTLICH ohne <!doctype>, <html>, <head>, <body>: diesen Rahmen ergänzt die
+  Artifact-Veröffentlichung. Bitte nicht "reparieren" — sonst wird die Seite beim
+  Publish doppelt verschachtelt. Lokal im Browser rendert sie trotzdem korrekt,
+  weil das Layout nicht vom Standards-Mode abhängt (box-sizing wird global gesetzt).
+
+  WARTUNG: siehe AGENTS.md. Änderungen am Ökosystem gehören sofort hier hinein,
+  nicht in einem späteren Aufräumlauf.
+-->
+<title>True MMA — Ökosystem-Übersicht</title>
+<style>
+  :root {
+    --bg: #F5F7FA;
+    --surface: #FFFFFF;
+    --surface-2: #EDF1F6;
+    --border: #DCE3EC;
+    --border-strong: #C3CDDA;
+    --text: #151A22;
+    --muted: #5C6775;
+    --faint: #8592A3;
+
+    --ingest: #14776F;
+    --serve: #41539C;
+    --push: #9C6410;
+    --deploy: #7E4C79;
+    --mail: #5C6775;
+
+    --ok: #1C7A4B;
+    --warn: #9A6412;
+    --crit: #A93A34;
+
+    --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0F131A;
+      --surface: #161C25;
+      --surface-2: #1D2531;
+      --border: #253040;
+      --border-strong: #344154;
+      --text: #E7EBF1;
+      --muted: #98A4B4;
+      --faint: #74808F;
+
+      --ingest: #43B8AC;
+      --serve: #8395E4;
+      --push: #DFA750;
+      --deploy: #C193BC;
+      --mail: #98A4B4;
+
+      --ok: #4CB37D;
+      --warn: #DFA750;
+      --crit: #E0736C;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --bg: #F5F7FA;
+    --surface: #FFFFFF;
+    --surface-2: #EDF1F6;
+    --border: #DCE3EC;
+    --border-strong: #C3CDDA;
+    --text: #151A22;
+    --muted: #5C6775;
+    --faint: #8592A3;
+    --ingest: #14776F;
+    --serve: #41539C;
+    --push: #9C6410;
+    --deploy: #7E4C79;
+    --mail: #5C6775;
+    --ok: #1C7A4B;
+    --warn: #9A6412;
+    --crit: #A93A34;
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0F131A;
+    --surface: #161C25;
+    --surface-2: #1D2531;
+    --border: #253040;
+    --border-strong: #344154;
+    --text: #E7EBF1;
+    --muted: #98A4B4;
+    --faint: #74808F;
+    --ingest: #43B8AC;
+    --serve: #8395E4;
+    --push: #DFA750;
+    --deploy: #C193BC;
+    --mail: #98A4B4;
+    --ok: #4CB37D;
+    --warn: #DFA750;
+    --crit: #E0736C;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 64px) clamp(18px, 4vw, 40px) 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(26px, 4.4vw, 40px);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin: 0;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--border-strong);
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  p { margin: 0; max-width: 68ch; }
+  .lede { font-size: 17px; color: var(--muted); max-width: 62ch; }
+
+  section { display: flex; flex-direction: column; gap: 22px; }
+
+  code, .mono { font-family: var(--mono); font-size: 0.88em; }
+  code {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    word-break: break-word;
+  }
+
+  /* ---------- header meta ---------- */
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ---------- parts inventory ---------- */
+  .parts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+    gap: 14px;
+  }
+
+  .part {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .part-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .t-core   { color: var(--serve); }
+  .t-extern { color: var(--faint); }
+  .t-auto   { color: var(--deploy); }
+  .t-deliver{ color: var(--push); }
+
+  .part p { font-size: 14px; color: var(--muted); }
+
+  .part dl {
+    margin: 2px 0 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 12px;
+    font-size: 12.5px;
+    font-family: var(--mono);
+  }
+  .part dt { color: var(--faint); }
+  .part dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* ---------- flow chains ---------- */
+  .flow {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--fc, var(--border-strong));
+    border-radius: var(--radius);
+    padding: 16px 18px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .flow-head { display: flex; flex-direction: column; gap: 5px; }
+  .flow-head h3 { color: var(--fc); }
+  .flow-head p { font-size: 13.5px; color: var(--muted); }
+
+  .chain {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .node {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 9px 12px;
+    min-width: 128px;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .node .n-name { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+  .node .n-sub  { font-size: 11.5px; color: var(--faint); line-height: 1.35; }
+
+  .arrow {
+    flex: 0 0 auto;
+    align-self: center;
+    width: 26px;
+    height: 12px;
+    color: var(--fc);
+    opacity: 0.75;
+  }
+  .arrow svg { display: block; width: 100%; height: 100%; }
+
+  @media (max-width: 620px) {
+    .chain { flex-direction: column; align-items: stretch; overflow-x: visible; }
+    .node { min-width: 0; }
+    .arrow { width: 12px; height: 20px; margin-left: 18px; align-self: flex-start; }
+    .arrow svg { transform: rotate(90deg); }
+  }
+
+  /* ---------- pipeline ---------- */
+  .pipe {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px;
+  }
+  .env {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 15px 17px 17px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .env-name { font-family: var(--mono); font-size: 14px; font-weight: 600; }
+  .env p { font-size: 13.5px; color: var(--muted); }
+  .env dl {
+    margin: 4px 0 0; display: grid; grid-template-columns: auto 1fr;
+    gap: 3px 12px; font-size: 12px; font-family: var(--mono);
+  }
+  .env dt { color: var(--faint); }
+  .env dd { margin: 0; word-break: break-all; }
+
+  /* ---------- table ---------- */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--surface); }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--faint); background: var(--surface-2);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td .sub { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
+
+  .status { font-family: var(--mono); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+  .s-ok   { color: var(--ok); }
+  .s-warn { color: var(--warn); }
+  .s-crit { color: var(--crit); }
+
+  /* ---------- gaps ---------- */
+  .gaps { display: flex; flex-direction: column; gap: 10px; }
+  .gap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: grid;
+    grid-template-columns: 88px 1fr;
+    gap: 4px 16px;
+    align-items: start;
+  }
+  .gap .sev { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding-top: 3px; }
+  .gap h3 { font-size: 13.5px; }
+  .gap p { font-size: 13.5px; color: var(--muted); grid-column: 2; }
+  @media (max-width: 560px) {
+    .gap { grid-template-columns: 1fr; }
+    .gap p { grid-column: 1; }
+  }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-family: var(--mono); font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+
+  .note {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+  .note strong { color: var(--text); }
+
+  a { color: inherit; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+  a:focus-visible, .part:focus-visible { outline: 2px solid var(--serve); outline-offset: 3px; }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Systemübersicht · Stand 19.07.2026</p>
+    <h1>True MMA — wie das Ökosystem zusammenhängt</h1>
+    <p class="lede">
+      Acht Dienste, zwei Datenbanken, fünf Wege, auf denen Daten fließen. Diese Seite ist zum
+      Wieder-Reinfinden gedacht: erst was es gibt, dann wie es zusammenspielt, dann was es kostet
+      und wo es noch klemmt.
+    </p>
+    <div class="meta">
+      <span>Alle Zahlen gemessen, nicht geschätzt</span>
+      <span>Verifiziert gegen prod + stage</span>
+      <span>Detailtiefe: docs/ARCHITECTURE.md</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Die Bauteile</h2>
+    <p>Was jedes Stück tut — und, wichtiger, wo es konfiguriert wird, wenn etwas klemmt.</p>
+
+    <div class="parts">
+
+      <article class="part">
+        <div class="part-top">
+          <h3>React-Native-App</h3>
+          <span class="tag t-core">Kern</span>
+        </div>
+        <p>Expo SDK 54, Dev-Client-Build. Liest Supabase direkt mit dem öffentlichen anon-Key; RLS entscheidet, was sichtbar ist. Kein eigener Server dazwischen.</p>
+        <dl>
+          <dt>Config</dt><dd>app.json / app.config.js</dd>
+          <dt>Kosten</dt><dd>—</dd>
+        </dl>
+      </article>
+
+      <article class="part">
+        <div class="part-top">
+          <h3>Supabase</h3>
+          <span class="tag t-core">Kern</span>
+        </div>
+        <p>Postgres + PostgREST + Auth. Zwei getrennte Projekte (prod, stage), beide Free Tier, eu-central-1. Enthält auch die gesamte Backend-„Logik": Trigger, pg_net, pg_cron.</p>
+        <dl>
+          <dt>Config</dt><dd>Dashboard + migrations/</dd>
+          <dt>Kosten</dt><dd>0 €</dd>
+        </dl>
+      </article>
+
+      <article class="part">
+        <div class="part-top">
+          <h3>balldontlie</h3>
+          <span class="tag t-extern">Extern</span>
+        </div>
+        <p>Einzige Quelle für Events, Fighter und Fights. Wird nie aus der App gerufen, nur aus den Sync-Skripten. Deckt OKTAGON nicht ab — das bleibt Handarbeit.</p>
+        <dl>
+          <dt>Tier</dt><dd>ALL-STAR</dd>
+          <dt>Kosten</dt><dd>9,99 $/Mon.</dd>
+        </dl>
+      </article>
+
+      <article class="part">
+        <div class="part-top">
+          <h3>GitHub Actions</h3>
+          <span class="tag t-auto">Automation</span>
+        </div>
+        <p>Vier Workflows: Full-Sync, Live-Sync, Migrations-Deploy, OTA-Publish. Repo ist öffentlich, damit die Runner-Minuten unbegrenzt frei sind.</p>
+        <dl>
+          <dt>Config</dt><dd>.github/workflows/</dd>
+          <dt>Kosten</dt><dd>0 €</dd>
+        </dl>
+      </article>
+
+      <article class="part">
+        <div class="part-top">
+          <h3>EAS Build &amp; Update</h3>
+          <span class="tag t-auto">Automation</span>
+        </div>
+        <p>Baut die APKs und liefert JS-Updates over-the-air. Drei Channels, benannt nach der Branch-Pipeline. Native Änderungen brauchen weiterhin einen echten Build.</p>
+        <dl>
+          <dt>Config</dt><dd>eas.json</dd>
+          <dt>Projekt</dt><dd>@chris09er/true-mma</dd>
+        </dl>
+      </article>
+
+      <article class="part">
+        <div class="part-top">
+          <h3>Expo Push Service</h3>
+          <span class="tag t-deliver">Zustellung</span>
+        </div>
+        <p>Nimmt Push-Nachrichten entgegen und reicht sie an FCM weiter. Wird direkt aus der Datenbank per <code>pg_net</code> angesprochen — kein Edge Function nötig.</p>
+        <dl>
+          <dt>Endpoint</dt><dd>exp.host</dd>
+          <dt>Kosten</dt><dd>0 €</dd>
+        </dl>
+      </article>
+
+      <article class="part">
+        <div class="part-top">
+          <h3>Firebase FCM</h3>
+          <span class="tag t-deliver">Zustellung</span>
+        </div>
+        <p>Reine Zustell-Infrastruktur für Android. Kein Firebase-Feature wird sonst genutzt — nur die V1-Credentials, damit Expo überhaupt ausliefern darf.</p>
+        <dl>
+          <dt>Config</dt><dd>EAS credentials</dd>
+          <dt>Kosten</dt><dd>0 €</dd>
+        </dl>
+      </article>
+
+      <article class="part">
+        <div class="part-top">
+          <h3>IONOS</h3>
+          <span class="tag t-extern">Extern</span>
+        </div>
+        <p>Domain <code>true-mma.com</code> plus authentifiziertes SMTP. Existiert, weil Supabase ohne eigenen SMTP-Anbieter keine Mail-Vorlagen bearbeiten lässt — das war die eigentliche Hürde.</p>
+        <dl>
+          <dt>Config</dt><dd>Supabase → Auth → SMTP</dd>
+          <dt>Kosten</dt><dd>Domain + Postfach</dd>
+        </dl>
+      </article>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>Die fünf Wege</h2>
+    <p>
+      Jeder Weg ist eine Kette. Wenn etwas nicht funktioniert, ist fast immer genau eine dieser
+      Ketten unterbrochen — die Frage lautet dann nur, an welchem Glied.
+    </p>
+
+    <div class="legend">
+      <span><i class="dot" style="background: var(--ingest)"></i>Daten rein</span>
+      <span><i class="dot" style="background: var(--serve)"></i>Daten raus</span>
+      <span><i class="dot" style="background: var(--push)"></i>Benachrichtigung</span>
+      <span><i class="dot" style="background: var(--deploy)"></i>Ausliefern</span>
+      <span><i class="dot" style="background: var(--mail)"></i>Auth-Mail</span>
+    </div>
+
+    <div class="flow" style="--fc: var(--ingest)">
+      <div class="flow-head">
+        <h3>1 · Daten rein — der Sync</h3>
+        <p>Läuft alle 6 Stunden (prod). Holt Events, Fighter und Fights und schreibt sie idempotent per <code>external_id</code> in Supabase.</p>
+      </div>
+      <div class="chain">
+        <div class="node"><span class="n-name">balldontlie</span><span class="n-sub">/leagues, /events, /fights</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">GitHub Actions</span><span class="n-sub">sync-balldontlie-full</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Supabase</span><span class="n-sub">Service-Role-Key, umgeht RLS</span></div>
+      </div>
+      <div class="note">
+        <strong>Der Live-Sync ist derselbe Weg, nur schmaler.</strong> Er prüft erst per DB-Abfrage,
+        ob überhaupt ein Event läuft, und holt nur dann dessen Fights nach — sonst beendet er sich
+        sofort, ohne balldontlie anzufassen.
+      </div>
+    </div>
+
+    <div class="flow" style="--fc: var(--serve)">
+      <div class="flow-head">
+        <h3>2 · Daten raus — die App liest</h3>
+        <p>Kein Backend dazwischen. Die App spricht PostgREST direkt an; was sie sehen darf, entscheidet allein RLS.</p>
+      </div>
+      <div class="chain">
+        <div class="node"><span class="n-name">Supabase</span><span class="n-sub">PostgREST + RLS</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">anon-Key</span><span class="n-sub">öffentlich, im Bundle</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">App</span><span class="n-sub">queries.ts</span></div>
+      </div>
+      <div class="note">
+        Alle Inhalts-Tabellen sind für die App <strong>nur lesbar</strong>. Genau drei Ausnahmen
+        schreiben anonym: Fighter-Follows, Liga-Follows und Fight-Votes — jeweils an einer selbst
+        erzeugten Geräte-Kennung verankert, nicht an einem Login.
+      </div>
+    </div>
+
+    <div class="flow" style="--fc: var(--push)">
+      <div class="flow-head">
+        <h3>3 · Benachrichtigung — zwei getrennte Auslöser</h3>
+        <p>Beide enden bei Expo, starten aber völlig verschieden: einmal ereignisgetrieben, einmal zeitgetrieben.</p>
+      </div>
+      <div class="chain">
+        <div class="node"><span class="n-name">Neuer Fight</span><span class="n-sub">INSERT-Trigger</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">pg_net</span><span class="n-sub">http_post aus SQL</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Expo</span><span class="n-sub">exp.host</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">FCM</span><span class="n-sub">Android-Zustellung</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Gerät</span><span class="n-sub">Push-Token</span></div>
+      </div>
+      <div class="chain">
+        <div class="node"><span class="n-name">pg_cron</span><span class="n-sub">jede Minute</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Event gestartet?</span><span class="n-sub">30-Min-Fenster</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">pg_net</span><span class="n-sub">zweiphasig, mit Retry</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Expo → FCM</span><span class="n-sub">wie oben</span></div>
+      </div>
+      <div class="note">
+        <strong>Warum zweiphasig?</strong> <code>pg_net</code> arbeitet asynchron und startet den
+        Request erst nach dem Commit — ein Durchlauf kann also gar nicht wissen, ob der Push ankam.
+        Deshalb gleicht jeder Tick zuerst das Ergebnis des vorherigen ab, bevor er neue Requests
+        stellt. Erst eine bestätigte 2xx-Antwort markiert das Event als erledigt.
+        <br><br>
+        Der <strong>Event-Reminder</strong> ist bewusst kein Push: Er wird lokal auf dem Gerät
+        geplant und braucht überhaupt keinen Server.
+      </div>
+    </div>
+
+    <div class="flow" style="--fc: var(--deploy)">
+      <div class="flow-head">
+        <h3>4 · Ausliefern — von Branch zu Gerät</h3>
+        <p>Ein Push auf <code>stage</code> oder <code>main</code> löst zwei unabhängige Wege aus, je nachdem was sich geändert hat.</p>
+      </div>
+      <div class="chain">
+        <div class="node"><span class="n-name">git push</span><span class="n-sub">stage / main</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">deploy-migrations</span><span class="n-sub">bei supabase/migrations/**</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Supabase</span><span class="n-sub">Schema wandert mit</span></div>
+      </div>
+      <div class="chain">
+        <div class="node"><span class="n-name">git push</span><span class="n-sub">stage / main</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">publish-ota</span><span class="n-sub">bei JS-Änderungen</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">EAS Update</span><span class="n-sub">Channel = Branch</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Gerät</span><span class="n-sub">beim nächsten Start</span></div>
+      </div>
+      <div class="note">
+        Ein Build zieht nur Updates seines <em>eigenen</em> Channels. Passen App-Version und Update
+        nicht zusammen, wird nichts ausgeliefert — das ist die Bremse, die verhindert, dass ein
+        JS-Update auf einem Binary landet, dessen nativer Teil nicht dazu passt.
+      </div>
+    </div>
+
+    <div class="flow" style="--fc: var(--mail)">
+      <div class="flow-head">
+        <h3>5 · Auth-Mail — Registrierung und Passwort-Reset</h3>
+        <p>Der kürzeste Weg, aber der mit der unerwartetsten Begründung.</p>
+      </div>
+      <div class="chain">
+        <div class="node"><span class="n-name">Supabase Auth</span><span class="n-sub">Signup / Reset</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">IONOS SMTP</span><span class="n-sub">smtp.ionos.de:465</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Postfach</span><span class="n-sub">6-stelliger Code</span></div>
+      </div>
+      <div class="note">
+        Der Passwort-Reset schickt bewusst einen <strong>Code statt eines Links</strong>. Ein Link
+        bräuchte Deep Linking, also ein URL-Schema in der nativen Config — und damit einen neuen
+        Build. Der Code umgeht das komplett. Die zugehörige Mail-Vorlage lebt nur im
+        Supabase-Dashboard, in keinem Repo.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Umgebungen</h2>
+    <p>Nach dem Muster einer Salesforce-Org-Promotion gebaut: Änderungen wandern über Pull Requests nach oben, nie seitwärts.</p>
+    <div class="pipe">
+      <article class="env">
+        <span class="env-name">dev</span>
+        <p>Lokale Entwicklung. Kein eigenes Backend — zeigt auf die stage-Datenbank, damit Tests am Gerät nie echte Daten berühren. Kein CI.</p>
+        <dl><dt>DB</dt><dd>→ stage</dd><dt>CI</dt><dd>keine</dd></dl>
+      </article>
+      <article class="env">
+        <span class="env-name">stage</span>
+        <p>Echte Testumgebung mit eigenem Supabase-Projekt und eigenen Secrets. Enthält ausschließlich Wegwerfdaten.</p>
+        <dl><dt>Projekt</dt><dd>qvjgsbeugllobgwabebv</dd><dt>Channel</dt><dd>stage</dd></dl>
+      </article>
+      <article class="env">
+        <span class="env-name">main</span>
+        <p>Produktion. Noch kein Store-Release — es gibt bislang keine echten Nutzer.</p>
+        <dl><dt>Projekt</dt><dd>mytdfwceuzgqopndqmjt</dd><dt>Channel</dt><dd>production</dd></dl>
+      </article>
+    </div>
+    <div class="note">
+      <strong>Eine Falle beim Anlegen neuer Workflows:</strong> GitHub liest <code>schedule:</code>
+      und erlaubt <code>workflow_dispatch</code> nur aus der Kopie auf dem Default-Branch. Ein neuer
+      Workflow lässt sich also auf einem Feature-Branch gar nicht testen — er muss erst bis
+      <code>main</code> durch.
+    </div>
+  </section>
+
+  <section>
+    <h2>Kosten &amp; Limits</h2>
+    <p>Laufende Kosten: <strong>9,99 $ im Monat</strong>, ausschließlich für balldontlie. Alles andere ist Free Tier — und die Grenzen sind nach den Optimierungen weit entfernt.</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Dienst</th><th>Grenze</th><th>Tatsächlich</th><th>Lage</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>balldontlie<span class="sub">Rate-Limit, kein Monatskontingent</span></td>
+            <td class="num">60 req/min</td>
+            <td class="num">4 req je Full-Sync<span class="sub">vorher 280</span></td>
+            <td><span class="status s-ok">unkritisch</span></td>
+          </tr>
+          <tr>
+            <td>GitHub Actions<span class="sub">öffentliches Repo</span></td>
+            <td class="num">unbegrenzt</td>
+            <td class="num">~11.500 min/Mon.</td>
+            <td><span class="status s-ok">kostenlos</span></td>
+          </tr>
+          <tr>
+            <td>Live-Sync-Takt<span class="sub">angefordert alle 5 Min.</span></td>
+            <td class="num">—</td>
+            <td class="num">real ~60 Min.<span class="sub">Lücken bis 3,7 h</span></td>
+            <td><span class="status s-warn">nicht steuerbar</span></td>
+          </tr>
+          <tr>
+            <td>Supabase<span class="sub">2 Projekte, Free Tier</span></td>
+            <td class="num">500 MB / 5 GB</td>
+            <td class="num">weit darunter</td>
+            <td><span class="status s-ok">unkritisch</span></td>
+          </tr>
+          <tr>
+            <td>Expo Push</td>
+            <td class="num">100 Nachrichten<span class="sub">pro Request</span></td>
+            <td class="num">1 Request<span class="sub">ungeteilt</span></td>
+            <td><span class="status s-warn">harte Kante</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <strong>Warum das Repo öffentlich ist:</strong> Nur so sind die Runner-Minuten unbegrenzt frei.
+      Bei einem privaten Repo würde allein der häufige Live-Check die 2.000 Freiminuten sprengen —
+      GitHub rechnet pro Lauf mindestens eine volle Minute ab, auch wenn das Skript sofort abbricht.
+    </div>
+  </section>
+
+  <section>
+    <h2>Bekannte Lücken</h2>
+    <p>Nichts davon blockiert die Entwicklung — aber alles davon sollte vor einem Store-Release entschieden sein.</p>
+    <div class="gaps">
+
+      <div class="gap">
+        <span class="sev" style="color: var(--crit)">vor Release</span>
+        <div>
+          <h3>Push-Quittungen werden nicht gelesen</h3>
+        </div>
+        <p>Expo antwortet auch dann mit 200, wenn einzelne Nachrichten scheitern — etwa weil die App deinstalliert wurde. „Gesendet" heißt hier also nur „Expo hat den Stapel angenommen". Tote Tokens sammeln sich unbegrenzt an. Betrifft beide Push-Wege.</p>
+      </div>
+
+      <div class="gap">
+        <span class="sev" style="color: var(--crit)">vor Release</span>
+        <div>
+          <h3>Kein Chunking auf 100 Nachrichten</h3>
+        </div>
+        <p>Beide Push-Wege bauen einen einzigen Request mit allen Empfängern. Unter ~100 Followern unauffällig, darüber eine harte Kante statt einer langsamen Verschlechterung.</p>
+      </div>
+
+      <div class="gap">
+        <span class="sev" style="color: var(--warn)">bewusst</span>
+        <div>
+          <h3>Votes und anonyme Follows sind manipulierbar</h3>
+        </div>
+        <p>Die Schreibrechte für anonyme Zeilen sind absichtlich weit: ohne serverseitig prüfbare Geräte-Identität gibt es keine saubere Alternative. Abstimmungsergebnisse sind daher indikativ, nicht belastbar. Anonyme Push-Tokens sind über den anon-Key auslesbar.</p>
+      </div>
+
+      <div class="gap">
+        <span class="sev" style="color: var(--warn)">offen</span>
+        <div>
+          <h3>League-Start-Push nie echt zugestellt</h3>
+        </div>
+        <p>Die Mechanik ist lokal und auf stage verifiziert, der Expo-Aufruf selbst wurde aber nur simuliert. Auf stage folgt derzeit niemand einer Liga — ohne das lässt sich der Weg nicht real auslösen.</p>
+      </div>
+
+      <div class="gap">
+        <span class="sev" style="color: var(--warn)">offen</span>
+        <div>
+          <h3>Datenschutzerklärung nicht veröffentlicht</h3>
+        </div>
+        <p>Entwurf liegt zweisprachig vor, braucht aber juristische Prüfung. Beide Stores verlangen bei Einreichung eine öffentlich erreichbare URL — die Seite ist vorbereitet, aber bewusst nirgends deployt.</p>
+      </div>
+
+      <div class="gap">
+        <span class="sev" style="color: var(--muted)">später</span>
+        <div>
+          <h3>Supabase Branching statt zwei Projekten</h3>
+        </div>
+        <p>Zwei Free-Tier-Projekte kosten 0 € statt rund 35 €/Monat. Sobald prod ohnehin Pro-Features braucht — etwa bessere Backups vor einem Release — wird der Wechsel attraktiv und ist dann billig, weil stage nur Wegwerfdaten hält.</p>
+      </div>
+
+    </div>
+  </section>
+
+</div>

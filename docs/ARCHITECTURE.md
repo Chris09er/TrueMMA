@@ -25,6 +25,17 @@ change, or architectural decision lands — not as a separate cleanup pass.
 For product scope (what's in/out of scope), see the project's own
 conversations/decisions with the maintainer; this file is technical only.
 
+**Companion doc:** [`docs/ecosystem-overview.html`](ecosystem-overview.html)
+is the visual map of the same system — which service plays which role, the
+five paths data travels, environments, cost/limits, known gaps. It is
+deliberately shallow and aimed at re-orientation after time away; this file
+is where detail, reasoning and gotchas belong. Keep them consistent: when a
+change alters the shape of the system (a service, a data path, the pipeline,
+a cost/limit, or a known gap), update both in the same commit. See
+[`AGENTS.md`](../AGENTS.md) for the exact trigger list. A change that only
+adds detail or a lesson belongs here alone — the map shouldn't move when the
+terrain hasn't.
+
 ## Tech stack
 
 - **App:** React Native + Expo SDK 54 (managed workflow), TypeScript, no
