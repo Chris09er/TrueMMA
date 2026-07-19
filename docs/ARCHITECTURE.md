@@ -548,7 +548,16 @@ trigger the OS notification-permission prompt).
   allows anonymous insert/select/update outright (same trust model already
   accepted for `push_subscriptions`'s anonymous rows: client self-reports
   its own identifier, low-sensitivity data, no server-verifiable anti-abuse
-  beyond the per-device uniqueness constraint).
+  beyond the per-device uniqueness constraint). Concretely, the `update`
+  policy is `using (true)` with no `device_id` scoping, so vote counts are
+  fully attacker-mutable: anyone with the anon key can not only stuff the
+  tally with forged `device_id`s (the uniqueness constraint only stops
+  duplicates, not distinct fakes) but also **overwrite existing rows created
+  by other devices** in a single `PATCH`. Accepted for MVP — these are
+  anonymous, non-PII "who wins?" tallies with no server-verifiable device
+  identity to scope against — but treat the counts as indicative, not
+  trustworthy. If they ever need to be trustworthy, casting has to move
+  behind a `security definer` RPC / service-role path.
 - **Fetching:** `getEventVotes()` batches one query per event load (all
   fight ids via `.in()`) rather than one query per fight card, then counts
   votes per fighter client-side — small enough per event that a dedicated
@@ -783,13 +792,21 @@ after seeding data doesn't create duplicate organizations) →
   [Environments](#environments-dev--stage--main). Switching to Branching
   later is expected to be cheap since stage only ever holds disposable
   test data.
-- `push_subscriptions` anonymous rows (`user_id is null`) are still fully
-  public by design (`user_id is null or user_id = auth.uid()`) —
-  acceptable for MVP (low-sensitivity data: device token ↔ fighter id),
-  but means anyone holding a given push token could theoretically
-  unfollow on someone else's behalf. Rows tied to a logged-in user
-  (`user_id = auth.uid()`) are scoped. Not currently a planned fix for
-  the anonymous case.
+- `push_subscriptions` **and `organization_follows`** anonymous rows
+  (`user_id is null`) are still fully public by design (`user_id is null or
+  user_id = auth.uid()`, identical policy on both tables) — acceptable for
+  MVP (low-sensitivity data: device token ↔ fighter id / org id), but has
+  two consequences worth stating plainly: (1) anyone holding a given push
+  token could unfollow on someone else's behalf, and (2) the `select`
+  policy makes every anonymous row world-readable to any anon-key client,
+  so the full set of anonymous Expo push tokens can be enumerated — a
+  harvested token is a valid `to:` target for Expo's unauthenticated push
+  API, i.e. an unsolicited-push (spam) vector, though not account access.
+  Rows tied to a logged-in user (`user_id = auth.uid()`) are scoped. Not
+  currently a planned fix for the anonymous case; the clean fix, if
+  revisited, is to route anonymous follow/unfollow through a `security
+  definer` RPC that never returns tokens to clients, so `select` can be
+  tightened to `user_id = auth.uid()` only.
 - **Supabase database linter findings (2026-07-16), fixed via
   `supabase/migrations/003_security_hardening.sql`, applied to the live
   database on 2026-07-16:** the original fully-open `push_subscriptions`

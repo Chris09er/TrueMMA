@@ -32,4 +32,10 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - run: npx eas-cli update --environment "$EAS_ENVIRONMENT" --channel "$EAS_CHANNEL" --message "${{ github.event.head_commit.message }}" --non-interactive
+      - env:
+          # Pass the commit message through the environment rather than
+          # interpolating ${{ ... }} straight into the run: line — otherwise a
+          # crafted commit message (e.g. from a merged PR) could break out of
+          # the shell string and execute arbitrary code with EXPO_TOKEN in scope.
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: npx eas-cli update --environment "$EAS_ENVIRONMENT" --channel "$EAS_CHANNEL" --message "${COMMIT_MSG:-$GITHUB_SHA}" --non-interactive
