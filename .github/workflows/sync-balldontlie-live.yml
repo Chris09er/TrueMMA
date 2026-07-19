@@ -5,15 +5,36 @@ on:
     # Every 5 minutes — cheap because sync-live-event.ts exits immediately
     # (zero balldontlie API calls) unless an event is actually happening
     # right now. GitHub doesn't guarantee exact 5-minute timing under load,
-    # this is a target, not a hard interval.
+    # this is a target, not a hard interval. Same cadence for stage since
+    # this is already near-free when nothing is live.
     - cron: '*/5 * * * *'
   workflow_dispatch: {}
 
 jobs:
-  sync:
+  sync-production:
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run sync:live
+        env:
+          BALLDONTLIE_API_KEY: ${{ secrets.BALLDONTLIE_API_KEY }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+  sync-stage:
+    runs-on: ubuntu-latest
+    environment: stage
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: stage
       - uses: actions/setup-node@v4
         with:
           node-version: 22
