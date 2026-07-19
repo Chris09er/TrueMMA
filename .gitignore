@@ -40,6 +40,9 @@ google-services.json
 # typescript
 *.tsbuildinfo
 
+# Supabase CLI local link state (machine-specific, can contain connection info)
+supabase/.temp/
+
 # generated native folders
 /ios
 /android
