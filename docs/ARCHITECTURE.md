@@ -728,8 +728,10 @@ after seeding data doesn't create duplicate organizations) →
   - **`.github/workflows/publish-ota-update.yml`** (new) — on every push
     to `main`/`stage` (excluding migration/docs/workflow-only changes,
     which don't need a JS republish), runs `eas update --channel
-    <channel> --branch <channel>`, targeting the matching channel via
-    `github.ref_name`. Uses `--environment production`/`preview` (not
+    <channel>` (channel alone — `eas update` rejects passing `--branch`
+    together with `--channel`; the channel name resolves to its
+    same-named update branch automatically), targeting the matching
+    channel via `github.ref_name`. Uses `--environment production`/`preview` (not
     `development`/`stage` — these are the fixed EAS environment-variable
     slots that hold `EXPO_PUBLIC_SUPABASE_URL`/`_ANON_KEY`, already
     repointed at the stage project for `preview`, see
