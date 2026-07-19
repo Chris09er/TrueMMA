@@ -145,10 +145,13 @@ async function sendLeagueStartPushes(liveExternalIds: number[]): Promise<void> {
         body: JSON.stringify(messages),
       });
       if (!res.ok) {
-        console.warn(`  League-start push failed for event ${event.id}: ${res.status} ${await res.text()}`);
-      } else {
-        console.log(`  Sent league-start push to ${messages.length} follower(s) for "${event.name}".`);
+        // Don't stamp league_start_push_sent_at — leave it null so the next
+        // poll retries, otherwise a transient Expo/network failure would
+        // permanently suppress this event's league-start push.
+        console.warn(`  League-start push failed for event ${event.id}, will retry next run: ${res.status} ${await res.text()}`);
+        continue;
       }
+      console.log(`  Sent league-start push to ${messages.length} follower(s) for "${event.name}".`);
     }
 
     await supabase.from('events').update({ league_start_push_sent_at: new Date().toISOString() }).eq('id', event.id);

@@ -396,7 +396,11 @@ constraints:
    it looks up `organization_follows` for that org and POSTs to the same
    Expo push endpoint directly from Node (not SQL, since the "is it live"
    logic already lives here in JS), then stamps
-   `league_start_push_sent_at` so it only fires once per event.
+   `league_start_push_sent_at` so it only fires once per event. The stamp is
+   only written when the Expo POST succeeds (or when the org has no
+   followers) — a non-OK push response leaves `league_start_push_sent_at`
+   null so the next 5-minute poll retries, rather than permanently
+   suppressing the push after one transient failure.
 
 `resolvePushToken()` in `pushSubscriptions.ts` deliberately never prompts
 for permission just to *check* follow-state (`isFollowingFighter`) — only
