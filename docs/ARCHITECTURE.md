@@ -141,10 +141,29 @@ and diverge only through new files in `supabase/migrations/`.
   (`sync-balldontlie-full.yml`/`sync-balldontlie-live.yml`, see
   [balldontlie sync](#balldontlie-sync)) each got split into
   `sync-production` and `sync-stage` jobs, each pinned to its
-  environment/branch/secrets. Stage's full sync runs hourly instead of
-  prod's 6-hourly cadence (shorter feedback loop while testing); the
-  5-minute live-event check stays the same cadence for both since it's
-  already near-free when nothing is live.
+  environment/branch/secrets. The 5-minute live-event check uses the same
+  cadence for both since it's already near-free when nothing is live (but
+  see the delivery caveat under [balldontlie sync](#balldontlie-sync) — that
+  cadence is not what actually runs).
+- Stage's full sync ran **hourly** until 2026-07-19, now **twice daily**
+  (`41 4,16 * * *`). Hourly meant 24 full syncs/day against deliberately
+  disposable test data, and its slots drifted into production's — two
+  concurrent syncs each pacing at ~54 req/min against balldontlie's
+  60 req/min ALL-STAR limit could push past it, and a sustained 429 run
+  aborts the sync after `MAX_RATE_LIMIT_RETRIES`. The `league_ids[]` fix
+  (see [balldontlie sync](#balldontlie-sync)) largely defuses this on its
+  own, but the cadence and the guard below are the actual fix.
+- **All four workflows now declare a `concurrency:` group** (added
+  2026-07-19). Previously none did, so a slow run plus the next scheduled
+  trigger could overlap. `deploy-migrations.yml` is the one that mattered
+  most: `supabase db push` advances remote migration history, so two
+  concurrent runs could apply against a half-migrated schema — it queues
+  (`cancel-in-progress: false`) rather than cancelling, since a cancelled
+  migration deploy could leave migrations half-applied. `publish-ota-update`
+  uses `cancel-in-progress: true` (only the newest bundle matters). All jobs
+  also got `timeout-minutes`, so a hung run fails in minutes instead of
+  occupying a runner until GitHub's 6-hour default, and `setup-node` now
+  caches npm downloads.
 - **Important GitHub platform quirk, hit while setting this up:** a
   *brand-new* workflow file is not `workflow_dispatch`-able at all —
   not even against the branch it was authored on — until it exists on
@@ -583,6 +602,23 @@ client with rate-limiting/retry, Supabase upsert helpers, and the
   full sync, walks balldontlie's entire history every time (see API
   quirks below for why). Scheduled every 6 hours via
   `.github/workflows/sync-balldontlie-full.yml`.
+- **Two latent bugs in `sync-live-event.ts`, found and fixed 2026-07-19
+  while optimizing:**
+  1. The event re-fetch first scanned page 1 of an *unfiltered* `/events`
+     list (100 of ~28k rows) hoping the live event was on it, falling back
+     to `/events/{id}` on a miss — the scan essentially always missed, so it
+     was a wasted request every run. Now goes straight to `/events/{id}`.
+  2. That fallback was typed as `{ data: BdlEvent[] }`, but `/events/{id}`
+     returns `data` as a **single object, not an array** — so `data[0]` was
+     always `undefined` and **the event row was in practice never refreshed
+     by the live sync at all**, only its fights. Exactly the mid-card status
+     flips and shifted segment start times this script exists to catch were
+     silently not landing. Verified against the live API before fixing.
+- **`externalIdMap()` now takes an optional `externalIds` filter.** The live
+  sync called it unscoped, paging through the *entire* `fighters` and
+  `events` tables on every poll just to map one event's ~24 fighters. The
+  full sync still calls it unscoped, which is correct — it genuinely needs
+  the whole map.
 - **`scripts/sync-live-event.ts`** (`npm run sync:live`) — a lightweight
   companion, scheduled every 5 minutes via
   `.github/workflows/sync-balldontlie-live.yml`. It first checks (one
@@ -608,10 +644,27 @@ otherwise read-only tables.
 
 **Why GitHub Actions and not a paid scheduler:** the repo is public
 specifically so these can run on GitHub-hosted runners for free with no
-per-minute cap — the 5-minute live-check alone is ~8,600 runs/month,
+per-minute cap — a true 5-minute live-check would be ~8,600 runs/month,
 which would blow through the 2,000 free minutes/month a private repo
 gets (GitHub bills a minimum of 1 minute per job run even for an
-instant no-op). Git history was checked for leaked secrets before
+instant no-op).
+
+**The 5-minute live cron is not delivered as scheduled — measured
+2026-07-19.** Actual gaps between delivered `schedule` runs of
+`sync-balldontlie-live.yml` were **45–75 minutes**, with observed gaps up
+to 3.7 h (00:10 → 03:51). GitHub aggressively sheds high-frequency
+`schedule` triggers on public repos; there is no setting that changes
+this, and `workflow_dispatch` runs are unaffected (they fire immediately).
+Consequences to keep in mind:
+- The real figure is ~700 runs/month, not ~8,600 — the cost reasoning
+  above is even safer than it looks, but for the wrong reason.
+- The live sync's premise ("late changes land within minutes instead of
+  waiting for the 6-hour full sync") holds only loosely — in practice
+  it's ~1 h, occasionally several.
+- **The league-start push inherits this latency**, since it piggybacks on
+  this poll (see [Notifications](#notifications)). A "starts now" push can
+  arrive an hour or more after the event actually started. Not yet
+  addressed — see [Known open items](#known-open-items). Git history was checked for leaked secrets before
 flipping the repo public (`git log --all -p` grepped for key/token
 patterns) — none found; real secrets only ever lived in `.env`
 (gitignored) and GitHub Actions secrets, neither of which repo
@@ -632,11 +685,32 @@ remember" local script.
   `/events`, `/fighters` are on the free tier.
 - Neither `statuses[]=scheduled` nor date-range params (`start_date`,
   `dates[]`) are honored by `/events` — confirmed identical responses with
-  and without them. Every sync paginates through balldontlie's **entire**
-  history (~28k events across 10 leagues) and filters by date client-side.
-  This is why the sync also keeps a rolling past window
-  (`PAST_WINDOW_DAYS = 365`, see below) — it costs nothing extra since the
-  full pagination pass is unavoidable anyway.
+  and without them. Date filtering therefore happens client-side
+  (`PAST_WINDOW_DAYS = 365`, see below).
+- **`league_ids[]` *is* honored by `/events`, on every cursor page** —
+  measured 2026-07-19, and the single biggest cost lever in this project.
+  The original implementation assumed *all* filters broke past page one and
+  so walked the entire history every run. Both variants were walked to
+  completion and their event ids diffed:
+
+  | | events | requests |
+  |---|---|---|
+  | unfiltered (old behavior) | 27,933 | **280** |
+  | `league_ids[]`, all 10 leagues | 361 | **4** |
+
+  Zero eligible events missing from the filtered walk (361 of 361). The
+  ~27.6k difference is events with `league: null` — regional shows the sync
+  discards anyway; they were the ~212 "unknown league" skip lines per run.
+  Cuts the full sync from ~6.5 min to well under a minute and removes ~98.6%
+  of its balldontlie calls. **Lesson: "the API ignores filters" was verified
+  for two parameters and then generalized to all of them — that assumption
+  cost 280 requests per run for months. Verify per parameter.**
+- **balldontlie's league coverage is far thinner than the ~28k event count
+  suggests:** across their *entire* history only 361 events carry a league
+  at all — UFC 189, PFL 76, LFA 37, DWCS 20, CW 16, ONE 10, RIZIN 7,
+  Invicta 3, Bellator 3. The Bellator gap noted below is not an outlier;
+  ONE and Invicta are effectively unusable too. Treat any "league X is
+  covered" assumption as needing a count check first.
 - `/fights` also doesn't reliably honor filters past the first page of
   cursor pagination — instead of filtering, we fetch fights in batches via
   `event_ids[]` for exactly the event ids we already trust (kept from the
@@ -791,6 +865,24 @@ after seeding data doesn't create duplicate organizations) →
   `expo-updates` built in. `preview`/`production` builds still need one
   fresh build each before they can receive OTA updates, same reasoning —
   any build made before 2026-07-19 predates `expo-updates` entirely.
+- **Local `.env` is currently in a broken half-state (found 2026-07-19).**
+  `EXPO_PUBLIC_SUPABASE_URL` points at **stage** (`qvjgsbeugllobgwabebv`)
+  but `SUPABASE_SERVICE_ROLE_KEY` is still the **prod** key, so the two
+  disagree and any local `npm run sync:balldontlie`/`sync:live` fails auth
+  (verified with a read-only query). Fetch the stage service-role key
+  (`supabase projects api-keys --project-ref qvjgsbeugllobgwabebv --reveal`,
+  or the stage dashboard) and replace it. Until then, sync changes can only
+  be validated in CI, not locally.
+- **League-start push latency** — the push fires from the 5-minute live
+  poll, which GitHub actually delivers roughly hourly (see [balldontlie
+  sync](#balldontlie-sync)), so a "starts now" push can land an hour or
+  more late. Two options, not yet decided: lower the ambition and accept
+  it (adjust the cron to a realistic interval and the copy to match), or
+  move the trigger off GitHub's scheduler onto something that actually
+  ticks reliably — `pg_cron` inside Supabase is the obvious candidate,
+  since the event/start-time data already lives there and `pg_net` is
+  already used for the fighter-follow push. The latter is a real
+  architectural change, not a tweak.
 - **Revisit Supabase Branching vs. two free-tier projects** before a real
   store release — see the trade-off written up in
   [Environments](#environments-dev--stage--main). Switching to Branching

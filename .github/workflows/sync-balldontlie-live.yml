@@ -2,17 +2,30 @@ name: Sync balldontlie (live event)
 
 on:
   schedule:
-    # Every 5 minutes — cheap because sync-live-event.ts exits immediately
-    # (zero balldontlie API calls) unless an event is actually happening
-    # right now. GitHub doesn't guarantee exact 5-minute timing under load,
-    # this is a target, not a hard interval. Same cadence for stage since
-    # this is already near-free when nothing is live.
+    # Requests every 5 minutes; cheap, because sync-live-event.ts exits
+    # immediately (zero balldontlie API calls) unless an event is actually
+    # happening right now.
+    #
+    # BUT: GitHub does not come close to honoring this. Measured over
+    # 2026-07-18/19, the actual gap between delivered runs was 45-75 min,
+    # with gaps up to 3.7 h — GitHub aggressively sheds high-frequency
+    # `schedule` triggers on public repos, and there is no setting that
+    # changes this. So this is ~1/12th the requested rate, and anything
+    # depending on it (notably the league-start push in sync-live-event.ts)
+    # inherits that latency. Do not read this cron as a delivered interval.
     - cron: '*/5 * * * *'
   workflow_dispatch: {}
+
+# Runs are ~30 s, but GitHub can deliver several deferred schedule triggers
+# back to back after a quiet period; don't let those stack up.
+concurrency:
+  group: sync-balldontlie-live
+  cancel-in-progress: false
 
 jobs:
   sync-production:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +34,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
       - run: npm ci
       - run: npm run sync:live
         env:
@@ -30,6 +44,7 @@ jobs:
 
   sync-stage:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: stage
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +53,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
       - run: npm ci
       - run: npm run sync:live
         env:

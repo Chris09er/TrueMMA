@@ -56,24 +56,27 @@ async function syncLiveEvent(bdlEventId: number): Promise<void> {
   console.log(`Live event ${bdlEventId} — refreshing fights...`);
 
   // Re-fetch the event itself too — status can flip to "cancelled" or
-  // segment start times can shift mid-day.
-  const { data: eventPage } = await bdlFetch<{ data: BdlEvent[] }>('/events', [
-    ['statuses[]', 'scheduled'],
-  ]).then(async (page) => {
-    const match = page.data.find((event) => event.id === bdlEventId);
-    if (match) return { data: [match] };
-    // Fallback: the single-event endpoint if the list page didn't include it
-    // (e.g. status already flipped away from "scheduled").
-    return bdlFetch<{ data: BdlEvent[] }>(`/events/${bdlEventId}`).catch(() => ({ data: [] as BdlEvent[] }));
-  });
+  // segment start times can shift mid-day. Straight to the single-event
+  // endpoint: this used to first scan page 1 of an unfiltered /events list
+  // (100 of ~28k rows) and only fall back to /events/{id} on a miss, which
+  // meant a wasted request on essentially every run. Note /events/{id}
+  // returns `data` as a single object, not an array — the old fallback typed
+  // it as an array, so `data[0]` was always undefined and the event row was
+  // in practice never refreshed here at all.
+  const event = await bdlFetch<{ data: BdlEvent }>(`/events/${bdlEventId}`)
+    .then((res) => res.data)
+    .catch((err) => {
+      console.warn(`  Could not re-fetch event ${bdlEventId}: ${err.message}`);
+      return null;
+    });
 
   const orgMap = await externalIdMap('organizations');
-  const organizationId = eventPage[0]?.league ? orgMap.get(eventPage[0].league.id) : undefined;
-  if (eventPage[0] && organizationId) {
-    await upsertBatched('events', [eventRow(eventPage[0], organizationId)]);
+  const organizationId = event?.league ? orgMap.get(event.league.id) : undefined;
+  if (event && organizationId) {
+    await upsertBatched('events', [eventRow(event, organizationId)]);
   }
 
-  const eventMap = await externalIdMap('events');
+  const eventMap = await externalIdMap('events', [bdlEventId]);
   const eventId = eventMap.get(bdlEventId);
   if (!eventId) {
     console.warn(`  Event ${bdlEventId} not found locally after refresh, skipping fights.`);
@@ -90,7 +93,7 @@ async function syncLiveEvent(bdlEventId: number): Promise<void> {
     if (fight.winner) fightersById.set(fight.winner.id, fight.winner);
   }
   await upsertBatched('fighters', [...fightersById.values()].map((fighter) => fighterRow(fighter, organizationId)));
-  const fighterMap = await externalIdMap('fighters');
+  const fighterMap = await externalIdMap('fighters', [...fightersById.keys()]);
 
   const fightRows = fights.flatMap((fight) => {
     const fighter1Id = fighterMap.get(fight.fighter1.id);
