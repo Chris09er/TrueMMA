@@ -108,6 +108,17 @@ then replayed cleanly onto the new stage project via `supabase db push`.
 Going forward, both environments start from the same known-good baseline
 and diverge only through new files in `supabase/migrations/`.
 
+- **`supabase/config.toml` exists as of 2026-07-19** (`supabase init`).
+  The repo never had one, which is why migrations could previously only be
+  validated by deploying them. With it, `npx supabase start` (optionally
+  `-x studio,realtime,storage-api,...` to boot only the database) plus
+  `npx supabase db reset` replays every migration from `000` against a
+  local Postgres — the fastest way to catch a broken migration. Doing
+  exactly this caught the `cron.job` permission error in `006` before it
+  ever reached an environment. **Run it before pushing any migration.**
+  On Windows/Git Bash, prefix `docker cp`/`docker exec` calls that take
+  container paths with `MSYS_NO_PATHCONV=1`, or the path gets rewritten
+  into a Windows path and the command fails confusingly.
 - `supabase db pull`/`db diff` need a local Docker-backed shadow
   database (Postgres running in a container) — Docker Desktop is now a
   project prerequisite for anyone doing schema work with the CLI. Plain
@@ -898,9 +909,23 @@ after seeding data doesn't create duplicate organizations) →
   or the stage dashboard) and replace it. Until then, sync changes can only
   be validated in CI, not locally.
 - ~~League-start push latency~~ — **resolved 2026-07-19** by moving the
-  trigger to `pg_cron`, see [Notifications](#notifications). Not yet
-  verified end-to-end against a live event; the migration has been applied
-  through the pipeline but no real event has started since.
+  trigger to `pg_cron`, see [Notifications](#notifications). Verified
+  against a local Supabase Postgres: the job registers active on
+  `* * * * *` and executes on the minute, and all six branches of
+  `send_league_start_pushes()` behave correctly (fires when just started;
+  ignores events outside the 30-minute window, cancelled events, and
+  not-yet-started events; stamps an org with no followers without an HTTP
+  call; a simulated 500 releases the attempt and re-issues within the same
+  tick; a 200 stamps `league_start_push_sent_at` and stops). **Still
+  unverified against a real event and a real device** — the Expo POST
+  itself was simulated by injecting `net._http_response` rows, so the
+  push has never actually been delivered end-to-end. Worth watching the
+  first real event on stage.
+- **`cron.job` is not writable by the migration role.** `delete from
+  cron.job ...` fails with "permission denied for table job"; go through
+  `cron.unschedule()` instead, wrapped in an exception block since it
+  raises when the job doesn't exist. Caught by local replay, see the
+  Supabase CLI notes in [Environments](#environments-dev--stage--main).
 - **Neither push path chunks messages to Expo's 100-per-request limit.**
   `notify_fighter_added_to_fight()` and `send_league_start_pushes()` both
   build one `net.http_post` containing every matching subscriber. Below
