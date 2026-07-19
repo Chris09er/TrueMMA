@@ -1,16 +1,25 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import EventReminderBell from '../components/EventReminderBell';
 import FighterFollowBell from '../components/FighterFollowBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
+import OrganizationFollowBell from '../components/OrganizationFollowBell';
 import { useAuth } from '../lib/auth';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { getProfile, updateNickname } from '../lib/profile';
-import { getFavoritedEvents, getFavoritedFighters, getFollowedEvents, getFollowedFighters } from '../lib/queries';
+import {
+  getFavoritedEvents,
+  getFavoritedFighters,
+  getFollowedEvents,
+  getFollowedFighters,
+  getFollowedOrganizations,
+} from '../lib/queries';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
-import type { EventListItem, Fighter } from '../lib/types';
+import { TIMEZONE_OPTIONS } from '../lib/timezones';
+import type { EventListItem, Fighter, Organization } from '../lib/types';
 
 type LoggedOutMode = 'login' | 'signup' | 'forgot-request' | 'forgot-confirm';
 
@@ -182,7 +191,7 @@ function LoggedOutView() {
 
 function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const { t, locale } = useLocale();
-  const { signOut, updateEmail, updatePassword } = useAuth();
+  const { signOut, updateEmail, updatePassword, timezoneOverride, setTimezoneOverride } = useAuth();
   const [nickname, setNickname] = useState('');
   const [nicknameLoading, setNicknameLoading] = useState(true);
   const [newEmail, setNewEmail] = useState(email);
@@ -190,6 +199,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const [busy, setBusy] = useState(false);
   const [followedFighters, setFollowedFighters] = useState<Fighter[]>([]);
   const [followedEvents, setFollowedEvents] = useState<EventListItem[]>([]);
+  const [followedOrganizations, setFollowedOrganizations] = useState<Organization[]>([]);
   const [followsLoading, setFollowsLoading] = useState(true);
   const [favoritedFighters, setFavoritedFighters] = useState<Fighter[]>([]);
   const [favoritedEvents, setFavoritedEvents] = useState<EventListItem[]>([]);
@@ -203,10 +213,11 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
   useEffect(() => {
     setFollowsLoading(true);
-    Promise.all([getFollowedFighters(userId), getFollowedEvents(userId)])
-      .then(([fighters, events]) => {
+    Promise.all([getFollowedFighters(userId), getFollowedEvents(userId), getFollowedOrganizations(userId)])
+      .then(([fighters, events, organizations]) => {
         setFollowedFighters(fighters);
         setFollowedEvents(events);
+        setFollowedOrganizations(organizations);
       })
       .finally(() => setFollowsLoading(false));
   }, [userId]);
@@ -316,6 +327,21 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         <Text style={styles.buttonText}>{t.profile.changePasswordButton}</Text>
       </Pressable>
 
+      <Text style={styles.sectionTitle}>{t.profile.timezoneTitle}</Text>
+      {TIMEZONE_OPTIONS.map((option) => {
+        const active = (timezoneOverride ?? null) === option.value;
+        return (
+          <Pressable
+            key={option.value ?? 'device'}
+            style={[styles.timezoneRow, active && styles.timezoneRowActive]}
+            onPress={() => setTimezoneOverride(option.value)}
+          >
+            <Text style={styles.timezoneLabel}>{option.label[locale]}</Text>
+            {active && <Ionicons name="checkmark" size={18} color={colors.accentGold} />}
+          </Pressable>
+        );
+      })}
+
       <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
       {followsLoading ? (
         <ActivityIndicator color={colors.accentGold} />
@@ -340,7 +366,21 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
           <View key={event.id} style={styles.listCard}>
             <EventReminderBell eventId={event.id} eventName={event.name} eventDateIso={event.event_date} />
             <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>{formatEventDate(event.event_date, locale)}</Text>
+            <Text style={styles.listCardMeta}>{formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}</Text>
+          </View>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>{t.profile.followedOrganizationsTitle}</Text>
+      {followsLoading ? (
+        <ActivityIndicator color={colors.accentGold} />
+      ) : followedOrganizations.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFollowedOrganizations}</Text>
+      ) : (
+        followedOrganizations.map((org) => (
+          <View key={org.id} style={[styles.listCard, styles.listCardRow]}>
+            <Text style={styles.listCardTitleInline}>{org.short_name}</Text>
+            <OrganizationFollowBell organizationId={org.id} />
           </View>
         ))
       )}
@@ -369,7 +409,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
           <View key={event.id} style={styles.listCard}>
             <EventFavoriteHeart eventId={event.id} />
             <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>{formatEventDate(event.event_date, locale)}</Text>
+            <Text style={styles.listCardMeta}>{formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}</Text>
           </View>
         ))
       )}
@@ -435,6 +475,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
   },
+  timezoneRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  timezoneRowActive: {
+    borderColor: colors.accentGold,
+  },
+  timezoneLabel: {
+    fontSize: 14,
+    color: colors.textPrimary,
+  },
   listCard: {
     padding: 14,
     borderRadius: radius.md,
@@ -449,6 +507,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textPrimary,
     paddingRight: 56,
+  },
+  listCardRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  listCardTitleInline: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textPrimary,
   },
   listCardMeta: {
     fontSize: 13,

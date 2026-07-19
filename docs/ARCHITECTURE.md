@@ -55,6 +55,20 @@ UI/org to develop against:
   infra. There's nothing analogous to a "dev org" here since this is
   plain code, not declarative metadata — a developer's own machine plus
   whichever Supabase project they point their local `.env` at is enough.
+  As of 2026-07-19, local `.env` and the EAS `development` environment
+  (used by the `development` build profile / dev-client APK) both point
+  at the **stage** Supabase project — originally left pointing at prod
+  from before this pipeline existed, switched deliberately so on-device
+  testing can't accidentally read/write real production data. Note this
+  is orthogonal to the `dev`/`stage`/`main` **git branches**: pushing to
+  `dev` triggers no CI at all (`deploy-migrations.yml`/
+  `publish-ota-update.yml` only watch `stage`/`main`); a dev-client APK
+  reflects whatever's on disk live via Metro (`npx expo start`), not any
+  git or CI state. `SUPABASE_SERVICE_ROLE_KEY` in local `.env` is **still
+  the prod key** — only the sync scripts read it, not the app, but fetch
+  the stage key too (`supabase projects api-keys --project-ref
+  qvjgsbeugllobgwabebv --reveal`, or the stage project's dashboard) before
+  running `npm run sync:balldontlie`/`sync:live` locally against stage.
 - **`stage` branch** — a real, persistent test environment: its own
   Supabase project (`true-mma-stage`, ref `qvjgsbeugllobgwabebv`,
   eu-central-1, **free tier**), its own EAS build profile (`preview` in
@@ -141,8 +155,10 @@ and diverge only through new files in `supabase/migrations/`.
   way to `main` before it could be test-triggered at all — budget for
   this when adding a new workflow in the future, it can't be validated
   in isolation on a feature branch first.
-- Not yet done: EAS Update (OTA) channels mapped to branches — see
-  [Known open items](#known-open-items).
+- **EAS Update (OTA) channels**, set up 2026-07-19 — see
+  [Build & deployment](#build--deployment) and
+  [Known open items](#known-open-items) for the one remaining manual step
+  (`EXPO_TOKEN` secret + a fresh dev build).
 
 ## Data model
 
@@ -155,14 +171,31 @@ Tables (Supabase Postgres), all with RLS enabled:
 | `events` | Event calendar entries + status + broadcast segment times | none (read-only) |
 | `fights` | Matchups within an event, incl. results + card segment | none (read-only) |
 | `push_subscriptions` | Device push token ↔ followed fighter, optional `user_id` | **insert/select/delete** (anon, or own rows if logged in) |
-| `profiles` | Login-only: nickname per account (`id` = `auth.users.id`) | own row only |
+| `organization_follows` | Device push token ↔ followed league/org, optional `user_id` — same shape as `push_subscriptions` | **insert/select/delete** (anon, or own rows if logged in) |
+| `fight_votes` | Device id ↔ picked fighter per fight ("who wins?") | **insert/select/update** (anon, no login concept at all) |
+| `profiles` | Login-only: nickname + optional `timezone_override` per account (`id` = `auth.users.id`) | own row only |
 | `event_follows` | Login-only: user ↔ followed event (profile visibility) | own rows only |
 | `fighter_favorites` / `event_favorites` | Login-only: user ↔ favorited fighter/event | own rows only |
 
-`push_subscriptions` is the one exception to "app is read-only" for
-anonymous users — it's how the fighter-follow bell registers/unregisters
-without requiring login. See [Notifications](#notifications) and
-[Login / Profile](#login--profile).
+`push_subscriptions` and `organization_follows` are the exceptions to "app
+is read-only" for anonymous users — they're how the fighter-follow and
+league-follow bells register/unregister without requiring login.
+`fight_votes` goes further still: it has no login-gated path at all, keyed
+purely on a locally-generated device id (`src/lib/voting.ts`), independent
+of the push token so voting never triggers the OS notification-permission
+prompt. See [Notifications](#notifications), [Login / Profile](#login--profile),
+and [Voting](#voting).
+
+`fighters.primary_organization_id` (added 2026-07-19) is a best-effort
+"which org is this fighter currently in" column, populated by the sync
+scripts from whichever fight/event a fighter was most recently synced
+from — a fighter who has switched organizations shows only their latest
+one, not a full history. Used solely to power the fighter-list org filter,
+see [App structure](#app-structure).
+
+`events.league_start_push_sent_at` (added 2026-07-19) tracks whether the
+league-start push (see [Notifications](#notifications)) has already fired
+for an event, so the 5-minute live-poll doesn't resend it every cycle.
 
 **Sync idempotency:** `organizations`, `events`, `fighters`, and `fights`
 each have a nullable `external_id integer unique` column, populated by the
@@ -195,7 +228,10 @@ else (UFC + 9 other leagues) is populated by
   Navigation pattern, not a workaround.
 - **Screens** (`src/screens/`):
   - `EventListScreen` — list/calendar view toggle (top row); list mode:
-    upcoming/past toggle, org filter (UFC/OKTAGON pinned first via
+    today/upcoming/past toggle (added 2026-07-19 — "today" =
+    `getTodayEvents()` in `queries.ts`, events on today's local calendar
+    date **or** still `isEventLive()` — covers a card that started before
+    midnight and hasn't rolled into "past" yet), org filter (UFC/OKTAGON pinned first via
     `PINNED_ORG_ORDER` in `queries.ts`, rest alphabetical; horizontally
     scrollable — the org list is longer than one screen width, e.g. PFL
     only shows up if you scroll), text search (client-side substring
@@ -205,7 +241,13 @@ else (UFC + 9 other leagues) is populated by
     `getEventsInRange()` (independent of the upcoming/past split), tapping
     a day filters the list below to that day; org filter applies in both
     modes. Per-event reminder bell + favorite heart (only bell rendered
-    for events where `isEventUpcoming()` is true, heart always).
+    for events where `isEventUpcoming()` is true, heart always). A pulsing
+    red `LiveBadge` (`src/components/`, added 2026-07-19, RN's built-in
+    `Animated` API — no new dependency) renders on any card where
+    `isEventLive()` is true (also used in `EventDetailScreen`'s header);
+    see `isEventLive()` in `queries.ts` — same ~6h post-start buffer
+    heuristic already used by `scripts/sync-live-event.ts`, kept in sync
+    manually if that buffer ever changes.
   - `EventDetailScreen` — event header (venue incl. `venue_state`, a red
     "Event cancelled" banner if `event.status === 'cancelled'`, and
     Early Prelims/Prelims/Main Card broadcast start times when
@@ -228,11 +270,22 @@ else (UFC + 9 other leagues) is populated by
     lowest-`card_position` fight within `card_segment === 'prelims'`),
     title-fight tag, scheduled rounds, and (for past fights) the result
     incl. `result_method_detail` when balldontlie has it (more specific
-    than `result_method`, e.g. exact submission type).
-  - `FighterListScreen` — search, nationality filter (derived client-side
-    from the loaded fighters, horizontally scrollable, same
-    `FilterButton` component as the event org filter), pull-to-refresh,
-    per-fighter follow bell. Tapping a fighter opens `FighterDetailScreen`
+    than `result_method`, e.g. exact submission type). A live badge next
+    to a cancelled-banner-style slot in the header (see above); an
+    `OrganizationFollowBell` next to the org name (added 2026-07-19, see
+    [Notifications](#notifications)); and, for any fight with no result
+    yet, a vote UI (see [Voting](#voting)).
+  - `FighterListScreen` — search, a single "Filter" button (added
+    2026-07-19, replacing what used to be a lone horizontal-scroll
+    nationality row) opening a bottom-sheet `Modal` (RN built-in, no new
+    dependency) with three independently-combinable (AND) sections —
+    Organisation (`primary_organization_id`, see [Data
+    model](#data-model)), Gewichtsklasse (`weight_class`), Nationalität —
+    each a wrapped chip row rather than horizontal-scroll, since a modal
+    has the vertical room a header row doesn't. All three still derive
+    their options client-side from the already-loaded fighter list, same
+    as the original nationality-only filter. Pull-to-refresh, per-fighter
+    follow bell. Tapping a fighter opens `FighterDetailScreen`
     (used to jump straight to Tapology/Sherdog — now shows an in-app
     profile first, external links are explicit buttons there).
   - `FighterDetailScreen` — photo/name/nickname/nationality, W-L-D record
@@ -253,8 +306,16 @@ else (UFC + 9 other leagues) is populated by
   - `LanguageScreen`, `ContactScreen` — simple settings-style screens.
     `LanguageScreen` shows a flag emoji per entry (`SUPPORTED_LOCALES` in
     `i18n.tsx` now carries a `flag` field alongside `code`/`label`).
+    `ContactScreen` (updated 2026-07-19) shows the support email as
+    selectable `Text` (RN's built-in `selectable` prop — native
+    long-press-copy, no new dependency) above the mailto button, and
+    guards `Linking.openURL` with `Linking.canOpenURL` first, falling back
+    to an alert instead of failing silently if no mail client is
+    configured.
   - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
-    flow. Logged-in: nickname, change email/password, followed and
+    flow. Logged-in: nickname, change email/password, a timezone-override
+    picker (added 2026-07-19, see [Login / Profile](#login--profile)),
+    followed fighters/events/**organizations** (added 2026-07-19) and
     favorited fighters/events (reusing the same bell/heart components to
     unfollow/unfavorite directly from the list), logout. See
     [Login / Profile](#login--profile) and [Favorites](#favorites).
@@ -289,7 +350,15 @@ else (UFC + 9 other leagues) is populated by
   `style={{ flexGrow: 0 }}` (separate from `contentContainerStyle`) —
   without it, RN's default `flexGrow` behavior lets the row collapse when
   a flex-column sibling (the list/calendar below) claims space on
-  re-layout.
+  re-layout. **Same bug family, hit again 2026-07-19:** `flexGrow: 0`
+  alone still wasn't enough on a real device for `EventListScreen`'s org
+  filter row — the first event card visibly overlapped it. Fixed with an
+  explicit `height: 60` (36px `FilterButton` `minHeight` + 2×12px vertical
+  padding) on the container, so its height is reserved immediately instead
+  of depending on the horizontal `ScrollView`'s intrinsic-size layout
+  timing at all. Worth applying the same explicit-height fix proactively
+  to any future horizontal filter row, rather than waiting for it to
+  surface again on-device.
 
 ## Notifications
 
@@ -316,6 +385,18 @@ constraints:
    - **Expo Go cannot receive real push notifications since SDK 54** — a
      development build (EAS) is required to test this path. Local
      reminders are unaffected.
+3. **League-follow push** (`src/lib/organizationFollows.ts`, added
+   2026-07-19) — same push-token/anonymous-follow shape as fighter-follow,
+   but fires when a followed organization's event actually **starts**, not
+   when it's created — so it can't be a simple `AFTER INSERT` trigger.
+   Instead, `scripts/sync-live-event.ts`'s existing 5-minute "is anything
+   live right now?" poll (see [balldontlie sync](#balldontlie-sync)) got a
+   `sendLeagueStartPushes()` step: for each event that just went live and
+   hasn't been notified yet (`events.league_start_push_sent_at is null`),
+   it looks up `organization_follows` for that org and POSTs to the same
+   Expo push endpoint directly from Node (not SQL, since the "is it live"
+   logic already lives here in JS), then stamps
+   `league_start_push_sent_at` so it only fires once per event.
 
 `resolvePushToken()` in `pushSubscriptions.ts` deliberately never prompts
 for permission just to *check* follow-state (`isFollowingFighter`) — only
@@ -378,6 +459,20 @@ items](#known-open-items) if that changes.
   dropped by their actual name before the new scoped policies are created,
   since their names weren't recorded anywhere in this repo.
 
+**Timezone override (added 2026-07-19):** device-local time was already
+the default everywhere — `formatEventDate()`/`BroadcastTimes`'s
+`formatTime()` call `toLocaleDateString`/`toLocaleTimeString` with no
+explicit `timeZone`, which already resolves to the device's zone — so this
+was purely additive, not a bug fix. `profiles.timezone_override` (nullable
+IANA zone name) is only ever settable while logged in; `AuthProvider`
+(`src/lib/auth.tsx`) loads it alongside session/user and exposes
+`timezoneOverride`/`setTimezoneOverride()` via `useAuth()`, so any screen
+can read it without prop-drilling. The picker itself
+(`ProfileScreen`) offers a curated list of ~10 zones
+(`src/lib/timezones.ts`) relevant to an MMA audience, not all ~400 IANA
+zones — "device timezone" (clears the override) is always the first
+option and the default for every anonymous user.
+
 ### Auth emails
 
 Supabase's built-in email service (used during early development) is
@@ -436,6 +531,33 @@ notifications.
   each group) using a favorite-id `Set` kept in sync via each heart's
   `onToggle` callback, refreshed from `getFighterFavoriteIds()`/
   `getEventFavoriteIds()` on load and pull-to-refresh.
+
+## Voting
+
+Added 2026-07-19: anonymous community voting on upcoming fights ("who
+wins?"), one vote per device — no login required, and deliberately
+independent of the push-token identity used for follows (voting must never
+trigger the OS notification-permission prompt).
+
+- **Identity:** `getDeviceId()` (`src/lib/voting.ts`) generates a random
+  id once, cached in AsyncStorage (`true-mma:device-id`) — not
+  `expo-crypto`'s `randomUUID`, deliberately, to avoid pulling in a native
+  module just for this.
+- **Schema:** `fight_votes` (`fight_id`, `device_id`, `picked_fighter_id`,
+  unique on `(fight_id, device_id)`) — see [Data model](#data-model). RLS
+  allows anonymous insert/select/update outright (same trust model already
+  accepted for `push_subscriptions`'s anonymous rows: client self-reports
+  its own identifier, low-sensitivity data, no server-verifiable anti-abuse
+  beyond the per-device uniqueness constraint).
+- **Fetching:** `getEventVotes()` batches one query per event load (all
+  fight ids via `.in()`) rather than one query per fight card, then counts
+  votes per fighter client-side — small enough per event that a dedicated
+  aggregation view wasn't worth adding.
+- **UI (`EventDetailScreen`):** only shown for fights with no result yet
+  (`result_winner_id == null`) and not cancelled. Before voting: two
+  pressable picks. After voting: a two-segment percentage bar, the picked
+  side highlighted. `castVote()` upserts on `(fight_id, device_id)`, so
+  changing a pick just overwrites the previous vote.
 
 ## balldontlie sync
 
@@ -589,6 +711,47 @@ after seeding data doesn't create duplicate organizations) →
   rebuild needed.
 - Run `npx expo install --check` (or `--fix`) after any dependency change
   to catch drift from the SDK's expected versions before it causes this.
+- **EAS Update (OTA), set up 2026-07-19:** `expo-updates` installed (a
+  native module — requires a fresh `eas build --profile development` once,
+  same as any native module addition, see the rebuild-triggers note
+  above). `app.config.js` sets `updates.url` (the project's EAS Update
+  endpoint, `https://u.expo.dev/<projectId>`) and `runtimeVersion: {
+  policy: 'appVersion' }` — a build and an OTA update are only compatible
+  if `app.json`'s `version` matches, so bumping `version` on a release
+  that also changes native code is what forces a fresh build instead of
+  silently serving an incompatible update.
+  - **Channels** (`eas.json` → `build.<profile>.channel`), named after the
+    branch pipeline rather than the build-profile names: `development`
+    profile → `development` channel, `preview` profile → `stage` channel,
+    `production` profile → `production` channel. A build only ever pulls
+    updates published to its own channel.
+  - **`.github/workflows/publish-ota-update.yml`** (new) — on every push
+    to `main`/`stage` (excluding migration/docs/workflow-only changes,
+    which don't need a JS republish), runs `eas update --channel
+    <channel> --branch <channel>`, targeting the matching channel via
+    `github.ref_name`. Uses `--environment production`/`preview` (not
+    `development`/`stage` — these are the fixed EAS environment-variable
+    slots that hold `EXPO_PUBLIC_SUPABASE_URL`/`_ANON_KEY`, already
+    repointed at the stage project for `preview`, see
+    [Environments](#environments-dev--stage--main) — distinct from the
+    update-channel names chosen above) so the published JS bundle embeds
+    the right Supabase project's env vars.
+  - **Requires an `EXPO_TOKEN` repo secret** for `eas-cli` to authenticate
+    non-interactively in CI — **created 2026-07-19.** Deliberately an Expo
+    **robot user** token (name: `GITHUB_ACTIONS_CI`), not a personal
+    access token off the `chris09er` account: a personal token breaks
+    silently if the underlying account's credentials/2FA ever change,
+    since it's not scoped to CI at all; a robot user is a dedicated
+    non-human account (Developer role — no billing/member-management
+    access, just enough to build/publish), scoped to just this project,
+    created under Account Settings → Robot Users on expo.dev. If this
+    token is ever pasted somewhere non-secret (chat, a doc, a log), treat
+    it as compromised and rotate it immediately: revoke the old token on
+    the robot user's own settings page, generate a new one, then
+    `gh secret set EXPO_TOKEN` locally to update the repo secret
+    (repo-level, like `SUPABASE_ACCESS_TOKEN`, since it's an account
+    credential, not project-specific) — never paste a live token into
+    chat.
 - **Known bad transitive dependency:** `@expo/vector-icons@15.1.x` pulls in
   `expo-font@56.x`, which calls an `expo-modules-core` API
   (`ReturnTypeKt.getDirectConverter`) that doesn't exist in SDK 54's
@@ -605,15 +768,14 @@ after seeding data doesn't create duplicate organizations) →
 
 ## Known open items
 
-- **EAS Update (OTA) channels not set up yet** — would let JS-only
-  changes push to `stage`/`production` builds without a full native
-  rebuild, mapped to branches the same way the rest of the
-  [Environments](#environments-dev--stage--main) pipeline is. Requires
-  installing `expo-updates` (a native module — needs a fresh EAS dev
-  build once added, see the rebuild-triggers note in
-  [Build & deployment](#build--deployment)). Deliberately deferred
-  2026-07-19 to a follow-up session rather than stacking another native
-  rebuild onto the same session as the FCM V1 one.
+- ~~EAS Update (OTA) channels configured but not yet live end-to-end~~ —
+  **resolved 2026-07-19.** `EXPO_TOKEN` repo secret created (an Expo
+  **robot user** token, not a personal one — see [Build &
+  deployment](#build--deployment) for why) and a fresh `eas build
+  --profile development` completed, so the dev client now has
+  `expo-updates` built in. `preview`/`production` builds still need one
+  fresh build each before they can receive OTA updates, same reasoning —
+  any build made before 2026-07-19 predates `expo-updates` entirely.
 - **Revisit Supabase Branching vs. two free-tier projects** before a real
   store release — see the trade-off written up in
   [Environments](#environments-dev--stage--main). Switching to Branching
@@ -677,20 +839,55 @@ after seeding data doesn't create duplicate organizations) →
   stores require a publicly reachable Privacy Policy URL at submission
   time, so the drafted markdown needs to be hosted somewhere (e.g.
   `true-mma.com/privacy`) before it's usable in either console.
+  - **Hosting prepared but deliberately not deployed, 2026-07-19:**
+    [`docs/legal/site/`](legal/site/) has static HTML versions of both
+    languages (`privacy.de.html`/`privacy.en.html`, plus an `index.html`
+    and shared `style.css`) converted 1:1 from the Markdown, each with a
+    visible "draft, not legally reviewed yet" banner and `<meta
+    name="robots" content="noindex, nofollow">` so nothing indexes it
+    even if it ends up reachable by URL. This is upload-ready but has
+    **not** been uploaded/deployed anywhere and `true-mma.com` has no DNS
+    change pointing at it — going live requires (1) the lawyer review
+    still pending above, and (2) actually deploying it (e.g. IONOS
+    webspace, since that's already the domain/mail provider) and removing
+    the draft banner + `noindex` meta tag once the content is final. Do
+    not skip straight to a real store submission once this is live — see
+    the maintainer's standing requirement for a joint planning/security
+    review pass before any store release.
 - `AGENTS.md` still points at the SDK 57 docs even though the project
   runs SDK 54 (downgraded to match the currently-published Expo Go app) —
   minor staleness, worth fixing if SDK is bumped again.
-- **Fighter-follow push doesn't actually deliver on Android yet.**
-  Tapping the follow bell throws `Default FirebaseApp is not initialized`
-  from `Notifications.getExpoPushTokenAsync()` — Android push delivery
-  requires Firebase Cloud Messaging (FCM V1) credentials, which is a
-  separate setup from everything else in this project (needs a Firebase
-  project, a service-account JSON uploaded to EAS via `eas credentials`,
-  and `google-services.json` referenced in `app.json` →
-  `android.googleServicesFile`, followed by another native rebuild).
-  Deliberately deferred (2026-07-15) — not needed to keep developing other
-  features, but must be done before the fighter-follow feature actually
-  works on a real device. See
-  [Expo's FCM V1 setup guide](https://docs.expo.dev/push-notifications/fcm-credentials/).
-  The event-reminder bell (local notifications) is unaffected and already
-  works.
+- ~~Fighter-follow push doesn't actually deliver on Android yet~~ —
+  **resolved 2026-07-18.** FCM V1 credentials (Firebase project,
+  service-account JSON uploaded to EAS via `eas credentials`,
+  `google-services.json` referenced via `app.json` →
+  `android.googleServicesFile` / `GOOGLE_SERVICES_JSON` EAS file env var,
+  see [Build & deployment](#build--deployment)) are wired up and verified
+  working in a real dev build — tapping the follow bell no longer throws
+  `Default FirebaseApp is not initialized`, and a followed fighter being
+  added to a fight now delivers a real push. See [Expo's FCM V1 setup
+  guide](https://docs.expo.dev/push-notifications/fcm-credentials/) for
+  the setup steps that were followed.
+- ~~Leftover seed/placeholder events from before the balldontlie sync
+  existed~~ — **resolved 2026-07-19.**
+  `supabase/migrations/001_remove_seed_test_data.sql` removes "UFC 999:
+  Ferreira vs. Volkov" and "OKTAGON 66: Novak vs. Sato" (fake fighter
+  names, `external_id is null`, found via direct DB inspection during
+  first on-device testing) plus the now-orphaned fake fighters. Matched by
+  name pattern rather than fixed UUIDs, so it's safe to run on `stage` and
+  `main` regardless of row-id drift between them — takes effect once this
+  migration is promoted through the pipeline (PR `dev` → `stage` → `main`,
+  see [Environments](#environments-dev--stage--main)), not immediately.
+- **Spoiler protection — not implemented, backlog only (flagged
+  2026-07-19).** A toggle to hide fight results, likely logged-in-users-only
+  (parallels the timezone override's login-gating, see [Login /
+  Profile](#login--profile)) so there's somewhere to persist the
+  preference server-side. Open design questions, deliberately left for a
+  future session rather than guessed at now: scope (per-fight mute, a
+  followed-fighter-only mute, or a global "hide all results" toggle?),
+  whether it should also suppress spoilers in push-notification text
+  (fighter-follow push currently sends the opponent's name the moment a
+  fight is announced, not a result — but a future "fight ended" push would
+  need this considered), and how it interacts with `FighterDetailScreen`'s
+  fight history (which shows W/L for every past fight) versus
+  `EventDetailScreen`'s per-fight result line.

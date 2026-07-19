@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Datenschutzerklärung — True MMA</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <p class="lang-switch"><a href="privacy.en.html">Read this in English</a></p>
+
+  <div class="draft-banner">
+    <strong>ENTWURF — noch nicht anwaltlich geprüft</strong>
+    Diese Seite ist eine Vorabversion und dient derzeit ausschließlich internen
+    Test-/Vorbereitungszwecken. Sie ist keine verbindliche Datenschutzerklärung
+    und wird erst nach anwaltlicher Prüfung als final markiert.
+  </div>
+
+  <h1>Datenschutzerklärung — True MMA</h1>
+  <p class="updated">Stand: 18. Juli 2026</p>
+
+  <h2>1. Verantwortlicher</h2>
+  <p>
+    Christoph Ickels<br>
+    Hegholt 17<br>
+    22179 Hamburg<br>
+    Deutschland
+  </p>
+  <p>E-Mail: <a href="mailto:support@true-mma.com">support@true-mma.com</a></p>
+
+  <h2>2. Übersicht</h2>
+  <p>
+    True MMA ist ohne Registrierung nutzbar. Ein Nutzerkonto ist optional und
+    schaltet keine Funktionen frei, die sonst gesperrt wären — es ermöglicht
+    lediglich, Favoriten/Follows geräteübergreifend zu synchronisieren und
+    einen Spitznamen zu hinterlegen. Es werden keine Werbe- oder
+    Analyse-SDKs eingesetzt, es findet kein Tracking zu Werbezwecken statt.
+  </p>
+
+  <h2>3. Welche Daten wir verarbeiten</h2>
+
+  <h3>3.1 Ohne Nutzerkonto (anonyme Nutzung)</h3>
+  <table>
+    <thead><tr><th>Daten</th><th>Zweck</th><th>Speicherort</th></tr></thead>
+    <tbody>
+      <tr><td>Spracheinstellung</td><td>App-Anzeige in Deutsch/Englisch</td><td>Nur lokal auf dem Gerät (AsyncStorage)</td></tr>
+      <tr><td>Favorisierte Kämpfer/Events</td><td>Anzeige oben in der Liste</td><td>Nur lokal auf dem Gerät</td></tr>
+      <tr><td>Erinnerungen (Event-Reminder)</td><td>Lokale Benachrichtigung zum Event-Start</td><td>Nur lokal auf dem Gerät (expo-notifications), kein Server beteiligt</td></tr>
+      <tr><td>Push-Token + gefolgter Kämpfer</td><td>Zustellung einer Push-Benachrichtigung bei neuem Kampf eines gefolgten Kämpfers</td><td>Tabelle push_subscriptions in unserer Datenbank (Supabase, EU)</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Der Push-Token ist eine von Apple/Google/Firebase vergebene, geräte- und
+    app-spezifische Kennung ohne direkten Namens- oder Kontobezug. Ohne
+    Login ist die Zeile in <code>push_subscriptions</code> nicht mit einer
+    Identität verknüpft, nur mit diesem Gerät.
+  </p>
+
+  <h3>3.2 Mit Nutzerkonto (optional)</h3>
+  <p>
+    Registrierung erfordert eine E-Mail-Adresse und ein Passwort. Zusätzlich
+    freiwillig: ein Spitzname.
+  </p>
+  <table>
+    <thead><tr><th>Daten</th><th>Zweck</th><th>Speicherort</th></tr></thead>
+    <tbody>
+      <tr><td>E-Mail-Adresse</td><td>Login, Passwort-Reset, Kontoverwaltung</td><td>Supabase Auth (EU, Frankfurt)</td></tr>
+      <tr><td>Passwort</td><td>Login (nur als Hash gespeichert, uns nicht im Klartext bekannt)</td><td>Supabase Auth</td></tr>
+      <tr><td>Spitzname (optional)</td><td>Anzeige im Profil</td><td>Tabelle profiles</td></tr>
+      <tr><td>Gefolgte Events</td><td>Anzeige im Profil, welche Events du verfolgst</td><td>Tabelle event_follows</td></tr>
+      <tr><td>Favorisierte Kämpfer/Events</td><td>Anzeige im Profil, Sortierung in Listen</td><td>Tabellen fighter_favorites / event_favorites</td></tr>
+      <tr><td>Push-Token (bei Kämpfer-Follow)</td><td>Zustellung von Push-Benachrichtigungen, jetzt mit Konto verknüpft</td><td>Tabelle push_subscriptions</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Wir erheben bewusst keine weiteren personenbezogenen Daten (kein Name,
+    keine Adresse, kein Geburtsdatum, keine Zahlungsdaten — die App ist
+    kostenlos und ohne In-App-Käufe).
+  </p>
+
+  <h2>4. Empfänger / Auftragsverarbeiter</h2>
+  <p>
+    Wir setzen folgende Dienstleister ein, die in unserem Auftrag Daten
+    verarbeiten (Auftragsverarbeitungsverträge nach Art. 28 DSGVO liegen vor
+    bzw. werden vor Live-Gang abgeschlossen):
+  </p>
+  <ul>
+    <li><strong>Supabase</strong> (Datenbank, Authentifizierung) — Serverstandort eu-central-1 (Frankfurt, Deutschland/EU).</li>
+    <li><strong>IONOS</strong> (Versand von Auth-E-Mails, z. B. Passwort-Reset) — Server in Deutschland.</li>
+    <li><strong>Expo / 650 Industries, Inc.</strong> (USA) — Zustellung von Push-Benachrichtigungen (exp.host) erhält den Push-Token und den Benachrichtigungsinhalt, um die Zustellung an Apple/Google weiterzuleiten.</li>
+    <li><strong>Google LLC / Firebase Cloud Messaging</strong> (USA) — technische Infrastruktur für die Zustellung von Push-Benachrichtigungen auf Android-Geräten.</li>
+    <li><strong>Apple Inc.</strong> (USA) — technische Infrastruktur für die Zustellung von Push-Benachrichtigungen auf iOS-Geräten (APNs).</li>
+  </ul>
+  <p>
+    Bei Diensten mit Sitz in den USA erfolgt die Übermittlung auf Grundlage
+    von Standardvertragsklauseln bzw., soweit zertifiziert, im Rahmen des
+    EU-U.S. Data Privacy Framework.
+  </p>
+  <p>
+    <strong>Balldontlie.io</strong> liefert uns öffentliche Sportdaten (Kämpfer,
+    Events, Kampfergebnisse) — hier werden keine Nutzerdaten übermittelt, die
+    Kommunikation läuft ausschließlich von unserem Server zu balldontlie, nie
+    mit Nutzerdaten angereichert.
+  </p>
+
+  <h2>5. Rechtsgrundlagen</h2>
+  <ul>
+    <li>Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung) — für Kontoerstellung, Login, Synchronisierung von Favoriten/Follows.</li>
+    <li>Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse) — für die anonyme Push-Token-Speicherung ohne Konto (Interesse: Kernfunktion „Kämpfer folgen" ohne Registrierungszwang anzubieten) sowie für Sicherheits-/Missbrauchsprävention.</li>
+    <li>Art. 6 Abs. 1 lit. a DSGVO (Einwilligung) — für die Berechtigung zum Versand von Push-Benachrichtigungen, die das Betriebssystem (iOS/Android) separat abfragt, bevor eine Benachrichtigung zugestellt werden kann.</li>
+  </ul>
+
+  <h2>6. Speicherdauer</h2>
+  <ul>
+    <li>Konto-Daten: bis zur Löschung des Kontos durch die Nutzerin/den Nutzer.</li>
+    <li>Anonyme push_subscriptions-Zeilen (ohne Konto): bis zum expliziten Entfollowen über die App oder bis der Push-Token durch das Betriebssystem ungültig wird.</li>
+    <li>Lokale Daten (Sprache, Favoriten vor Login, Erinnerungen): verbleiben auf dem Gerät, bis die App-Daten gelöscht oder die App deinstalliert wird.</li>
+  </ul>
+
+  <h2>7. Deine Rechte</h2>
+  <p>
+    Du hast das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16),
+    Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18),
+    Datenübertragbarkeit (Art. 20) sowie Widerspruch (Art. 21) gegen die
+    Verarbeitung. Wende dich dazu an
+    <a href="mailto:support@true-mma.com">support@true-mma.com</a>.
+    Kontolöschung (inkl. aller zugehörigen Daten in profiles, event_follows,
+    fighter_favorites, event_favorites, push_subscriptions) kannst du formlos
+    per E-Mail anfragen.
+  </p>
+  <p>
+    Du hast außerdem das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu
+    beschweren, z. B. beim Hamburgischen Beauftragten für Datenschutz und
+    Informationsfreiheit (zuständig für unseren Sitz in Hamburg).
+  </p>
+
+  <h2>8. Kinder</h2>
+  <p>
+    True MMA richtet sich nicht gezielt an Kinder unter 16 Jahren. Uns ist
+    bewusst kein Personenbezug von Kindern in unseren Daten, da lediglich
+    E-Mail-Adresse und optionaler Spitzname erhoben werden und keine
+    Altersabfrage stattfindet.
+  </p>
+
+  <h2>9. Änderungen dieser Erklärung</h2>
+  <p>
+    Wir passen diese Erklärung an, sobald sich unser Datenmodell oder die
+    eingesetzten Dienstleister ändern. Das Datum oben zeigt den Stand der
+    letzten Aktualisierung.
+  </p>
+
+  <footer>
+    Quelle dieser Seite: <code>docs/legal/privacy-policy.de.md</code> im
+    True-MMA-Repository. Bei Abweichungen ist die dortige Markdown-Version
+    maßgeblich.
+  </footer>
+</main>
+</body>
+</html>

@@ -25,6 +25,7 @@ export type Fighter = {
   date_of_birth: string | null;
   birth_place: string | null;
   active: boolean | null;
+  primary_organization_id: string | null;
 };
 
 export type EventListItem = {
@@ -68,7 +69,7 @@ export type Fight = {
   result_time: string | null;
 };
 
-export type EventDetail = Omit<EventListItem, 'organization_id'>;
+export type EventDetail = EventListItem;
 
 export type FightWithEvent = Fight & {
   event: { id: string; name: string; event_date: string } | null;
