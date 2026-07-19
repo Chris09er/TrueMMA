@@ -204,10 +204,21 @@ alter function public.send_league_start_pushes() owner to postgres;
 revoke execute on function public.send_league_start_pushes() from anon, authenticated;
 grant execute on function public.send_league_start_pushes() to postgres, service_role;
 
--- Re-running this migration must not stack duplicate jobs. cron.unschedule()
--- raises if the job is absent, so delete by name instead of guarding with an
--- exception block.
-delete from cron.job where jobname = 'league-start-pushes';
+-- Re-running this migration must not stack duplicate jobs. Note this can NOT
+-- be done as `delete from cron.job ...` — the migration role has no DML
+-- privilege on that table on Supabase ("permission denied for table job",
+-- caught by replaying migrations against a local Supabase Postgres). Going
+-- through cron.unschedule() needs no privileges on cron.job at all.
+do $$
+begin
+  perform cron.unschedule('league-start-pushes');
+exception
+  when others then
+    -- cron.unschedule() raises when the job doesn't exist, which is the
+    -- normal case on a first run.
+    null;
+end
+$$;
 
 select cron.schedule(
   'league-start-pushes',
