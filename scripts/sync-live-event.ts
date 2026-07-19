@@ -110,56 +110,14 @@ async function syncLiveEvent(bdlEventId: number): Promise<void> {
   console.log(`  ${fightRows.length} fights synced for event ${bdlEventId}.`);
 }
 
-// Push must fire when the event actually starts, not when it's created —
-// so this can't be a simple AFTER INSERT trigger like the fighter-follow
-// one. Piggybacks on this script's existing 5-minute "is it live?" poll;
-// league_start_push_sent_at ensures it only fires once per event.
-async function sendLeagueStartPushes(liveExternalIds: number[]): Promise<void> {
-  if (liveExternalIds.length === 0) return;
-
-  const { data: liveEvents, error } = await supabase
-    .from('events')
-    .select('id, name, organization_id, organizations(short_name)')
-    .in('external_id', liveExternalIds)
-    .is('league_start_push_sent_at', null);
-  if (error) throw error;
-
-  for (const event of liveEvents ?? []) {
-    const { data: follows, error: followsError } = await supabase
-      .from('organization_follows')
-      .select('push_token')
-      .eq('organization_id', event.organization_id);
-
-    if (followsError) {
-      console.warn(`  Failed to load organization_follows for event ${event.id}: ${followsError.message}`);
-      continue;
-    }
-
-    if (follows && follows.length > 0) {
-      const orgName = (event.organizations as { short_name?: string } | null)?.short_name ?? '';
-      const messages = follows.map((f) => ({
-        to: f.push_token,
-        title: 'Es geht los!',
-        body: `${orgName}: ${event.name} startet jetzt.`,
-      }));
-      const res = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(messages),
-      });
-      if (!res.ok) {
-        // Don't stamp league_start_push_sent_at — leave it null so the next
-        // poll retries, otherwise a transient Expo/network failure would
-        // permanently suppress this event's league-start push.
-        console.warn(`  League-start push failed for event ${event.id}, will retry next run: ${res.status} ${await res.text()}`);
-        continue;
-      }
-      console.log(`  Sent league-start push to ${messages.length} follower(s) for "${event.name}".`);
-    }
-
-    await supabase.from('events').update({ league_start_push_sent_at: new Date().toISOString() }).eq('id', event.id);
-  }
-}
+// NOTE: the league-start push used to be sent from here, piggybacking on this
+// script's poll. It moved to the database in
+// supabase/migrations/006_league_start_push_pg_cron.sql — GitHub delivers this
+// workflow's `*/5` schedule only about hourly (measured), which made a
+// "starts now" push arrive up to hours late. pg_cron ticks reliably every
+// minute. Do not reintroduce a push here: both paths key off
+// events.league_start_push_sent_at, so running both would race and could
+// double-send.
 
 async function main() {
   const liveEventIds = await findLiveEventExternalIds();
@@ -167,8 +125,6 @@ async function main() {
     console.log('No live event right now, skipping.');
     return;
   }
-
-  await sendLeagueStartPushes(liveEventIds);
 
   for (const bdlEventId of liveEventIds) {
     await syncLiveEvent(bdlEventId);

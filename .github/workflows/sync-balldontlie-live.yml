@@ -10,9 +10,15 @@ on:
     # 2026-07-18/19, the actual gap between delivered runs was 45-75 min,
     # with gaps up to 3.7 h — GitHub aggressively sheds high-frequency
     # `schedule` triggers on public repos, and there is no setting that
-    # changes this. So this is ~1/12th the requested rate, and anything
-    # depending on it (notably the league-start push in sync-live-event.ts)
-    # inherits that latency. Do not read this cron as a delivered interval.
+    # changes this. Do not read this cron as a delivered interval; it is a
+    # request for "as often as you'll give us", which is why it stays at */5
+    # rather than being lowered to a number that merely looks honest.
+    #
+    # Nothing latency-critical depends on this any more: the league-start
+    # push moved into the database (pg_cron, see
+    # supabase/migrations/006_league_start_push_pg_cron.sql) precisely
+    # because of the delivery gaps above. What remains here is fight-data
+    # refresh during a live card, where ~hourly is acceptable.
     - cron: '*/5 * * * *'
   workflow_dispatch: {}
 

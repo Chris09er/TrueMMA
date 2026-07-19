@@ -407,19 +407,43 @@ constraints:
 3. **League-follow push** (`src/lib/organizationFollows.ts`, added
    2026-07-19) — same push-token/anonymous-follow shape as fighter-follow,
    but fires when a followed organization's event actually **starts**, not
-   when it's created — so it can't be a simple `AFTER INSERT` trigger.
-   Instead, `scripts/sync-live-event.ts`'s existing 5-minute "is anything
-   live right now?" poll (see [balldontlie sync](#balldontlie-sync)) got a
-   `sendLeagueStartPushes()` step: for each event that just went live and
-   hasn't been notified yet (`events.league_start_push_sent_at is null`),
-   it looks up `organization_follows` for that org and POSTs to the same
-   Expo push endpoint directly from Node (not SQL, since the "is it live"
-   logic already lives here in JS), then stamps
-   `league_start_push_sent_at` so it only fires once per event. The stamp is
-   only written when the Expo POST succeeds (or when the org has no
-   followers) — a non-OK push response leaves `league_start_push_sent_at`
-   null so the next 5-minute poll retries, rather than permanently
-   suppressing the push after one transient failure.
+   when it's created, so it can't be a simple `AFTER INSERT` trigger. It
+   needs something that ticks on a timer.
+
+   **Driven by `pg_cron` inside Supabase since 2026-07-19**
+   (`supabase/migrations/006_league_start_push_pg_cron.sql`). It originally
+   piggybacked on `scripts/sync-live-event.ts`'s 5-minute GitHub Actions
+   poll, but GitHub delivers that schedule only about hourly (measured —
+   see [balldontlie sync](#balldontlie-sync)), so a "starts now" push could
+   land hours late. `pg_cron` runs in the database on a real timer and
+   actually ticks every minute. **Only the push moved**; the live *data*
+   refresh stays in Node, since it needs an outbound API call with a key
+   and JSON mapping — work that doesn't belong in PL/pgSQL — and data
+   freshness tolerates the latency that a notification doesn't.
+
+   **Two-phase delivery, because `pg_net` is asynchronous.**
+   `net.http_post` returns a request id and, per pg_net's docs, doesn't even
+   start the request until the surrounding transaction commits — so a single
+   pass cannot know whether the push succeeded. Each tick therefore:
+   1. **reconciles** request ids issued by an earlier tick against
+      `net._http_response` — a 2xx stamps `events.league_start_push_sent_at`
+      (the single source of truth for "done"); anything else clears the
+      attempt so it retries;
+   2. **issues** new requests for events that just went live, recording the
+      request id in `events.league_start_push_request_id`.
+
+   This keeps the retry-on-transient-failure property the Node version had.
+   A `pg_try_advisory_lock` guard prevents two ticks from overlapping and
+   double-sending.
+
+   **The "just went live" window is 30 minutes, deliberately not the ~6 h
+   card-duration buffer** used by `isEventLive()`/`sync-live-event.ts`.
+   Those answer "is this card still on air" (right for refreshing fight
+   data); this answers "did it just start". A push announcing that an event
+   is starting has no business firing five hours in, so if the database is
+   unreachable longer than that window the push is correctly *dropped*
+   rather than sent late. That divergence is intentional — don't "fix" it by
+   unifying the two buffers.
 
 `resolvePushToken()` in `pushSubscriptions.ts` deliberately never prompts
 for permission just to *check* follow-state (`isFollowingFighter`) — only
@@ -873,16 +897,25 @@ after seeding data doesn't create duplicate organizations) →
   (`supabase projects api-keys --project-ref qvjgsbeugllobgwabebv --reveal`,
   or the stage dashboard) and replace it. Until then, sync changes can only
   be validated in CI, not locally.
-- **League-start push latency** — the push fires from the 5-minute live
-  poll, which GitHub actually delivers roughly hourly (see [balldontlie
-  sync](#balldontlie-sync)), so a "starts now" push can land an hour or
-  more late. Two options, not yet decided: lower the ambition and accept
-  it (adjust the cron to a realistic interval and the copy to match), or
-  move the trigger off GitHub's scheduler onto something that actually
-  ticks reliably — `pg_cron` inside Supabase is the obvious candidate,
-  since the event/start-time data already lives there and `pg_net` is
-  already used for the fighter-follow push. The latter is a real
-  architectural change, not a tweak.
+- ~~League-start push latency~~ — **resolved 2026-07-19** by moving the
+  trigger to `pg_cron`, see [Notifications](#notifications). Not yet
+  verified end-to-end against a live event; the migration has been applied
+  through the pipeline but no real event has started since.
+- **Neither push path chunks messages to Expo's 100-per-request limit.**
+  `notify_fighter_added_to_fight()` and `send_league_start_pushes()` both
+  build one `net.http_post` containing every matching subscriber. Below
+  ~100 followers per fighter/org this is fine and it's why it hasn't
+  surfaced pre-launch, but it's a hard cliff, not a gradual degradation.
+  Fix both together when it matters — they share the shape, and fixing only
+  one would leave the trap in place.
+- **Neither push path reads Expo's push tickets.** Expo returns HTTP 200
+  even when individual messages fail (most importantly
+  `DeviceNotRegistered`, i.e. the app was uninstalled), so
+  `league_start_push_sent_at` records "Expo accepted the batch", not "the
+  user got it". Stale tokens therefore accumulate in `push_subscriptions`/
+  `organization_follows` forever. Proper handling means storing the ticket
+  ids and polling Expo's receipts endpoint later — a real feature, worth
+  doing before a store release, not before.
 - **Revisit Supabase Branching vs. two free-tier projects** before a real
   store release — see the trade-off written up in
   [Environments](#environments-dev--stage--main). Switching to Branching
