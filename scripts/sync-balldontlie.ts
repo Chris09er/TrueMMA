@@ -115,7 +115,7 @@ async function syncEvents(orgMap: Map<number, string>): Promise<Map<number, stri
   return map;
 }
 
-async function syncFightersAndFights(eventMap: Map<number, string>): Promise<void> {
+async function syncFightersAndFights(eventMap: Map<number, string>, orgMap: Map<number, string>): Promise<void> {
   const bdlEventIds = [...eventMap.keys()];
   console.log(`Fetching fights for ${bdlEventIds.length} events...`);
 
@@ -126,15 +126,28 @@ async function syncFightersAndFights(eventMap: Map<number, string>): Promise<voi
   }
   console.log(`  ${allFights.length} fights fetched.`);
 
+  // Track each fighter's org alongside them — "most recently synced wins"
+  // when a fighter appears in fights from more than one org in this run
+  // (see fighterRow's organizationId param).
   const fightersById = new Map<number, BdlFighter>();
+  const fighterOrgById = new Map<number, string | undefined>();
   for (const fight of allFights) {
+    const organizationId = fight.event?.league ? orgMap.get(fight.event.league.id) : undefined;
     fightersById.set(fight.fighter1.id, fight.fighter1);
+    fighterOrgById.set(fight.fighter1.id, organizationId);
     fightersById.set(fight.fighter2.id, fight.fighter2);
-    if (fight.winner) fightersById.set(fight.winner.id, fight.winner);
+    fighterOrgById.set(fight.fighter2.id, organizationId);
+    if (fight.winner) {
+      fightersById.set(fight.winner.id, fight.winner);
+      fighterOrgById.set(fight.winner.id, organizationId);
+    }
   }
 
   console.log(`Syncing ${fightersById.size} fighters...`);
-  await upsertBatched('fighters', [...fightersById.values()].map(fighterRow));
+  await upsertBatched(
+    'fighters',
+    [...fightersById.values()].map((fighter) => fighterRow(fighter, fighterOrgById.get(fighter.id)))
+  );
   const fighterMap = await externalIdMap('fighters');
 
   console.log(`Syncing ${allFights.length} fights...`);
@@ -157,7 +170,7 @@ async function syncFightersAndFights(eventMap: Map<number, string>): Promise<voi
 async function main() {
   const orgMap = await syncLeagues();
   const eventMap = await syncEvents(orgMap);
-  await syncFightersAndFights(eventMap);
+  await syncFightersAndFights(eventMap, orgMap);
   console.log('Sync complete.');
 }
 

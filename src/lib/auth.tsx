@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 import { supabase } from './supabase';
 import { claimAnonymousFollows } from './pushSubscriptions';
 import { claimLocalFavorites } from './favorites';
+import { claimAnonymousOrganizationFollows } from './organizationFollows';
+import { getProfile, updateTimezoneOverride } from './profile';
 
 export type AuthResult = 'ok' | 'error';
 
@@ -18,6 +20,10 @@ type AuthContextValue = {
   confirmPasswordReset: (email: string, token: string, newPassword: string) => Promise<AuthResult>;
   updateEmail: (email: string) => Promise<AuthResult>;
   updatePassword: (newPassword: string) => Promise<AuthResult>;
+  // null = device-local (default). Only ever set for logged-in users — see
+  // docs/ARCHITECTURE.md, Timezone override.
+  timezoneOverride: string | null;
+  setTimezoneOverride: (timezone: string | null) => Promise<AuthResult>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -25,21 +31,36 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [timezoneOverride, setTimezoneOverrideState] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
+      if (data.session?.user) {
+        getProfile(data.session.user.id)
+          .then((profile) => setTimezoneOverrideState(profile?.timezone_override ?? null))
+          .catch(() => {});
+      }
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
+      if (event === 'SIGNED_OUT') {
+        setTimezoneOverrideState(null);
+      }
       if (event === 'SIGNED_IN' && nextSession?.user) {
+        getProfile(nextSession.user.id)
+          .then((profile) => setTimezoneOverrideState(profile?.timezone_override ?? null))
+          .catch(() => {});
         claimAnonymousFollows(nextSession.user.id).catch((err) => {
           console.error('claimAnonymousFollows failed:', err);
         });
         claimLocalFavorites(nextSession.user.id).catch((err) => {
           console.error('claimLocalFavorites failed:', err);
+        });
+        claimAnonymousOrganizationFollows(nextSession.user.id).catch((err) => {
+          console.error('claimAnonymousOrganizationFollows failed:', err);
         });
       }
     });
@@ -86,8 +107,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         return error ? 'error' : 'ok';
       },
+      timezoneOverride,
+      setTimezoneOverride: async (timezone) => {
+        if (!session?.user) return 'error';
+        const result = await updateTimezoneOverride(session.user.id, timezone);
+        if (result === 'ok') setTimezoneOverrideState(timezone);
+        return result;
+      },
     }),
-    [session, loading]
+    [session, loading, timezoneOverride]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

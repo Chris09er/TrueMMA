@@ -161,7 +161,12 @@ export type BdlFight = {
   result_time: string | null;
 };
 
-export function fighterRow(fighter: BdlFighter): Record<string, unknown> {
+// organizationId is the org of the fight/event this fighter was just synced
+// from — best-effort "primary organization" (most-recently-synced org
+// wins; a fighter who has switched orgs won't show a full history, see
+// docs/ARCHITECTURE.md). Omitted when a fighter is synced outside of an
+// event/fight context.
+export function fighterRow(fighter: BdlFighter, organizationId?: string): Record<string, unknown> {
   return {
     external_id: fighter.id,
     name: fighter.name,
@@ -179,6 +184,7 @@ export function fighterRow(fighter: BdlFighter): Record<string, unknown> {
     record_no_contests: fighter.record_no_contests,
     active: fighter.active,
     weight_class: fighter.weight_class?.name ?? null,
+    ...(organizationId ? { primary_organization_id: organizationId } : {}),
   };
 }
 

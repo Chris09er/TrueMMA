@@ -2,18 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Modal,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList } from '../navigation';
-import { getFighters } from '../lib/queries';
+import { getFighters, getOrganizations } from '../lib/queries';
 import { getFighterFavoriteIds } from '../lib/favorites';
-import type { Fighter } from '../lib/types';
+import type { Fighter, Organization } from '../lib/types';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
@@ -25,8 +26,12 @@ type Props = NativeStackScreenProps<FightersStackParamList, 'FighterList'>;
 export default function FighterListScreen({ navigation }: Props) {
   const { t } = useLocale();
   const [fighters, setFighters] = useState<Fighter[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [search, setSearch] = useState('');
+  const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
+  const [selectedWeightClass, setSelectedWeightClass] = useState<string | undefined>(undefined);
   const [selectedNationality, setSelectedNationality] = useState<string | undefined>(undefined);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -40,6 +45,10 @@ export default function FighterListScreen({ navigation }: Props) {
       setError(t.common.error);
     }
   }, [t]);
+
+  useEffect(() => {
+    getOrganizations().then(setOrganizations).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -69,6 +78,22 @@ export default function FighterListScreen({ navigation }: Props) {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [fighters]);
 
+  const weightClasses = useMemo(() => {
+    const set = new Set<string>();
+    for (const fighter of fighters) {
+      if (fighter.weight_class) set.add(fighter.weight_class);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [fighters]);
+
+  const activeFilterCount = [selectedOrgId, selectedWeightClass, selectedNationality].filter(Boolean).length;
+
+  const resetFilters = () => {
+    setSelectedOrgId(undefined);
+    setSelectedWeightClass(undefined);
+    setSelectedNationality(undefined);
+  };
+
   const visibleFighters = useMemo(() => {
     const query = search.trim().toLowerCase();
     const filtered = fighters.filter((fighter) => {
@@ -76,13 +101,15 @@ export default function FighterListScreen({ navigation }: Props) {
         !query ||
         fighter.name.toLowerCase().includes(query) ||
         fighter.nickname?.toLowerCase().includes(query);
+      const matchesOrg = !selectedOrgId || fighter.primary_organization_id === selectedOrgId;
+      const matchesWeightClass = !selectedWeightClass || fighter.weight_class === selectedWeightClass;
       const matchesNationality = !selectedNationality || fighter.nationality === selectedNationality;
-      return matchesQuery && matchesNationality;
+      return matchesQuery && matchesOrg && matchesWeightClass && matchesNationality;
     });
     // Stable sort — favorited fighters first, existing (alphabetical) order
     // preserved within each group.
     return [...filtered].sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)));
-  }, [fighters, search, selectedNationality, favoriteIds]);
+  }, [fighters, search, selectedOrgId, selectedWeightClass, selectedNationality, favoriteIds]);
 
   if (loading) {
     return <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />;
@@ -107,28 +134,98 @@ export default function FighterListScreen({ navigation }: Props) {
             placeholderTextColor={colors.textSecondary}
             style={styles.searchInput}
           />
-          {nationalities.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.filterRowContainer}
-              contentContainerStyle={styles.filterRow}
-            >
-              <FilterButton
-                label={t.fighterList.filterAll}
-                active={selectedNationality === undefined}
-                onPress={() => setSelectedNationality(undefined)}
-              />
-              {nationalities.map((nationality) => (
-                <FilterButton
-                  key={nationality}
-                  label={nationality}
-                  active={selectedNationality === nationality}
-                  onPress={() => setSelectedNationality(nationality)}
-                />
-              ))}
-            </ScrollView>
-          )}
+          <Pressable style={styles.filterOpenButton} onPress={() => setFilterModalVisible(true)}>
+            <Text style={styles.filterOpenButtonText}>
+              {activeFilterCount > 0 ? `${t.fighterList.filter} (${activeFilterCount})` : t.fighterList.filter}
+            </Text>
+          </Pressable>
+
+          <Modal
+            visible={filterModalVisible}
+            animationType="slide"
+            transparent
+            onRequestClose={() => setFilterModalVisible(false)}
+          >
+            <View style={styles.modalBackdrop}>
+              <View style={styles.modalSheet}>
+                <View style={styles.modalHeaderRow}>
+                  <Text style={styles.modalTitle}>{t.fighterList.filter}</Text>
+                  <Pressable onPress={() => setFilterModalVisible(false)}>
+                    <Text style={styles.modalClose}>{t.fighterList.filterDone}</Text>
+                  </Pressable>
+                </View>
+
+                {organizations.length > 0 && (
+                  <View style={styles.filterSection}>
+                    <Text style={styles.filterSectionTitle}>{t.fighterList.filterOrganization}</Text>
+                    <View style={styles.chipWrap}>
+                      <FilterButton
+                        label={t.fighterList.filterAll}
+                        active={selectedOrgId === undefined}
+                        onPress={() => setSelectedOrgId(undefined)}
+                      />
+                      {organizations.map((org) => (
+                        <FilterButton
+                          key={org.id}
+                          label={org.short_name}
+                          active={selectedOrgId === org.id}
+                          onPress={() => setSelectedOrgId(org.id)}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {weightClasses.length > 0 && (
+                  <View style={styles.filterSection}>
+                    <Text style={styles.filterSectionTitle}>{t.fighterList.filterWeightClass}</Text>
+                    <View style={styles.chipWrap}>
+                      <FilterButton
+                        label={t.fighterList.filterAll}
+                        active={selectedWeightClass === undefined}
+                        onPress={() => setSelectedWeightClass(undefined)}
+                      />
+                      {weightClasses.map((weightClass) => (
+                        <FilterButton
+                          key={weightClass}
+                          label={weightClass}
+                          active={selectedWeightClass === weightClass}
+                          onPress={() => setSelectedWeightClass(weightClass)}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {nationalities.length > 0 && (
+                  <View style={styles.filterSection}>
+                    <Text style={styles.filterSectionTitle}>{t.fighterList.filterNationality}</Text>
+                    <View style={styles.chipWrap}>
+                      <FilterButton
+                        label={t.fighterList.filterAll}
+                        active={selectedNationality === undefined}
+                        onPress={() => setSelectedNationality(undefined)}
+                      />
+                      {nationalities.map((nationality) => (
+                        <FilterButton
+                          key={nationality}
+                          label={nationality}
+                          active={selectedNationality === nationality}
+                          onPress={() => setSelectedNationality(nationality)}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {activeFilterCount > 0 && (
+                  <Pressable style={styles.resetButton} onPress={resetFilters}>
+                    <Text style={styles.resetButtonText}>{t.fighterList.filterReset}</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </Modal>
         </>
       }
       refreshControl={
@@ -171,7 +268,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   searchInput: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     borderRadius: radius.md,
@@ -180,13 +277,68 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     color: colors.textPrimary,
   },
-  filterRowContainer: {
-    flexGrow: 0,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
+  filterOpenButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     marginBottom: spacing.md,
+  },
+  filterOpenButtonText: {
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    padding: spacing.lg,
+    maxHeight: '80%',
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  modalClose: {
+    color: colors.accentGold,
+    fontWeight: '700',
+  },
+  filterSection: {
+    marginBottom: spacing.lg,
+  },
+  filterSectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  chipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  resetButton: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  resetButtonText: {
+    color: colors.danger,
+    fontWeight: '700',
   },
   card: {
     padding: 14,

@@ -13,18 +13,28 @@ import {
 import { Calendar, type DateData } from 'react-native-calendars';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList } from '../navigation';
-import { getEventsInRange, getOrganizations, getPastEvents, getUpcomingEvents, isEventUpcoming } from '../lib/queries';
+import {
+  getEventsInRange,
+  getOrganizations,
+  getPastEvents,
+  getTodayEvents,
+  getUpcomingEvents,
+  isEventLive,
+  isEventUpcoming,
+} from '../lib/queries';
 import { getEventFavoriteIds } from '../lib/favorites';
 import type { EventListItem, Organization } from '../lib/types';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
+import { useAuth } from '../lib/auth';
 import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FilterButton from '../components/FilterButton';
+import LiveBadge from '../components/LiveBadge';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventList'>;
-type Timeframe = 'upcoming' | 'past';
+type Timeframe = 'today' | 'upcoming' | 'past';
 type ViewMode = 'list' | 'calendar';
 
 function currentYearMonth(): string {
@@ -34,6 +44,7 @@ function currentYearMonth(): string {
 
 export default function EventListScreen({ navigation }: Props) {
   const { t, locale } = useLocale();
+  const { timezoneOverride } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
   const [timeframe, setTimeframe] = useState<Timeframe>('upcoming');
@@ -57,7 +68,7 @@ export default function EventListScreen({ navigation }: Props) {
   const loadEvents = useCallback(async () => {
     setError(null);
     try {
-      const fetcher = timeframe === 'upcoming' ? getUpcomingEvents : getPastEvents;
+      const fetcher = timeframe === 'today' ? getTodayEvents : timeframe === 'upcoming' ? getUpcomingEvents : getPastEvents;
       setEvents(await fetcher(selectedOrgId));
     } catch {
       setError(t.common.error);
@@ -145,8 +156,13 @@ export default function EventListScreen({ navigation }: Props) {
         )}
         <EventFavoriteHeart eventId={item.id} onToggle={(active) => handleFavoriteToggle(item.id, active)} />
         <Text style={styles.eventOrg}>{item.organizations?.short_name ?? ''}</Text>
+        {isEventLive(item) && (
+          <View style={styles.liveBadgeSlot}>
+            <LiveBadge />
+          </View>
+        )}
         <Text style={[styles.eventName, styles.eventNameWithIcons]}>{item.name}</Text>
-        <Text style={styles.eventMeta}>{formatEventDate(item.event_date, locale)}</Text>
+        <Text style={styles.eventMeta}>{formatEventDate(item.event_date, locale, 'short', timezoneOverride ?? undefined)}</Text>
         <Text style={styles.eventMeta}>{[item.venue, item.city, item.country].filter(Boolean).join(', ')}</Text>
       </Pressable>
     );
@@ -170,6 +186,11 @@ export default function EventListScreen({ navigation }: Props) {
       {viewMode === 'list' && (
         <>
           <View style={styles.timeframeRow}>
+            <FilterButton
+              label={t.eventList.today}
+              active={timeframe === 'today'}
+              onPress={() => setTimeframe('today')}
+            />
             <FilterButton
               label={t.eventList.upcoming}
               active={timeframe === 'upcoming'}
@@ -272,7 +293,11 @@ export default function EventListScreen({ navigation }: Props) {
               }
               ListEmptyComponent={
                 <Text style={commonStyles.empty}>
-                  {timeframe === 'upcoming' ? t.eventList.empty : t.eventList.emptyPast}
+                  {timeframe === 'today'
+                    ? t.eventList.emptyToday
+                    : timeframe === 'upcoming'
+                      ? t.eventList.empty
+                      : t.eventList.emptyPast}
                 </Text>
               }
               renderItem={({ item }) => renderEventCard(item)}
@@ -308,7 +333,8 @@ const styles = StyleSheet.create({
   },
   filterRowContainer: {
     flexGrow: 0,
-    marginBottom: spacing.sm,
+    height: 60,
+    marginBottom: spacing.md,
   },
   filterRow: {
     flexDirection: 'row',
@@ -340,6 +366,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  liveBadgeSlot: {
     marginBottom: 4,
   },
   eventName: {

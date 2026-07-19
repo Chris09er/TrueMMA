@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -10,13 +11,17 @@ import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList, RootTabParamList } from '../navigation';
-import { getEventDetail, getFightsForEvent, isEventUpcoming } from '../lib/queries';
+import { getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
+import { castVote, getEventVotes, type FightVoteSummary } from '../lib/voting';
 import type { EventDetail, Fight, Fighter } from '../lib/types';
 import { colors, commonStyles, radius, spacing } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
+import { useAuth } from '../lib/auth';
 import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
+import LiveBadge from '../components/LiveBadge';
+import OrganizationFollowBell from '../components/OrganizationFollowBell';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventDetail'>;
 
@@ -48,16 +53,19 @@ function BroadcastTimes({
   event,
   locale,
   t,
+  timeZone,
 }: {
   event: EventDetail;
   locale: string;
   t: ReturnType<typeof useLocale>['t'];
+  timeZone?: string;
 }) {
   const segments: { label: string; time: string }[] = [];
   const formatTime = (iso: string) =>
     new Date(iso).toLocaleTimeString(locale === 'de' ? 'de-DE' : 'en-US', {
       hour: '2-digit',
       minute: '2-digit',
+      ...(timeZone ? { timeZone } : {}),
     });
 
   if (event.early_prelims_start_time) {
@@ -83,11 +91,67 @@ function BroadcastTimes({
   );
 }
 
+function FightVoteRow({
+  fight,
+  summary,
+  onVote,
+  t,
+}: {
+  fight: Fight;
+  summary: FightVoteSummary;
+  onVote: (fightId: string, fighterId: string) => void;
+  t: ReturnType<typeof useLocale>['t'];
+}) {
+  if (!fight.fighter1 || !fight.fighter2) return null;
+  const fighter1 = fight.fighter1;
+  const fighter2 = fight.fighter2;
+
+  if (!summary.myVote) {
+    return (
+      <View style={styles.voteRow}>
+        <Pressable style={styles.voteButton} onPress={() => onVote(fight.id, fighter1.id)}>
+          <Text style={styles.voteButtonText} numberOfLines={1}>
+            {t.eventDetail.votePick} {fighter1.name}
+          </Text>
+        </Pressable>
+        <Pressable style={styles.voteButton} onPress={() => onVote(fight.id, fighter2.id)}>
+          <Text style={styles.voteButtonText} numberOfLines={1}>
+            {t.eventDetail.votePick} {fighter2.name}
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const total = summary.fighter1Votes + summary.fighter2Votes;
+  const pct1 = total > 0 ? Math.round((summary.fighter1Votes / total) * 100) : 50;
+  const pct2 = 100 - pct1;
+
+  return (
+    <View style={styles.voteBarContainer}>
+      <View style={styles.voteBarLabelsRow}>
+        <Text style={[styles.voteBarLabel, summary.myVote === fighter1.id && styles.voteBarLabelActive]} numberOfLines={1}>
+          {fighter1.name} · {pct1}%
+        </Text>
+        <Text style={[styles.voteBarLabel, summary.myVote === fighter2.id && styles.voteBarLabelActive]} numberOfLines={1}>
+          {pct2}% · {fighter2.name}
+        </Text>
+      </View>
+      <View style={styles.voteBarTrack}>
+        <View style={[styles.voteBarFill1, { flex: Math.max(pct1, 1) }]} />
+        <View style={[styles.voteBarFill2, { flex: Math.max(pct2, 1) }]} />
+      </View>
+    </View>
+  );
+}
+
 export default function EventDetailScreen({ route }: Props) {
   const { eventId, eventName } = route.params;
   const { t, locale } = useLocale();
+  const { timezoneOverride } = useAuth();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [fights, setFights] = useState<Fight[]>([]);
+  const [votes, setVotes] = useState<Map<string, FightVoteSummary>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,6 +166,35 @@ export default function EventDetailScreen({ route }: Props) {
       .catch(() => setError(t.common.error))
       .finally(() => setLoading(false));
   }, [eventId, t]);
+
+  // Separate from the main load — a vote-fetch failure shouldn't block the
+  // rest of the event/fight-card from rendering.
+  useEffect(() => {
+    const votable = fights.filter((f) => f.fighter1 && f.fighter2);
+    if (votable.length === 0) return;
+    getEventVotes(votable.map((f) => ({ id: f.id, fighter1_id: f.fighter1!.id, fighter2_id: f.fighter2!.id })))
+      .then(setVotes)
+      .catch(() => {});
+  }, [fights]);
+
+  const handleVote = (fightId: string, fighterId: string) => {
+    const fight = fights.find((f) => f.id === fightId);
+    if (!fight?.fighter1 || !fight.fighter2) return;
+
+    setVotes((prev) => {
+      const next = new Map(prev);
+      const current = next.get(fightId) ?? { fighter1Votes: 0, fighter2Votes: 0, myVote: null };
+      let { fighter1Votes, fighter2Votes } = current;
+      if (current.myVote === fight.fighter1!.id) fighter1Votes -= 1;
+      if (current.myVote === fight.fighter2!.id) fighter2Votes -= 1;
+      if (fighterId === fight.fighter1!.id) fighter1Votes += 1;
+      if (fighterId === fight.fighter2!.id) fighter2Votes += 1;
+      next.set(fightId, { fighter1Votes, fighter2Votes, myVote: fighterId });
+      return next;
+    });
+
+    castVote(fightId, fighterId).catch(() => {});
+  };
 
   if (loading) {
     return <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />;
@@ -134,19 +227,34 @@ export default function EventDetailScreen({ route }: Props) {
             <EventReminderBell eventId={eventId} eventName={event.name} eventDateIso={event.event_date} />
           )}
           <EventFavoriteHeart eventId={eventId} />
+          {event && isEventLive(event) && (
+            <View style={styles.liveBadgeSlot}>
+              <LiveBadge />
+            </View>
+          )}
           {event?.status === 'cancelled' && (
             <Text style={styles.eventCancelledBanner}>{t.eventDetail.eventCancelled}</Text>
           )}
+          {event?.organizations?.short_name && (
+            <View style={styles.orgRow}>
+              <Text style={styles.orgName}>{event.organizations.short_name}</Text>
+              <OrganizationFollowBell organizationId={event.organization_id} />
+            </View>
+          )}
           <Text style={styles.eventName}>{event?.name ?? eventName}</Text>
           {event && (
-            <Text style={styles.eventMeta}>{formatEventDate(event.event_date, locale, 'long')}</Text>
+            <Text style={styles.eventMeta}>
+              {formatEventDate(event.event_date, locale, 'long', timezoneOverride ?? undefined)}
+            </Text>
           )}
           {event && (
             <Text style={styles.eventMeta}>
               {[event.venue, event.city, event.venue_state, event.country].filter(Boolean).join(', ')}
             </Text>
           )}
-          {event && <BroadcastTimes event={event} locale={locale} t={t} />}
+          {event && (
+            <BroadcastTimes event={event} locale={locale} t={t} timeZone={timezoneOverride ?? undefined} />
+          )}
         </View>
       }
       ListEmptyComponent={<Text style={commonStyles.empty}>{t.eventDetail.emptyFightCard}</Text>}
@@ -181,6 +289,14 @@ export default function EventDetailScreen({ route }: Props) {
                 {item.result_time ? ` (${item.result_time})` : ''}
               </Text>
             )}
+            {!cancelled && !item.result_winner_id && (
+              <FightVoteRow
+                fight={item}
+                summary={votes.get(item.id) ?? { fighter1Votes: 0, fighter2Votes: 0, myVote: null }}
+                onVote={handleVote}
+                t={t}
+              />
+            )}
           </View>
         );
       }}
@@ -209,6 +325,20 @@ const styles = StyleSheet.create({
   },
   eventMeta: {
     fontSize: 14,
+    color: colors.textSecondary,
+  },
+  liveBadgeSlot: {
+    marginBottom: spacing.sm,
+  },
+  orgRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: 4,
+  },
+  orgName: {
+    fontSize: 12,
+    fontWeight: '700',
     color: colors.textSecondary,
   },
   eventCancelledBanner: {
@@ -312,5 +442,54 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     fontStyle: 'italic',
+  },
+  voteRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  voteButton: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  voteButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  voteBarContainer: {
+    marginTop: spacing.sm,
+  },
+  voteBarLabelsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  voteBarLabel: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    flexShrink: 1,
+  },
+  voteBarLabelActive: {
+    color: colors.accentGold,
+    fontWeight: '700',
+  },
+  voteBarTrack: {
+    flexDirection: 'row',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    backgroundColor: colors.border,
+  },
+  voteBarFill1: {
+    backgroundColor: colors.accentGold,
+  },
+  voteBarFill2: {
+    backgroundColor: colors.surfaceAlt,
   },
 });

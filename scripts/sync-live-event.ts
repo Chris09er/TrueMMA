@@ -68,12 +68,9 @@ async function syncLiveEvent(bdlEventId: number): Promise<void> {
   });
 
   const orgMap = await externalIdMap('organizations');
-  if (eventPage[0]) {
-    const event = eventPage[0];
-    const organizationId = event.league ? orgMap.get(event.league.id) : undefined;
-    if (organizationId) {
-      await upsertBatched('events', [eventRow(event, organizationId)]);
-    }
+  const organizationId = eventPage[0]?.league ? orgMap.get(eventPage[0].league.id) : undefined;
+  if (eventPage[0] && organizationId) {
+    await upsertBatched('events', [eventRow(eventPage[0], organizationId)]);
   }
 
   const eventMap = await externalIdMap('events');
@@ -92,7 +89,7 @@ async function syncLiveEvent(bdlEventId: number): Promise<void> {
     fightersById.set(fight.fighter2.id, fight.fighter2);
     if (fight.winner) fightersById.set(fight.winner.id, fight.winner);
   }
-  await upsertBatched('fighters', [...fightersById.values()].map(fighterRow));
+  await upsertBatched('fighters', [...fightersById.values()].map((fighter) => fighterRow(fighter, organizationId)));
   const fighterMap = await externalIdMap('fighters');
 
   const fightRows = fights.flatMap((fight) => {
@@ -110,12 +107,62 @@ async function syncLiveEvent(bdlEventId: number): Promise<void> {
   console.log(`  ${fightRows.length} fights synced for event ${bdlEventId}.`);
 }
 
+// Push must fire when the event actually starts, not when it's created —
+// so this can't be a simple AFTER INSERT trigger like the fighter-follow
+// one. Piggybacks on this script's existing 5-minute "is it live?" poll;
+// league_start_push_sent_at ensures it only fires once per event.
+async function sendLeagueStartPushes(liveExternalIds: number[]): Promise<void> {
+  if (liveExternalIds.length === 0) return;
+
+  const { data: liveEvents, error } = await supabase
+    .from('events')
+    .select('id, name, organization_id, organizations(short_name)')
+    .in('external_id', liveExternalIds)
+    .is('league_start_push_sent_at', null);
+  if (error) throw error;
+
+  for (const event of liveEvents ?? []) {
+    const { data: follows, error: followsError } = await supabase
+      .from('organization_follows')
+      .select('push_token')
+      .eq('organization_id', event.organization_id);
+
+    if (followsError) {
+      console.warn(`  Failed to load organization_follows for event ${event.id}: ${followsError.message}`);
+      continue;
+    }
+
+    if (follows && follows.length > 0) {
+      const orgName = (event.organizations as { short_name?: string } | null)?.short_name ?? '';
+      const messages = follows.map((f) => ({
+        to: f.push_token,
+        title: 'Es geht los!',
+        body: `${orgName}: ${event.name} startet jetzt.`,
+      }));
+      const res = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(messages),
+      });
+      if (!res.ok) {
+        console.warn(`  League-start push failed for event ${event.id}: ${res.status} ${await res.text()}`);
+      } else {
+        console.log(`  Sent league-start push to ${messages.length} follower(s) for "${event.name}".`);
+      }
+    }
+
+    await supabase.from('events').update({ league_start_push_sent_at: new Date().toISOString() }).eq('id', event.id);
+  }
+}
+
 async function main() {
   const liveEventIds = await findLiveEventExternalIds();
   if (liveEventIds.length === 0) {
     console.log('No live event right now, skipping.');
     return;
   }
+
+  await sendLeagueStartPushes(liveEventIds);
 
   for (const bdlEventId of liveEventIds) {
     await syncLiveEvent(bdlEventId);
