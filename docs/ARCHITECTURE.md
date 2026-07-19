@@ -933,11 +933,15 @@ after seeding data doesn't create duplicate organizations) →
   ignores events outside the 30-minute window, cancelled events, and
   not-yet-started events; stamps an org with no followers without an HTTP
   call; a simulated 500 releases the attempt and re-issues within the same
-  tick; a 200 stamps `league_start_push_sent_at` and stops). **Still
+  tick; a 200 stamps `league_start_push_sent_at` and stops). **Also
+  verified on the deployed stage project** via
+  `league_start_push_health()`: `job_scheduled`/`job_active` true,
+  `last_run_status = 'succeeded'`, firing on the minute. **Still
   unverified against a real event and a real device** — the Expo POST
-  itself was simulated by injecting `net._http_response` rows, so the
-  push has never actually been delivered end-to-end. Worth watching the
-  first real event on stage.
+  itself was simulated by injecting `net._http_response` rows, so no push
+  has actually been delivered end-to-end through this path. Stage
+  currently has zero `organization_follows` rows, so following a league
+  on a stage build is a precondition for ever exercising it for real.
 - **Revoking a function from `anon` takes TWO revokes on Supabase — the
   single most repeated footgun in this project.** Introduced in `006` and
   fixed in `007`: `send_league_start_pushes()` was revoked from `anon,
