@@ -55,6 +55,20 @@ UI/org to develop against:
   infra. There's nothing analogous to a "dev org" here since this is
   plain code, not declarative metadata — a developer's own machine plus
   whichever Supabase project they point their local `.env` at is enough.
+  As of 2026-07-19, local `.env` and the EAS `development` environment
+  (used by the `development` build profile / dev-client APK) both point
+  at the **stage** Supabase project — originally left pointing at prod
+  from before this pipeline existed, switched deliberately so on-device
+  testing can't accidentally read/write real production data. Note this
+  is orthogonal to the `dev`/`stage`/`main` **git branches**: pushing to
+  `dev` triggers no CI at all (`deploy-migrations.yml`/
+  `publish-ota-update.yml` only watch `stage`/`main`); a dev-client APK
+  reflects whatever's on disk live via Metro (`npx expo start`), not any
+  git or CI state. `SUPABASE_SERVICE_ROLE_KEY` in local `.env` is **still
+  the prod key** — only the sync scripts read it, not the app, but fetch
+  the stage key too (`supabase projects api-keys --project-ref
+  qvjgsbeugllobgwabebv --reveal`, or the stage project's dashboard) before
+  running `npm run sync:balldontlie`/`sync:live` locally against stage.
 - **`stage` branch** — a real, persistent test environment: its own
   Supabase project (`true-mma-stage`, ref `qvjgsbeugllobgwabebv`,
   eu-central-1, **free tier**), its own EAS build profile (`preview` in
