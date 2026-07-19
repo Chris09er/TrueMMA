@@ -10,4 +10,10 @@ module.exports = {
     ...baseConfig.expo.android,
     googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? './google-services.json',
   },
+  updates: {
+    url: 'https://u.expo.dev/3bac330a-fffa-4c5c-b561-c12757f6c72d',
+  },
+  runtimeVersion: {
+    policy: 'appVersion',
+  },
 };

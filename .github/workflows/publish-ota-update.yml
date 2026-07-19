@@ -1,0 +1,35 @@
+name: Publish OTA update
+
+on:
+  push:
+    branches: [main, stage]
+    paths-ignore:
+      - 'supabase/**'
+      - 'docs/**'
+      - '.github/workflows/deploy-migrations.yml'
+      - '.github/workflows/sync-balldontlie-*.yml'
+      - '**.md'
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'production' || 'stage' }}
+    env:
+      # EAS environment names (holds the EXPO_PUBLIC_SUPABASE_* project env
+      # vars) differ from the update channel names below — "preview" is the
+      # EAS environment already repointed at the stage Supabase project, see
+      # docs/ARCHITECTURE.md -> Environments.
+      EAS_ENVIRONMENT: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
+      EAS_CHANNEL: ${{ github.ref_name == 'main' && 'production' || 'stage' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npx eas-cli update --environment "$EAS_ENVIRONMENT" --channel "$EAS_CHANNEL" --branch "$EAS_CHANNEL" --message "${{ github.event.head_commit.message }}" --non-interactive
