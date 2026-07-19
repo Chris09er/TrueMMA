@@ -447,6 +447,24 @@ constraints:
    A `pg_try_advisory_lock` guard prevents two ticks from overlapping and
    double-sending.
 
+   **Observability** (`007_league_start_push_health.sql`): because this job
+   runs unattended, its failure mode is silence. `public
+   .league_start_push_health()` returns one row with whether the job is
+   scheduled/active, its last run time and status, minutes since that run,
+   how many events are awaiting a push, and how many requests are in
+   flight. Callable with a service-role key over the normal API — the
+   `cron` schema itself is not reachable through PostgREST, so this is the
+   only way to read that state without a direct Postgres connection (which
+   this project deliberately doesn't use, see the no-DB-password note under
+   [Environments](#environments-dev--stage--main)). Healthy looks like
+   `job_active = true`, `last_run_status = 'succeeded'`,
+   `minutes_since_last_run < 2`.
+
+   The "which events are waiting" predicate lives in one place, the view
+   `public.events_pending_league_start_push`, read by both the sender and
+   the health check — deliberately, since this doc already records the ~6 h
+   buffer drifting across three copies.
+
    **The "just went live" window is 30 minutes, deliberately not the ~6 h
    card-duration buffer** used by `isEventLive()`/`sync-live-event.ts`.
    Those answer "is this card still on air" (right for refreshing fight
@@ -900,14 +918,13 @@ after seeding data doesn't create duplicate organizations) →
   `expo-updates` built in. `preview`/`production` builds still need one
   fresh build each before they can receive OTA updates, same reasoning —
   any build made before 2026-07-19 predates `expo-updates` entirely.
-- **Local `.env` is currently in a broken half-state (found 2026-07-19).**
-  `EXPO_PUBLIC_SUPABASE_URL` points at **stage** (`qvjgsbeugllobgwabebv`)
-  but `SUPABASE_SERVICE_ROLE_KEY` is still the **prod** key, so the two
-  disagree and any local `npm run sync:balldontlie`/`sync:live` fails auth
-  (verified with a read-only query). Fetch the stage service-role key
-  (`supabase projects api-keys --project-ref qvjgsbeugllobgwabebv --reveal`,
-  or the stage dashboard) and replace it. Until then, sync changes can only
-  be validated in CI, not locally.
+- ~~Local `.env` in a broken half-state~~ — **resolved 2026-07-19.**
+  `EXPO_PUBLIC_SUPABASE_URL` pointed at stage while
+  `SUPABASE_SERVICE_ROLE_KEY` was still the prod key, so any local
+  `npm run sync:balldontlie`/`sync:live` failed auth. The stage
+  service-role key is now in place and verified against the stage project.
+  The prod key was not lost — it lives on as the `production` GitHub
+  Actions environment secret.
 - ~~League-start push latency~~ — **resolved 2026-07-19** by moving the
   trigger to `pg_cron`, see [Notifications](#notifications). Verified
   against a local Supabase Postgres: the job registers active on
@@ -921,6 +938,35 @@ after seeding data doesn't create duplicate organizations) →
   itself was simulated by injecting `net._http_response` rows, so the
   push has never actually been delivered end-to-end. Worth watching the
   first real event on stage.
+- **Revoking a function from `anon` takes TWO revokes on Supabase — the
+  single most repeated footgun in this project.** Introduced in `006` and
+  fixed in `007`: `send_league_start_pushes()` was revoked from `anon,
+  authenticated` only, and `anon` could still invoke it over PostgREST
+  (confirmed `HTTP 204` against the deployed stage project with nothing but
+  the public anon key — an unauthenticated caller could drive the push
+  sender). Two independent mechanisms grant EXECUTE, and closing one leaves
+  the other:
+  1. **Postgres** grants EXECUTE on every new function to `PUBLIC` by
+     default. `anon` inherits it. Only `revoke ... from public` removes it.
+  2. **Supabase** additionally grants EXECUTE to `anon`/`authenticated`
+     explicitly, via `ALTER DEFAULT PRIVILEGES` on the `public` schema.
+     `revoke ... from public` does *not* remove an explicit grant.
+
+  So the correct form for any non-public function is
+  `revoke execute on function ... from public, anon, authenticated;`
+  followed by explicit grants. Verify with
+  `select proname, array_to_string(proacl,' | ') from pg_proc ...` — a
+  leading `=X/postgres` entry means PUBLIC still has it — and confirm over
+  the API, since that is the path an attacker uses.
+
+  Note this is *not* contradicted by
+  `004_fix_execute_revoke_regression.sql`'s "narrow the revoke" lesson.
+  That regression was a function fired by a **Supabase-internal role**
+  (`supabase_auth_admin` on `auth.users` insert) which the broad revoke
+  stripped. Where the only callers are the owner (pg_cron runs as the job
+  owner, and an owner keeps EXECUTE regardless) and roles you grant
+  explicitly, revoking from PUBLIC is correct — which is exactly what the
+  pre-existing `notify_fighter_added_to_fight()` already did.
 - **`cron.job` is not writable by the migration role.** `delete from
   cron.job ...` fails with "permission denied for table job"; go through
   `cron.unschedule()` instead, wrapped in an exception block since it
