@@ -1,5 +1,16 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import EventReminderBell from '../components/EventReminderBell';
@@ -8,9 +19,11 @@ import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 import OrganizationFollowBell from '../components/OrganizationFollowBell';
 import SettingsModal from '../components/SettingsModal';
-import { useAuth } from '../lib/auth';
+import { useAuth, type AuthResult } from '../lib/auth';
+import { authErrorMessage } from '../lib/authErrors';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
+import type { Translations } from '../lib/i18n';
 import { getProfile, updateNickname } from '../lib/profile';
 import {
   getFavoritedEvents,
@@ -72,6 +85,46 @@ export default function ProfileScreen() {
   );
 }
 
+// Shared eye-icon-toggle password field — used for both the login/signup
+// password and the reset-flow's new-password field, so the toggle isn't
+// built twice.
+function PasswordField({
+  inputRef,
+  style,
+  iconColor,
+  ...inputProps
+}: {
+  inputRef?: React.Ref<TextInput>;
+  style: object;
+  iconColor: string;
+} & Omit<React.ComponentProps<typeof TextInput>, 'secureTextEntry' | 'style'>) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <View style={passwordFieldStyles.wrapper}>
+      <TextInput ref={inputRef} style={[style, passwordFieldStyles.input]} secureTextEntry={!visible} {...inputProps} />
+      <Pressable
+        onPress={() => setVisible((v) => !v)}
+        style={passwordFieldStyles.toggle}
+        hitSlop={8}
+      >
+        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={20} color={iconColor} />
+      </Pressable>
+    </View>
+  );
+}
+
+const passwordFieldStyles = StyleSheet.create({
+  wrapper: { position: 'relative', justifyContent: 'center' },
+  input: { paddingRight: 44 },
+  toggle: { position: 'absolute', right: 14 },
+});
+
+function showAuthError(t: Translations, result: AuthResult) {
+  if (result.status === 'error') {
+    Alert.alert(t.auth.errorTitle, authErrorMessage(t, result.code));
+  }
+}
+
 function LoggedOutView() {
   const { t } = useLocale();
   const { colors } = useTheme();
@@ -84,13 +137,15 @@ function LoggedOutView() {
   const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const showError = () => Alert.alert(t.auth.errorTitle, t.auth.errorBody);
+  const passwordRef = useRef<TextInput>(null);
+  const codeRef = useRef<TextInput>(null);
+  const newPasswordRef = useRef<TextInput>(null);
 
   const handleLogin = async () => {
     setBusy(true);
     try {
       const result = await signIn(email, password);
-      if (result === 'error') showError();
+      showAuthError(t, result);
     } finally {
       setBusy(false);
     }
@@ -100,8 +155,8 @@ function LoggedOutView() {
     setBusy(true);
     try {
       const result = await signUp(email, password);
-      if (result === 'error') {
-        showError();
+      if (result.status === 'error') {
+        showAuthError(t, result);
         return;
       }
       Alert.alert(t.auth.signupTitle, t.auth.signupSuccess);
@@ -115,8 +170,8 @@ function LoggedOutView() {
     setBusy(true);
     try {
       const result = await requestPasswordReset(email);
-      if (result === 'error') {
-        showError();
+      if (result.status === 'error') {
+        showAuthError(t, result);
         return;
       }
       Alert.alert(t.auth.forgotPasswordTitle, t.auth.resetCodeSent);
@@ -130,8 +185,8 @@ function LoggedOutView() {
     setBusy(true);
     try {
       const result = await confirmPasswordReset(email, code, newPassword);
-      if (result === 'error') {
-        showError();
+      if (result.status === 'error') {
+        showAuthError(t, result);
         return;
       }
       Alert.alert(t.auth.forgotPasswordTitle, t.auth.resetSuccess);
@@ -142,102 +197,127 @@ function LoggedOutView() {
 
   if (mode === 'forgot-request' || mode === 'forgot-confirm') {
     return (
-      <ScrollView contentContainerStyle={styles.form}>
-        <Text style={styles.title}>{t.auth.forgotPasswordTitle}</Text>
-        <Text style={styles.body}>{t.auth.forgotPasswordBody}</Text>
-        <TextInput
-          style={styles.input}
-          placeholder={t.auth.emailLabel}
-          placeholderTextColor={colors.textSecondary}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-          editable={mode === 'forgot-request'}
-        />
-        {mode === 'forgot-request' ? (
-          <Pressable
-            style={({ pressed }) => [styles.button, pressed && pressedStyle]}
-            onPress={handleRequestCode}
-            disabled={busy}
-          >
-            <Text style={styles.buttonText}>{t.auth.sendCodeButton}</Text>
-          </Pressable>
-        ) : (
-          <>
-            <TextInput
-              style={styles.input}
-              placeholder={t.auth.codeLabel}
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="number-pad"
-              value={code}
-              onChangeText={setCode}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder={t.auth.newPasswordLabel}
-              placeholderTextColor={colors.textSecondary}
-              secureTextEntry
-              value={newPassword}
-              onChangeText={setNewPassword}
-            />
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+          <Text style={styles.title}>{t.auth.forgotPasswordTitle}</Text>
+          <Text style={styles.body}>{t.auth.forgotPasswordBody}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder={t.auth.emailLabel}
+            placeholderTextColor={colors.textSecondary}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            autoComplete="email"
+            returnKeyType={mode === 'forgot-request' ? 'send' : 'next'}
+            onSubmitEditing={() => (mode === 'forgot-request' ? handleRequestCode() : codeRef.current?.focus())}
+            value={email}
+            onChangeText={setEmail}
+            editable={mode === 'forgot-request'}
+          />
+          {mode === 'forgot-request' ? (
             <Pressable
               style={({ pressed }) => [styles.button, pressed && pressedStyle]}
-              onPress={handleConfirmReset}
+              onPress={handleRequestCode}
               disabled={busy}
             >
-              <Text style={styles.buttonText}>{t.auth.resetPasswordButton}</Text>
+              <Text style={styles.buttonText}>{t.auth.sendCodeButton}</Text>
             </Pressable>
-          </>
-        )}
-        <Pressable onPress={() => setMode('login')} style={({ pressed }) => pressed && pressedStyle}>
-          <Text style={styles.link}>{t.auth.backToLogin}</Text>
-        </Pressable>
-      </ScrollView>
+          ) : (
+            <>
+              <TextInput
+                ref={codeRef}
+                style={styles.input}
+                placeholder={t.auth.codeLabel}
+                placeholderTextColor={colors.textSecondary}
+                keyboardType="number-pad"
+                returnKeyType="next"
+                onSubmitEditing={() => newPasswordRef.current?.focus()}
+                value={code}
+                onChangeText={setCode}
+              />
+              <PasswordField
+                inputRef={newPasswordRef}
+                style={styles.input}
+                iconColor={colors.textSecondary}
+                placeholder={t.auth.newPasswordLabel}
+                placeholderTextColor={colors.textSecondary}
+                textContentType="newPassword"
+                autoComplete="new-password"
+                returnKeyType="done"
+                onSubmitEditing={handleConfirmReset}
+                value={newPassword}
+                onChangeText={setNewPassword}
+              />
+              <Pressable
+                style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+                onPress={handleConfirmReset}
+                disabled={busy}
+              >
+                <Text style={styles.buttonText}>{t.auth.resetPasswordButton}</Text>
+              </Pressable>
+            </>
+          )}
+          <Pressable onPress={() => setMode('login')} style={({ pressed }) => pressed && pressedStyle}>
+            <Text style={styles.link}>{t.auth.backToLogin}</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
     );
   }
 
   const isSignup = mode === 'signup';
 
   return (
-    <ScrollView contentContainerStyle={styles.form}>
-      <Text style={styles.title}>{isSignup ? t.auth.signupTitle : t.auth.loginTitle}</Text>
-      <TextInput
-        style={styles.input}
-        placeholder={t.auth.emailLabel}
-        placeholderTextColor={colors.textSecondary}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder={t.auth.passwordLabel}
-        placeholderTextColor={colors.textSecondary}
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-      />
-      <Pressable
-        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
-        onPress={isSignup ? handleSignup : handleLogin}
-        disabled={busy}
-      >
-        <Text style={styles.buttonText}>{isSignup ? t.auth.signupButton : t.auth.loginButton}</Text>
-      </Pressable>
-      <Pressable
-        onPress={() => setMode(isSignup ? 'login' : 'signup')}
-        style={({ pressed }) => pressed && pressedStyle}
-      >
-        <Text style={styles.link}>{isSignup ? t.auth.switchToLogin : t.auth.switchToSignup}</Text>
-      </Pressable>
-      {!isSignup && (
-        <Pressable onPress={() => setMode('forgot-request')} style={({ pressed }) => pressed && pressedStyle}>
-          <Text style={styles.link}>{t.auth.forgotPassword}</Text>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+        <Text style={styles.title}>{isSignup ? t.auth.signupTitle : t.auth.loginTitle}</Text>
+        <TextInput
+          style={styles.input}
+          placeholder={t.auth.emailLabel}
+          placeholderTextColor={colors.textSecondary}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          textContentType="emailAddress"
+          autoComplete="email"
+          returnKeyType="next"
+          onSubmitEditing={() => passwordRef.current?.focus()}
+          value={email}
+          onChangeText={setEmail}
+        />
+        <PasswordField
+          inputRef={passwordRef}
+          style={styles.input}
+          iconColor={colors.textSecondary}
+          placeholder={t.auth.passwordLabel}
+          placeholderTextColor={colors.textSecondary}
+          textContentType={isSignup ? 'newPassword' : 'password'}
+          autoComplete={isSignup ? 'new-password' : 'password'}
+          returnKeyType="done"
+          onSubmitEditing={isSignup ? handleSignup : handleLogin}
+          value={password}
+          onChangeText={setPassword}
+        />
+        <Pressable
+          style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+          onPress={isSignup ? handleSignup : handleLogin}
+          disabled={busy}
+        >
+          <Text style={styles.buttonText}>{isSignup ? t.auth.signupButton : t.auth.loginButton}</Text>
         </Pressable>
-      )}
-    </ScrollView>
+        <Pressable
+          onPress={() => setMode(isSignup ? 'login' : 'signup')}
+          style={({ pressed }) => pressed && pressedStyle}
+        >
+          <Text style={styles.link}>{isSignup ? t.auth.switchToLogin : t.auth.switchToSignup}</Text>
+        </Pressable>
+        {!isSignup && (
+          <Pressable onPress={() => setMode('forgot-request')} style={({ pressed }) => pressed && pressedStyle}>
+            <Text style={styles.link}>{t.auth.forgotPassword}</Text>
+          </Pressable>
+        )}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -308,8 +388,8 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
     setBusy(true);
     try {
       const result = await updateEmail(newEmail);
-      if (result === 'error') {
-        Alert.alert(t.auth.errorTitle, t.auth.errorBody);
+      if (result.status === 'error') {
+        showAuthError(t, result);
         return;
       }
       Alert.alert(t.profile.changeEmailTitle, t.profile.changeEmailSaved);
@@ -322,8 +402,8 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
     setBusy(true);
     try {
       const result = await updatePassword(newPassword);
-      if (result === 'error') {
-        Alert.alert(t.auth.errorTitle, t.auth.errorBody);
+      if (result.status === 'error') {
+        showAuthError(t, result);
         return;
       }
       setNewPassword('');
@@ -334,7 +414,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.form}>
+    <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
       <Text style={styles.sectionTitle}>{t.profile.nicknameLabel}</Text>
       {nicknameLoading ? (
         <ActivityIndicator color={colors.accent} />
@@ -365,6 +445,8 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         placeholderTextColor={colors.textSecondary}
         autoCapitalize="none"
         keyboardType="email-address"
+        textContentType="emailAddress"
+        autoComplete="email"
         value={newEmail}
         onChangeText={setNewEmail}
       />
@@ -377,11 +459,13 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
       </Pressable>
 
       <Text style={styles.sectionTitle}>{t.profile.changePasswordTitle}</Text>
-      <TextInput
+      <PasswordField
         style={styles.input}
+        iconColor={colors.textSecondary}
         placeholder={t.auth.newPasswordLabel}
         placeholderTextColor={colors.textSecondary}
-        secureTextEntry
+        textContentType="newPassword"
+        autoComplete="new-password"
         value={newPassword}
         onChangeText={setNewPassword}
       />
