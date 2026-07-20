@@ -142,6 +142,14 @@ and diverge only through new files in `supabase/migrations/`.
   `supabase link`/`db push`/`db pull` etc. against a project the token's
   account owns; Supabase mediates the Postgres connection via the
   Management API rather than requiring the raw DB password.
+- **Supabase MCP server, added 2026-07-20** (`.mcp.json`, project-scoped): two
+  entries, `supabase` (stage, `qvjgsbeugllobgwabebv`, full read/write) and
+  `supabase-prod` (production, `mytdfwceuzgqopndqmjt`, `read_only=true`) —
+  deliberately separate so an agent's default production access is read-only.
+  Lets an agent query logs/tables/migrations/linter-advisors and run SQL
+  directly instead of routing through manual dashboard copy-paste. No secrets
+  in the file itself; each server needs a one-time interactive `claude /mcp`
+  authentication per machine.
 
 **GitHub Actions:**
 - Two GitHub **Environments** exist (`production`, `stage`), each with
@@ -1180,6 +1188,19 @@ after seeding data doesn't create duplicate organizations) →
     (repo-level, like `SUPABASE_ACCESS_TOKEN`, since it's an account
     credential, not project-specific) — never paste a live token into
     chat.
+- **Any `package.json` edit changes the fingerprint, even a pure npm `scripts`
+  entry with no dependency change — discovered 2026-07-20.** Added
+  `"check:i18n": "tsx scripts/check-i18n-parity.ts"` (no new dependency, no
+  version bump) alongside a batch of pure-JS auth changes, expecting a plain
+  OTA update with no rebuild. `eas fingerprint:generate` hashes the whole
+  `package.json` file, not just `dependencies`/`overrides`, so the runtime
+  version changed anyway and the auto-trigger logic (see below) correctly
+  kicked off a new native build — the currently-installed build's fingerprint
+  no longer matched, so the OTA update alone was unreachable until that build
+  finished and was reinstalled. **Lesson: don't assume "no dependency change"
+  means "no fingerprint change, no rebuild" — anything touching
+  `package.json` at all should be treated as fingerprint-affecting until
+  proven otherwise.**
 - **Known bad transitive dependency:** `@expo/vector-icons@15.1.x` pulls in
   `expo-font@56.x`, which calls an `expo-modules-core` API
   (`ReturnTypeKt.getDirectConverter`) that doesn't exist in SDK 54's
@@ -1275,6 +1296,33 @@ after seeding data doesn't create duplicate organizations) →
   owner, and an owner keeps EXECUTE regardless) and roles you grant
   explicitly, revoking from PUBLIC is correct — which is exactly what the
   pre-existing `notify_fighter_added_to_fight()` already did.
+- **A hand-run-only fix can fall out of a fresh project's baseline —
+  discovered 2026-07-20 via the Supabase linter (now checked through the
+  Supabase MCP server, see below) on stage vs. production.** The linter
+  flagged `handle_new_user()` as callable by `anon`/`authenticated` via
+  `/rest/v1/rpc/handle_new_user` **on stage only**, not on production.
+  Confirmed via `pg_proc.proacl`: stage still had `anon`/`authenticated`
+  EXECUTE grants, production didn't. Root cause: the original fix
+  (`supabase/migrations_archive/003_security_hardening.sql` +
+  `004_fix_execute_revoke_regression.sql`) was hand-run against production
+  only, before this project had a CLI migration runner — it was never
+  captured as a replayable migration, only archived for reference. When
+  stage was bootstrapped 2026-07-19 from a `db dump --linked` baseline
+  snapshot of production, that snapshot didn't carry the GRANT/REVOKE state
+  forward, so stage silently reverted to Postgres' default EXECUTE-to-PUBLIC
+  behavior on this function. Fixed by
+  `supabase/migrations/010_fix_handle_new_user_execute.sql` (a no-op on
+  production, where the grant was already correct) — now a real migration,
+  so it can't fall out of a future rebuild the way the original fix did.
+  **Lesson:** anything only ever applied by hand outside the
+  `supabase/migrations/` sequence should be assumed lost the next time a
+  project is bootstrapped from a baseline snapshot, not just "already
+  fixed."
+- **Supabase's "leaked password protection" (HaveIBeenPwned check) is
+  Pro-plan-only** — flagged by the linter as disabled on both stage and
+  production, but not fixable on the current Free tier. Same "revisit once
+  Prod needs Pro anyway" bucket as
+  [Branching](#environments-dev--stage--main).
 - **`cron.job` is not writable by the migration role.** `delete from
   cron.job ...` fails with "permission denied for table job"; go through
   `cron.unschedule()` instead, wrapped in an exception block since it
