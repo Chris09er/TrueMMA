@@ -143,6 +143,9 @@ export const translations = {
       errorNetwork: 'Keine Internetverbindung. Bitte prüfe deine Verbindung und versuche es erneut.',
       showPassword: 'Passwort anzeigen',
       hidePassword: 'Passwort verbergen',
+      passwordReqMinLength: 'Mindestens 8 Zeichen',
+      passwordReqLetter: 'Mindestens ein Buchstabe',
+      passwordReqDigit: 'Mindestens eine Zahl',
     },
     profile: {
       title: 'Profil',
@@ -305,6 +308,9 @@ export const translations = {
       errorNetwork: 'No internet connection. Please check your connection and try again.',
       showPassword: 'Show password',
       hidePassword: 'Hide password',
+      passwordReqMinLength: 'At least 8 characters',
+      passwordReqLetter: 'At least one letter',
+      passwordReqDigit: 'At least one number',
     },
     profile: {
       title: 'Profile',
