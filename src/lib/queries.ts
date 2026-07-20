@@ -274,6 +274,35 @@ function sortFightCard(fights: Fight[]): Fight[] {
   });
 }
 
+// weight_class is free text from balldontlie, not a fixed enum — this is a
+// best-effort real-world (light-to-heavy) ordering for known division names.
+// Anything unrecognized (a typo, a future division, "Catchweight") sorts
+// alphabetically after all recognized ones rather than erroring.
+const WEIGHT_CLASS_ORDER = [
+  'strawweight',
+  'flyweight',
+  'bantamweight',
+  'featherweight',
+  'lightweight',
+  'welterweight',
+  'middleweight',
+  'light heavyweight',
+  'heavyweight',
+];
+
+function weightClassRank(weightClass: string): number {
+  const normalized = weightClass.toLowerCase();
+  const rank = WEIGHT_CLASS_ORDER.findIndex((known) => normalized.includes(known));
+  return rank === -1 ? WEIGHT_CLASS_ORDER.length : rank;
+}
+
+export function sortWeightClasses(weightClasses: string[]): string[] {
+  return [...weightClasses].sort((a, b) => {
+    const rankDiff = weightClassRank(a) - weightClassRank(b);
+    return rankDiff !== 0 ? rankDiff : a.localeCompare(b);
+  });
+}
+
 export async function getFightsForEvent(eventId: string): Promise<Fight[]> {
   const { data, error } = await supabase.from('fights').select(FIGHT_COLUMNS).eq('event_id', eventId);
 

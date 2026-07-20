@@ -66,8 +66,12 @@ export const radius = {
 };
 
 // iOS HIG (44pt) / Material (48dp) minimum — tappables should size against
-// this, not an arbitrary minHeight (see FilterButton, currently 36).
+// this, not an arbitrary minHeight.
 export const minTapTarget = 44;
+
+// Shared press-feedback style — pass to Pressable's style function:
+// style={({ pressed }) => [base, pressed && pressedStyle]}
+export const pressedStyle = { opacity: 0.6 } as const;
 
 export const fontFamily = {
   displayBold: 'BarlowCondensed_700Bold',

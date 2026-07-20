@@ -401,26 +401,46 @@ else (UFC + 9 other leagues) is populated by
   `FighterFollowBell` (each wraps `BellIconButton`, shows an `Alert` after
   a successful toggle explaining what enabling/disabling the reminder
   does), `EventFavoriteHeart`, `FighterFavoriteHeart` (same pattern, see
-  [Favorites](#favorites)). `FilterButton` (shared filter-chip, used by
-  the event org filter and the fighter nationality filter) — always
-  resolves to a concrete style object per state (`active ? styleA :
-  styleB`, never a bare `false` in a style array) with an explicit
-  `minHeight`, after a real-device Android bug where inactive chips
-  rendered as an unreadable blank/white sliver until the row was
-  otherwise forced to re-layout. The wrapping horizontal `ScrollView` in
-  both `EventListScreen` and `FighterListScreen` also needs an explicit
-  `style={{ flexGrow: 0 }}` (separate from `contentContainerStyle`) —
-  without it, RN's default `flexGrow` behavior lets the row collapse when
-  a flex-column sibling (the list/calendar below) claims space on
-  re-layout. **Same bug family, hit again 2026-07-19:** `flexGrow: 0`
-  alone still wasn't enough on a real device for `EventListScreen`'s org
-  filter row — the first event card visibly overlapped it. Fixed with an
-  explicit `height: 60` (36px `FilterButton` `minHeight` + 2×12px vertical
-  padding) on the container, so its height is reserved immediately instead
-  of depending on the horizontal `ScrollView`'s intrinsic-size layout
-  timing at all. Worth applying the same explicit-height fix proactively
-  to any future horizontal filter row, rather than waiting for it to
-  surface again on-device.
+  [Favorites](#favorites)).
+  - **Filter system (redesigned 2026-07-20, replaces the old `FilterButton`
+    below).** Three components, each for a distinct interaction that used
+    to look identical: `SegmentedControl` (exclusive small mode switches —
+    `EventListScreen`'s list/calendar and today/upcoming/past — a single
+    pill track, not separate buttons, so it visually reads as "mode" rather
+    than "filter"); `FilterChip` (a single multi-value filter option — 44pt
+    tap target, `Pressable`'s `pressed` state renders `pressedStyle` from
+    `theme.tsx`, active state uses the Ember accent, no `numberOfLines` cap
+    so a long German label grows the chip instead of being silently cut
+    off); `FilterModal`/`FilterSection` (the shared bottom-sheet shell —
+    previously `FighterListScreen` had its own bespoke modal and
+    `EventListScreen` used an always-visible horizontal-scroll chip row
+    instead, two different UX patterns for the same concept). Both list
+    screens now open the same modal pattern for their filters
+    (`EventListScreen`: organization only; `FighterListScreen`:
+    organization/weight class/nationality) via a `Filter (N)` button
+    showing the active-filter count. This also fixes the documented
+    discoverability problem where "PFL only shows up if you scroll" —
+    everything is now inside a modal, not an easy-to-miss scroll row.
+    Weight-class chips are ordered by `sortWeightClasses()` in `queries.ts`
+    (light-to-heavy by real division, e.g. `Bantamweight` before
+    `Featherweight`; `weight_class` is free text from balldontlie, not a
+    fixed enum, so unrecognized values fall back to alphabetical rather
+    than erroring) instead of the previous plain alphabetical sort, which
+    put divisions in an order with no real-world meaning.
+  - The old `FilterButton`'s real-device Android bug (inactive chips
+    rendering as an unreadable blank/white sliver without a concrete style
+    object per state, or its containing horizontal `ScrollView` collapsing
+    without an explicit `flexGrow: 0` + height) no longer applies —
+    `EventListScreen`'s persistent horizontal org-filter row is gone,
+    replaced by the modal above. `FilterChip` still follows the same
+    defensive pattern (concrete style per state, no bare `false` in a style
+    array) since the underlying RN behavior that caused it hasn't changed;
+    worth reapplying the explicit-height fix proactively if a future screen
+    ever needs a persistent horizontal scroll row of buttons again.
+  - Tab bar icons switched from Ionicons to MaterialCommunityIcons
+    (2026-07-20, same bundled `@expo/vector-icons` font set, no new
+    dependency) for a less generic-utility-app feel — e.g. `boxing-glove`
+    for Fighters instead of `people`.
 
 ## Notifications
 
@@ -1229,21 +1249,22 @@ after seeding data doesn't create duplicate organizations) →
   process: critical analysis → mood/color → typography → component system →
   screen-by-screen, nothing final without discussion (see [App
   structure](#app-structure) for what's landed). Done so far: critical
-  analysis of the pre-redesign UI (no visual identity, gold accent used
-  inconsistently, no type scale, no press feedback on `Pressable`s, org
-  filter row undiscoverable, generic Ionicons, silent DE-text truncation via
-  `numberOfLines`, default-RN header/tab chrome); a new "Steel & Ember"
-  dark+light palette and a Barlow Condensed/Inter type scale, both landed in
-  `src/lib/theme.tsx`; `App.tsx`'s navigator chrome (headers, tab bar,
-  status bar) is theme-aware, system-driven light/dark (no manual toggle
-  yet). Explicitly deferred/decided: no per-organization branding accent
-  (UFC/OKTAGON/... stay visually neutral, text-only distinction) — a
-  decision made specifically to avoid trade-dress proximity to real orgs'
-  brand colors. Not yet done: migrating the ~30 `colors.accentGold`/flat
-  `colors` call sites across screens/components to `useTheme()`; a
-  dedicated filter-usability pass (flagged by the user as unsatisfying
-  as-is: long unsorted org list, inconsistent interaction logic); fixing
-  `FilterButton`'s sub-44pt tap target and missing pressed-state feedback;
-  replacing default Ionicons with something less generic; a logo and app
-  icon (must be store-review-distinguishable from UFC/OKTAGON, plus
+  analysis of the pre-redesign UI; a new "Steel & Ember" dark+light palette
+  and a Barlow Condensed/Inter type scale in `src/lib/theme.tsx`;
+  `App.tsx`'s navigator chrome is theme-aware, system-driven light/dark (no
+  manual toggle yet); a filter-system overhaul (`SegmentedControl`,
+  `FilterChip`, `FilterModal`/`FilterSection` — see [App
+  structure](#app-structure)) covering both list screens, with press
+  feedback, 44pt tap targets, no more silent DE-label truncation, and a
+  real weight-class ordering; tab bar icons switched to
+  MaterialCommunityIcons. Explicitly deferred/decided: no
+  per-organization branding accent (UFC/OKTAGON/... stay visually neutral,
+  text-only distinction) — a decision made specifically to avoid
+  trade-dress proximity to real orgs' brand colors. Not yet done: migrating
+  the ~30 `colors.accentGold`/flat `colors` call sites across
+  screens/components to `useTheme()` (so light mode actually reaches screen
+  content, not just the nav chrome); press feedback on the remaining
+  `Pressable`s outside the filter system and the two list-item cards
+  (Profile/Contact/Language buttons, bell/heart icon buttons); a logo and
+  app icon (must be store-review-distinguishable from UFC/OKTAGON, plus
   font/icon-license checks for commercial use).

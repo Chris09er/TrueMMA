@@ -4,7 +4,6 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -24,13 +23,15 @@ import {
 } from '../lib/queries';
 import { getEventFavoriteIds } from '../lib/favorites';
 import type { EventListItem, Organization } from '../lib/types';
-import { colors, commonStyles, radius, spacing } from '../lib/theme';
+import { colors, commonStyles, pressedStyle, radius, spacing, typography } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
-import FilterButton from '../components/FilterButton';
+import FilterChip from '../components/FilterChip';
+import FilterModal, { FilterSection } from '../components/FilterModal';
+import SegmentedControl from '../components/SegmentedControl';
 import LiveBadge from '../components/LiveBadge';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventList'>;
@@ -60,6 +61,7 @@ export default function EventListScreen({ navigation }: Props) {
   const [monthEvents, setMonthEvents] = useState<EventListItem[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
 
   useEffect(() => {
     getOrganizations().then(setOrganizations).catch(() => {});
@@ -144,11 +146,13 @@ export default function EventListScreen({ navigation }: Props) {
     return [...filtered].sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)));
   }, [events, search, favoriteIds]);
 
+  const activeFilterCount = selectedOrgId === undefined ? 0 : 1;
+
   const renderEventCard = (item: EventListItem) => {
     const upcoming = isEventUpcoming(item.event_date);
     return (
       <Pressable
-        style={styles.eventCard}
+        style={({ pressed }) => [styles.eventCard, pressed && pressedStyle]}
         onPress={() => navigation.navigate('EventDetail', { eventId: item.id, eventName: item.name })}
       >
         {upcoming && (
@@ -170,36 +174,28 @@ export default function EventListScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.timeframeRow}>
-        <FilterButton
-          label={t.eventList.viewList}
-          active={viewMode === 'list'}
-          onPress={() => setViewMode('list')}
-        />
-        <FilterButton
-          label={t.eventList.viewCalendar}
-          active={viewMode === 'calendar'}
-          onPress={() => setViewMode('calendar')}
+      <View style={styles.controlsRow}>
+        <SegmentedControl
+          segments={[
+            { value: 'list', label: t.eventList.viewList },
+            { value: 'calendar', label: t.eventList.viewCalendar },
+          ]}
+          value={viewMode}
+          onChange={setViewMode}
         />
       </View>
 
       {viewMode === 'list' && (
         <>
-          <View style={styles.timeframeRow}>
-            <FilterButton
-              label={t.eventList.today}
-              active={timeframe === 'today'}
-              onPress={() => setTimeframe('today')}
-            />
-            <FilterButton
-              label={t.eventList.upcoming}
-              active={timeframe === 'upcoming'}
-              onPress={() => setTimeframe('upcoming')}
-            />
-            <FilterButton
-              label={t.eventList.past}
-              active={timeframe === 'past'}
-              onPress={() => setTimeframe('past')}
+          <View style={styles.controlsRow}>
+            <SegmentedControl
+              segments={[
+                { value: 'today', label: t.eventList.today },
+                { value: 'upcoming', label: t.eventList.upcoming },
+                { value: 'past', label: t.eventList.past },
+              ]}
+              value={timeframe}
+              onChange={setTimeframe}
             />
           </View>
 
@@ -213,26 +209,42 @@ export default function EventListScreen({ navigation }: Props) {
         </>
       )}
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterRowContainer}
-        contentContainerStyle={styles.filterRow}
+      <View style={styles.controlsRow}>
+        <Pressable
+          style={({ pressed }) => [styles.filterOpenButton, pressed && pressedStyle]}
+          onPress={() => setFilterModalVisible(true)}
+        >
+          <Text style={styles.filterOpenButtonText}>
+            {activeFilterCount > 0 ? `${t.eventList.filter} (${activeFilterCount})` : t.eventList.filter}
+          </Text>
+        </Pressable>
+      </View>
+
+      <FilterModal
+        visible={filterModalVisible}
+        title={t.eventList.filter}
+        doneLabel={t.eventList.filterDone}
+        onClose={() => setFilterModalVisible(false)}
+        showReset={activeFilterCount > 0}
+        resetLabel={t.eventList.filterReset}
+        onReset={() => setSelectedOrgId(undefined)}
       >
-        <FilterButton
-          label={t.eventList.filterAll}
-          active={selectedOrgId === undefined}
-          onPress={() => setSelectedOrgId(undefined)}
-        />
-        {organizations.map((org) => (
-          <FilterButton
-            key={org.id}
-            label={org.short_name}
-            active={selectedOrgId === org.id}
-            onPress={() => setSelectedOrgId(org.id)}
+        <FilterSection title={t.eventList.filterOrganization}>
+          <FilterChip
+            label={t.eventList.filterAll}
+            active={selectedOrgId === undefined}
+            onPress={() => setSelectedOrgId(undefined)}
           />
-        ))}
-      </ScrollView>
+          {organizations.map((org) => (
+            <FilterChip
+              key={org.id}
+              label={org.short_name}
+              active={selectedOrgId === org.id}
+              onPress={() => setSelectedOrgId(org.id)}
+            />
+          ))}
+        </FilterSection>
+      </FilterModal>
 
       {viewMode === 'calendar' ? (
         <FlatList
@@ -314,9 +326,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  timeframeRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
+  controlsRow: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
   },
@@ -331,16 +341,20 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     color: colors.textPrimary,
   },
-  filterRowContainer: {
-    flexGrow: 0,
-    height: 60,
-    marginBottom: spacing.md,
+  filterOpenButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    minHeight: 44,
+    justifyContent: 'center',
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  filterRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+  filterOpenButtonText: {
+    ...typography.body,
+    fontFamily: typography.label.fontFamily,
+    color: colors.textPrimary,
   },
   calendar: {
     marginHorizontal: spacing.md,
@@ -363,8 +377,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   eventOrg: {
-    fontSize: 12,
-    fontWeight: '700',
+    ...typography.label,
     color: colors.textSecondary,
     marginBottom: 4,
   },
@@ -372,8 +385,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   eventName: {
-    fontSize: 17,
-    fontWeight: '700',
+    ...typography.cardTitle,
     marginBottom: 4,
     color: colors.textPrimary,
   },
@@ -381,7 +393,7 @@ const styles = StyleSheet.create({
     paddingRight: 56,
   },
   eventMeta: {
-    fontSize: 13,
+    ...typography.meta,
     color: colors.textSecondary,
   },
 });

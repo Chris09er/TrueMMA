@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import type { EventsStackParamList, FightersStackParamList, RootTabParamList } from './src/navigation';
@@ -82,14 +82,20 @@ function RootTabs() {
         tabBarActiveTintColor: themeColors.accent,
         tabBarInactiveTintColor: themeColors.textSecondary,
         tabBarIcon: ({ color, size }) => {
-          const icons: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
-            EventsTab: 'calendar',
-            FightersTab: 'people',
-            ProfileTab: 'person',
-            LanguageTab: 'language',
-            ContactTab: 'mail',
+          const icons: Record<keyof RootTabParamList, keyof typeof MaterialCommunityIcons.glyphMap> = {
+            EventsTab: 'calendar-star',
+            FightersTab: 'boxing-glove',
+            ProfileTab: 'account-circle-outline',
+            LanguageTab: 'translate',
+            ContactTab: 'email-outline',
           };
-          return <Ionicons name={icons[route.name as keyof RootTabParamList]} size={size} color={color} />;
+          return (
+            <MaterialCommunityIcons
+              name={icons[route.name as keyof RootTabParamList]}
+              size={size}
+              color={color}
+            />
+          );
         },
       })}
     >

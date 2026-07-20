@@ -21,6 +21,10 @@ const translations = {
     eventList: {
       title: 'True MMA',
       filterAll: 'Alle',
+      filter: 'Filter',
+      filterDone: 'Fertig',
+      filterReset: 'Filter zurücksetzen',
+      filterOrganization: 'Organisation',
       empty: 'Keine kommenden Events gefunden.',
       emptyPast: 'Keine vergangenen Events gefunden.',
       emptyToday: 'Heute keine Veranstaltung.',
@@ -160,6 +164,10 @@ const translations = {
     eventList: {
       title: 'True MMA',
       filterAll: 'All',
+      filter: 'Filter',
+      filterDone: 'Done',
+      filterReset: 'Reset filters',
+      filterOrganization: 'Organization',
       empty: 'No upcoming events found.',
       emptyPast: 'No past events found.',
       emptyToday: 'No event today.',
