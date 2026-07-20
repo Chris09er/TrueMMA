@@ -7,7 +7,12 @@ import { claimLocalFavorites } from './favorites';
 import { claimAnonymousOrganizationFollows } from './organizationFollows';
 import { getProfile, updateTimezoneOverride } from './profile';
 
-export type AuthResult = 'ok' | 'error';
+export type AuthResult = { status: 'ok' } | { status: 'error'; code: string; message: string };
+
+function toAuthResult(error: { message: string; code?: string } | null): AuthResult {
+  if (!error) return { status: 'ok' };
+  return { status: 'error', code: error.code ?? 'unknown', message: error.message };
+}
 
 type AuthContextValue = {
   session: Session | null;
@@ -75,18 +80,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       signUp: async (email, password) => {
         const { error } = await supabase.auth.signUp({ email, password });
-        return error ? 'error' : 'ok';
+        return toAuthResult(error);
       },
       signIn: async (email, password) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
-        return error ? 'error' : 'ok';
+        return toAuthResult(error);
       },
       signOut: async () => {
         await supabase.auth.signOut();
       },
       requestPasswordReset: async (email) => {
         const { error } = await supabase.auth.resetPasswordForEmail(email);
-        return error ? 'error' : 'ok';
+        return toAuthResult(error);
       },
       confirmPasswordReset: async (email, token, newPassword) => {
         const { error: verifyError } = await supabase.auth.verifyOtp({
@@ -94,25 +99,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           token,
           type: 'recovery',
         });
-        if (verifyError) return 'error';
+        if (verifyError) return toAuthResult(verifyError);
 
         const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-        return updateError ? 'error' : 'ok';
+        return toAuthResult(updateError);
       },
       updateEmail: async (email) => {
         const { error } = await supabase.auth.updateUser({ email });
-        return error ? 'error' : 'ok';
+        return toAuthResult(error);
       },
       updatePassword: async (newPassword) => {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
-        return error ? 'error' : 'ok';
+        return toAuthResult(error);
       },
       timezoneOverride,
       setTimezoneOverride: async (timezone) => {
-        if (!session?.user) return 'error';
+        if (!session?.user) return { status: 'error', code: 'not_authenticated', message: 'No session' };
         const result = await updateTimezoneOverride(session.user.id, timezone);
         if (result === 'ok') setTimezoneOverrideState(timezone);
-        return result;
+        return result === 'ok' ? { status: 'ok' } : { status: 'error', code: 'unknown', message: 'Failed to update timezone' };
       },
     }),
     [session, loading, timezoneOverride]

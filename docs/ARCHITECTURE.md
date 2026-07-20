@@ -712,6 +712,40 @@ items](#known-open-items) if that changes.
   dropped by their actual name before the new scoped policies are created,
   since their names weren't recorded anywhere in this repo.
 
+**Auth error handling & form UX (2026-07-20):** found broken during a real
+end-to-end device pass right after the SMTP outage below was fixed — worth
+treating as a standing pattern, not a one-off patch:
+
+- `AuthResult` (`src/lib/auth.tsx`) changed from a bare `'ok' | 'error'` to
+  `{ status: 'ok' } | { status: 'error'; code: string; message: string }`,
+  preserving Supabase's real `error.code` instead of discarding it. Every
+  `signIn`/`signUp`/`requestPasswordReset`/`confirmPasswordReset`/
+  `updateEmail`/`updatePassword` call funnels through this. `src/lib/authErrors.ts`
+  maps known codes (`invalid_credentials`, `email_not_confirmed`,
+  `over_email_send_rate_limit`, `user_already_exists`, `weak_password`) to a
+  specific localized `t.auth.*` message instead of one generic alert — e.g. a
+  user with an unconfirmed email now sees "please confirm your email" instead
+  of an indistinguishable "something went wrong."
+- **`src/lib/i18n.tsx`'s translation data moved to `src/lib/translations.ts`**
+  (no React/AsyncStorage imports) so `scripts/check-i18n-parity.ts` (`npm run
+  check:i18n`) can import it under plain `tsx`/Node without pulling in RN.
+  That script asserts the `de`/`en` objects have identical key shapes
+  recursively — `satisfies Record<Locale, unknown>` alone does not catch a
+  key present in one locale and missing in the other, and this doc previously
+  had no check for that at all.
+- **`keyboardShouldPersistTaps="handled"`** added to every form `ScrollView`
+  in `ProfileScreen.tsx` — first use of this prop in the repo. Without it, RN
+  defaults to `'never'`, so tapping a submit button while the keyboard is open
+  only dismisses the keyboard on the first tap and requires a second tap to
+  actually fire `onPress`. Apply this to any future screen with a form inside
+  a `ScrollView`.
+- **`PasswordField`** (local to `ProfileScreen.tsx`) adds a show/hide eye-icon
+  toggle shared by the login/signup password field and both change/reset
+  password fields, plus `textContentType`/`autoComplete` autofill hints and
+  `returnKeyType`/`onSubmitEditing` field-to-field chaining (email → password
+  → submit) so the OS keyboard's "next"/"done" key behaves correctly — none
+  of this existed before.
+
 **Timezone override (added 2026-07-19):** device-local time was already
 the default everywhere — `formatEventDate()`/`BroadcastTimes`'s
 `formatTime()` call `toLocaleDateString`/`toLocaleTimeString` with no
@@ -751,6 +785,23 @@ which is a hard requirement, not just a "nice to have for scale."
   above. This is dashboard-only configuration, not stored anywhere in
   this repo; if the template needs to change again, it must be edited
   directly in the Supabase dashboard.
+- **This dashboard state is per-project, not shared** — `true-mma-stage` and
+  production are two independent Supabase projects (see
+  [Environments](#environments-dev--stage--main)), each with their own
+  Custom SMTP config and email templates. **Incident, 2026-07-20:** IONOS
+  SMTP started failing on production (`535 "Authentication credentials
+  invalid"` — the stored mailbox password had gone stale, root cause
+  unconfirmed, fixed by re-entering the current IONOS password in the
+  dashboard) and Custom SMTP had **never been configured on stage at all**
+  since that project didn't exist yet when the original SMTP setup above was
+  done — stage was silently falling back to Supabase's built-in
+  test-only mail service, hitting its rate limit (`over_email_send_rate_limit`)
+  after 1-2 requests. Both fixed the same day (IONOS creds re-saved on prod,
+  Custom SMTP + the `{{ .Token }}` template freshly set up on stage). **Any
+  future SMTP/template change must be applied to both projects' dashboards
+  separately** — nothing here syncs automatically, and this has already bitten
+  the project once via the exact same failure mode (a fix landing on one
+  project's dashboard being silently assumed to apply everywhere).
 
 ## Favorites
 
@@ -1476,3 +1527,37 @@ after seeding data doesn't create duplicate organizations) →
   balldontlie's historical coverage is just shallow for most fighters.
   Both are upstream data-source limitations, not bugs to chase in this
   codebase.
+- **Auth/profile UX overhaul — in progress, started 2026-07-20.** Triggered by
+  the SMTP incident above plus a real-device pass that surfaced further
+  problems. Phased plan (full detail, decisions, and file-level notes in the
+  session that started it — summarized here): Phase 0 (dashboard template
+  re-check, `keyboardShouldPersistTaps` double-tap fix) and Phase 1 (structured
+  `AuthResult`/per-error-code messages, i18n split + parity check, autofill/
+  chaining/password-visibility form polish) are **done**, see the "Auth error
+  handling & form UX" note under [Login / Profile](#login--profile). **Still
+  open:**
+  - **Timezone picker reported unreachable on a real device** despite the
+    `flexShrink: 1` fix already being present in `FilterModal.tsx` — needs
+    re-verification on a confirmed-current build/OTA update before assuming a
+    second code fix is needed; may just have been a stale build.
+  - **Signup confirmation still lands on Supabase's default, unbranded
+    confirmation page** — decided fix is to make signup OTP-code-based (same
+    pattern as password reset) instead of link-based, not yet built.
+  - **Multilingual auth emails** — decided to build the project's **first
+    Supabase Edge Function** (a Send Email Hook, `supabase/functions/`,
+    sending via direct IONOS SMTP from Deno) so confirmation/reset/etc. emails
+    match the user's in-app language instead of one project-wide template.
+    Needs `user_metadata.locale` written at signup/locale-change (not done
+    yet) since the function runs server-side with no access to the
+    AsyncStorage-backed `LocaleProvider`. Not yet started.
+  - **Password policy** — decided on minimum 8 characters + at least one
+    letter and one number, not yet applied to `supabase/config.toml` or (more
+    importantly) either project's live dashboard.
+  - **Signup "check your inbox" state + resend cooldown**, **magic-link/OTP-only
+    login**, **biometric re-auth** (`expo-local-authentication`, needs a new
+    EAS native build), and **Google/Apple social login** (`expo-auth-session`
+    + Google Cloud Console/Apple Developer setup, needs a new EAS native
+    build, likely makes Sign In with Apple close to mandatory on iOS per App
+    Store guideline 4.8 once Google login exists) are all agreed scope, not
+    yet started — sequenced last since they're the highest-risk/most-external
+    items.
