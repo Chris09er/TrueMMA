@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -12,19 +11,23 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList } from '../navigation';
-import { getFighters, getOrganizations } from '../lib/queries';
+import { getFighters, getOrganizations, sortWeightClasses } from '../lib/queries';
 import { getFighterFavoriteIds } from '../lib/favorites';
 import type { Fighter, Organization } from '../lib/types';
-import { colors, commonStyles, radius, spacing } from '../lib/theme';
+import { pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
-import FilterButton from '../components/FilterButton';
+import FilterChip from '../components/FilterChip';
+import FilterModal, { FilterSection } from '../components/FilterModal';
 
 type Props = NativeStackScreenProps<FightersStackParamList, 'FighterList'>;
 
 export default function FighterListScreen({ navigation }: Props) {
   const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const commonStyles = useCommonStyles();
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [search, setSearch] = useState('');
@@ -78,12 +81,20 @@ export default function FighterListScreen({ navigation }: Props) {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [fighters]);
 
-  const weightClasses = useMemo(() => {
+  const weightClassesMen = useMemo(() => {
     const set = new Set<string>();
     for (const fighter of fighters) {
-      if (fighter.weight_class) set.add(fighter.weight_class);
+      if (fighter.weight_class && !fighter.weight_class.startsWith("Women's")) set.add(fighter.weight_class);
     }
-    return [...set].sort((a, b) => a.localeCompare(b));
+    return sortWeightClasses([...set]);
+  }, [fighters]);
+
+  const weightClassesWomen = useMemo(() => {
+    const set = new Set<string>();
+    for (const fighter of fighters) {
+      if (fighter.weight_class?.startsWith("Women's")) set.add(fighter.weight_class);
+    }
+    return sortWeightClasses([...set]);
   }, [fighters]);
 
   const activeFilterCount = [selectedOrgId, selectedWeightClass, selectedNationality].filter(Boolean).length;
@@ -134,98 +145,96 @@ export default function FighterListScreen({ navigation }: Props) {
             placeholderTextColor={colors.textSecondary}
             style={styles.searchInput}
           />
-          <Pressable style={styles.filterOpenButton} onPress={() => setFilterModalVisible(true)}>
+          <Pressable
+            style={({ pressed }) => [styles.filterOpenButton, pressed && pressedStyle]}
+            onPress={() => setFilterModalVisible(true)}
+          >
             <Text style={styles.filterOpenButtonText}>
               {activeFilterCount > 0 ? `${t.fighterList.filter} (${activeFilterCount})` : t.fighterList.filter}
             </Text>
           </Pressable>
 
-          <Modal
+          <FilterModal
             visible={filterModalVisible}
-            animationType="slide"
-            transparent
-            onRequestClose={() => setFilterModalVisible(false)}
+            title={t.fighterList.filter}
+            doneLabel={t.fighterList.filterDone}
+            onClose={() => setFilterModalVisible(false)}
+            showReset={activeFilterCount > 0}
+            resetLabel={t.fighterList.filterReset}
+            onReset={resetFilters}
           >
-            <View style={styles.modalBackdrop}>
-              <View style={styles.modalSheet}>
-                <View style={styles.modalHeaderRow}>
-                  <Text style={styles.modalTitle}>{t.fighterList.filter}</Text>
-                  <Pressable onPress={() => setFilterModalVisible(false)}>
-                    <Text style={styles.modalClose}>{t.fighterList.filterDone}</Text>
-                  </Pressable>
-                </View>
+            {organizations.length > 0 && (
+              <FilterSection title={t.fighterList.filterOrganization}>
+                <FilterChip
+                  label={t.fighterList.filterAll}
+                  active={selectedOrgId === undefined}
+                  onPress={() => setSelectedOrgId(undefined)}
+                />
+                {organizations.map((org) => (
+                  <FilterChip
+                    key={org.id}
+                    label={org.short_name}
+                    active={selectedOrgId === org.id}
+                    onPress={() => setSelectedOrgId(org.id)}
+                  />
+                ))}
+              </FilterSection>
+            )}
 
-                {organizations.length > 0 && (
-                  <View style={styles.filterSection}>
-                    <Text style={styles.filterSectionTitle}>{t.fighterList.filterOrganization}</Text>
-                    <View style={styles.chipWrap}>
-                      <FilterButton
-                        label={t.fighterList.filterAll}
-                        active={selectedOrgId === undefined}
-                        onPress={() => setSelectedOrgId(undefined)}
-                      />
-                      {organizations.map((org) => (
-                        <FilterButton
-                          key={org.id}
-                          label={org.short_name}
-                          active={selectedOrgId === org.id}
-                          onPress={() => setSelectedOrgId(org.id)}
-                        />
-                      ))}
-                    </View>
-                  </View>
-                )}
+            {(weightClassesMen.length > 0 || weightClassesWomen.length > 0) && (
+              <FilterSection title={t.fighterList.filterWeightClass}>
+                <FilterChip
+                  label={t.fighterList.filterAll}
+                  active={selectedWeightClass === undefined}
+                  onPress={() => setSelectedWeightClass(undefined)}
+                />
+              </FilterSection>
+            )}
 
-                {weightClasses.length > 0 && (
-                  <View style={styles.filterSection}>
-                    <Text style={styles.filterSectionTitle}>{t.fighterList.filterWeightClass}</Text>
-                    <View style={styles.chipWrap}>
-                      <FilterButton
-                        label={t.fighterList.filterAll}
-                        active={selectedWeightClass === undefined}
-                        onPress={() => setSelectedWeightClass(undefined)}
-                      />
-                      {weightClasses.map((weightClass) => (
-                        <FilterButton
-                          key={weightClass}
-                          label={weightClass}
-                          active={selectedWeightClass === weightClass}
-                          onPress={() => setSelectedWeightClass(weightClass)}
-                        />
-                      ))}
-                    </View>
-                  </View>
-                )}
+            {weightClassesMen.length > 0 && (
+              <FilterSection title={t.fighterList.filterWeightClassMen}>
+                {weightClassesMen.map((weightClass) => (
+                  <FilterChip
+                    key={weightClass}
+                    label={weightClass}
+                    active={selectedWeightClass === weightClass}
+                    onPress={() => setSelectedWeightClass(weightClass)}
+                  />
+                ))}
+              </FilterSection>
+            )}
 
-                {nationalities.length > 0 && (
-                  <View style={styles.filterSection}>
-                    <Text style={styles.filterSectionTitle}>{t.fighterList.filterNationality}</Text>
-                    <View style={styles.chipWrap}>
-                      <FilterButton
-                        label={t.fighterList.filterAll}
-                        active={selectedNationality === undefined}
-                        onPress={() => setSelectedNationality(undefined)}
-                      />
-                      {nationalities.map((nationality) => (
-                        <FilterButton
-                          key={nationality}
-                          label={nationality}
-                          active={selectedNationality === nationality}
-                          onPress={() => setSelectedNationality(nationality)}
-                        />
-                      ))}
-                    </View>
-                  </View>
-                )}
+            {weightClassesWomen.length > 0 && (
+              <FilterSection title={t.fighterList.filterWeightClassWomen}>
+                {weightClassesWomen.map((weightClass) => (
+                  <FilterChip
+                    key={weightClass}
+                    label={weightClass.replace(/^Women's /, '')}
+                    active={selectedWeightClass === weightClass}
+                    onPress={() => setSelectedWeightClass(weightClass)}
+                  />
+                ))}
+              </FilterSection>
+            )}
 
-                {activeFilterCount > 0 && (
-                  <Pressable style={styles.resetButton} onPress={resetFilters}>
-                    <Text style={styles.resetButtonText}>{t.fighterList.filterReset}</Text>
-                  </Pressable>
-                )}
-              </View>
-            </View>
-          </Modal>
+            {nationalities.length > 0 && (
+              <FilterSection title={t.fighterList.filterNationality}>
+                <FilterChip
+                  label={t.fighterList.filterAll}
+                  active={selectedNationality === undefined}
+                  onPress={() => setSelectedNationality(undefined)}
+                />
+                {nationalities.map((nationality) => (
+                  <FilterChip
+                    key={nationality}
+                    label={nationality}
+                    active={selectedNationality === nationality}
+                    onPress={() => setSelectedNationality(nationality)}
+                  />
+                ))}
+              </FilterSection>
+            )}
+          </FilterModal>
         </>
       }
       refreshControl={
@@ -233,13 +242,13 @@ export default function FighterListScreen({ navigation }: Props) {
           refreshing={refreshing}
           onRefresh={handleRefresh}
           tintColor={colors.textPrimary}
-          colors={[colors.accentGold]}
+          colors={[colors.accent]}
         />
       }
       ListEmptyComponent={<Text style={commonStyles.empty}>{t.fighterList.empty}</Text>}
       renderItem={({ item }) => (
         <Pressable
-          style={styles.card}
+          style={({ pressed }) => [styles.card, pressed && pressedStyle]}
           onPress={() => navigation.navigate('FighterDetail', { fighterId: item.id, fighterName: item.name })}
         >
           <FighterFollowBell fighterId={item.id} />
@@ -259,105 +268,60 @@ export default function FighterListScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  list: {
-    padding: spacing.md,
-  },
-  searchInput: {
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    color: colors.textPrimary,
-  },
-  filterOpenButton: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.md,
-  },
-  filterOpenButtonText: {
-    color: colors.textPrimary,
-    fontWeight: '600',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    padding: spacing.lg,
-    maxHeight: '80%',
-  },
-  modalHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  modalClose: {
-    color: colors.accentGold,
-    fontWeight: '700',
-  },
-  filterSection: {
-    marginBottom: spacing.lg,
-  },
-  filterSectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
-  chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  resetButton: {
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-  },
-  resetButtonText: {
-    color: colors.danger,
-    fontWeight: '700',
-  },
-  card: {
-    padding: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    position: 'relative',
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginBottom: 2,
-    paddingRight: 56,
-  },
-  meta: {
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    list: {
+      padding: spacing.md,
+    },
+    searchInput: {
+      marginBottom: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      color: colors.textPrimary,
+    },
+    filterOpenButton: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: 14,
+      minHeight: 44,
+      justifyContent: 'center',
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: spacing.md,
+    },
+    filterOpenButtonText: {
+      ...typography.body,
+      fontFamily: typography.label.fontFamily,
+      color: colors.textPrimary,
+    },
+    card: {
+      padding: 14,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      position: 'relative',
+    },
+    name: {
+      ...typography.cardTitle,
+      fontSize: 16,
+      lineHeight: 20,
+      color: colors.textPrimary,
+      marginBottom: 2,
+      paddingRight: 56,
+    },
+    meta: {
+      ...typography.meta,
+      color: colors.textSecondary,
+    },
+  });

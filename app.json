@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.truemma.app"
@@ -13,7 +13,7 @@
     "android": {
       "package": "com.truemma.app",
       "adaptiveIcon": {
-        "backgroundColor": "#0d0d0f",
+        "backgroundColor": "#0b0d14",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

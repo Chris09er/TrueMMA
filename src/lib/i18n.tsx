@@ -16,11 +16,15 @@ const DEFAULT_LOCALE: Locale = 'de';
 // and a matching translations object below with the same keys as `de`.
 const translations = {
   de: {
-    tabs: { events: 'Veranstaltungen', fighters: 'Kämpfer', language: 'Sprache', contact: 'Kontakt', profile: 'Profil' },
+    tabs: { events: 'Veranstaltungen', fighters: 'Kämpfer', contact: 'Kontakt', profile: 'Profil' },
     common: { loading: 'Lädt...', error: 'Fehler beim Laden', live: 'LIVE' },
     eventList: {
       title: 'True MMA',
       filterAll: 'Alle',
+      filter: 'Filter',
+      filterDone: 'Fertig',
+      filterReset: 'Filter zurücksetzen',
+      filterOrganization: 'Organisation',
       empty: 'Keine kommenden Events gefunden.',
       emptyPast: 'Keine vergangenen Events gefunden.',
       emptyToday: 'Heute keine Veranstaltung.',
@@ -60,6 +64,8 @@ const translations = {
       filterReset: 'Filter zurücksetzen',
       filterOrganization: 'Organisation',
       filterWeightClass: 'Gewichtsklasse',
+      filterWeightClassMen: 'Männer',
+      filterWeightClassWomen: 'Frauen',
       filterNationality: 'Nationalität',
     },
     fighterDetail: {
@@ -79,8 +85,13 @@ const translations = {
       dateOfBirth: 'Geburtsdatum',
       birthPlace: 'Geburtsort',
     },
-    language: {
-      title: 'Sprache',
+    settings: {
+      title: 'Einstellungen',
+      languageTitle: 'Sprache',
+      themeTitle: 'Darstellung',
+      themeSystem: 'System',
+      themeLight: 'Hell',
+      themeDark: 'Dunkel',
     },
     contact: {
       title: 'Kontakt',
@@ -97,13 +108,17 @@ const translations = {
       genericErrorTitle: 'Das hat nicht geklappt',
       genericErrorBody: 'Bitte versuche es später erneut.',
       fighterFollowOnTitle: 'Erinnerung aktiviert',
-      fighterFollowOnBody: 'Du bekommst eine Push-Benachrichtigung, sobald dieser Kämpfer für einen neuen Kampf angesetzt wird.',
+      fighterFollowOnBody: 'Du bekommst eine Push-Benachrichtigung, sobald dieser Kämpfer für einen neuen Kampf angesetzt wird, und wenn ein Kampf von ihm beginnt.',
       fighterFollowOffTitle: 'Erinnerung deaktiviert',
-      fighterFollowOffBody: 'Du wirst nicht mehr benachrichtigt, wenn dieser Kämpfer für einen neuen Kampf angesetzt wird.',
+      fighterFollowOffBody: 'Du wirst nicht mehr benachrichtigt, wenn dieser Kämpfer für einen neuen Kampf angesetzt wird oder ein Kampf von ihm beginnt.',
       eventReminderOnTitle: 'Erinnerung aktiviert',
       eventReminderOnBody: 'Du bekommst eine Benachrichtigung auf diesem Gerät, sobald die Veranstaltung beginnt.',
       eventReminderOffTitle: 'Erinnerung deaktiviert',
       eventReminderOffBody: 'Du wirst nicht mehr benachrichtigt, wenn die Veranstaltung beginnt.',
+      organizationFollowOnTitle: 'Liga-Erinnerung aktiviert',
+      organizationFollowOnBody: 'Du wirst benachrichtigt, sobald eine Veranstaltung dieser Liga beginnt.',
+      organizationFollowOffTitle: 'Liga-Erinnerung deaktiviert',
+      organizationFollowOffBody: 'Du wirst nicht mehr benachrichtigt, wenn eine Veranstaltung dieser Liga beginnt.',
     },
     auth: {
       emailLabel: 'E-Mail',
@@ -155,11 +170,15 @@ const translations = {
     },
   },
   en: {
-    tabs: { events: 'Events', fighters: 'Fighters', language: 'Language', contact: 'Contact', profile: 'Profile' },
+    tabs: { events: 'Events', fighters: 'Fighters', contact: 'Contact', profile: 'Profile' },
     common: { loading: 'Loading...', error: 'Failed to load', live: 'LIVE' },
     eventList: {
       title: 'True MMA',
       filterAll: 'All',
+      filter: 'Filter',
+      filterDone: 'Done',
+      filterReset: 'Reset filters',
+      filterOrganization: 'Organization',
       empty: 'No upcoming events found.',
       emptyPast: 'No past events found.',
       emptyToday: 'No event today.',
@@ -199,6 +218,8 @@ const translations = {
       filterReset: 'Reset filters',
       filterOrganization: 'Organization',
       filterWeightClass: 'Weight class',
+      filterWeightClassMen: 'Men',
+      filterWeightClassWomen: 'Women',
       filterNationality: 'Nationality',
     },
     fighterDetail: {
@@ -218,8 +239,13 @@ const translations = {
       dateOfBirth: 'Date of birth',
       birthPlace: 'Birth place',
     },
-    language: {
-      title: 'Language',
+    settings: {
+      title: 'Settings',
+      languageTitle: 'Language',
+      themeTitle: 'Appearance',
+      themeSystem: 'System',
+      themeLight: 'Light',
+      themeDark: 'Dark',
     },
     contact: {
       title: 'Contact',
@@ -236,13 +262,17 @@ const translations = {
       genericErrorTitle: "That didn't work",
       genericErrorBody: 'Please try again later.',
       fighterFollowOnTitle: 'Reminder enabled',
-      fighterFollowOnBody: "You'll get a push notification as soon as this fighter is booked for a new fight.",
+      fighterFollowOnBody: "You'll get a push notification as soon as this fighter is booked for a new fight, and when one of their fights starts.",
       fighterFollowOffTitle: 'Reminder disabled',
-      fighterFollowOffBody: "You won't be notified anymore when this fighter is booked for a new fight.",
+      fighterFollowOffBody: "You won't be notified anymore when this fighter is booked for a new fight or when one of their fights starts.",
       eventReminderOnTitle: 'Reminder enabled',
       eventReminderOnBody: "You'll get a notification on this device as soon as the event starts.",
       eventReminderOffTitle: 'Reminder disabled',
       eventReminderOffBody: "You won't be notified anymore when the event starts.",
+      organizationFollowOnTitle: 'League reminder enabled',
+      organizationFollowOnBody: "You'll be notified as soon as an event from this league starts.",
+      organizationFollowOffTitle: 'League reminder disabled',
+      organizationFollowOffBody: "You won't be notified anymore when an event from this league starts.",
     },
     auth: {
       emailLabel: 'Email',

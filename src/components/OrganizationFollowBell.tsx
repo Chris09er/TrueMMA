@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocale } from '../lib/i18n';
 import { followOrganization, isFollowingOrganization, unfollowOrganization } from '../lib/organizationFollows';
-import { colors } from '../lib/theme';
+import { pressedStyle, useTheme, type ColorTokens } from '../lib/theme';
 
 type Props = {
   organizationId: string;
@@ -13,6 +13,8 @@ type Props = {
 // to the organization name in running text, not pinned to a card corner.
 export default function OrganizationFollowBell({ organizationId }: Props) {
   const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -34,6 +36,11 @@ export default function OrganizationFollowBell({ organizationId }: Props) {
         Alert.alert(t.notifications.genericErrorTitle, t.notifications.genericErrorBody);
         return;
       }
+      if (active) {
+        Alert.alert(t.notifications.organizationFollowOffTitle, t.notifications.organizationFollowOffBody);
+      } else {
+        Alert.alert(t.notifications.organizationFollowOnTitle, t.notifications.organizationFollowOnBody);
+      }
       setActive(!active);
     } catch (err) {
       console.error('OrganizationFollowBell press failed:', err);
@@ -47,11 +54,15 @@ export default function OrganizationFollowBell({ organizationId }: Props) {
   };
 
   return (
-    <Pressable onPress={handlePress} hitSlop={8} style={styles.button}>
+    <Pressable
+      onPress={handlePress}
+      hitSlop={8}
+      style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+    >
       {busy ? (
         <ActivityIndicator size="small" color={colors.textSecondary} />
       ) : (
-        <Ionicons name={active ? 'notifications' : 'notifications-outline'} size={15} color={active ? colors.accentGold : colors.textSecondary} />
+        <Ionicons name={active ? 'notifications' : 'notifications-outline'} size={15} color={active ? colors.accent : colors.textSecondary} />
       )}
       <Text style={[styles.label, active && styles.labelActive]}>
         {active ? t.eventDetail.unfollowOrganization : t.eventDetail.followOrganization}
@@ -60,19 +71,20 @@ export default function OrganizationFollowBell({ organizationId }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  labelActive: {
-    color: colors.accentGold,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    button: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      alignSelf: 'flex-start',
+    },
+    label: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    labelActive: {
+      color: colors.accent,
+    },
+  });

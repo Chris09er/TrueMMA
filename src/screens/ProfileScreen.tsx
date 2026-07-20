@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import EventReminderBell from '../components/EventReminderBell';
 import FighterFollowBell from '../components/FighterFollowBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 import OrganizationFollowBell from '../components/OrganizationFollowBell';
+import SettingsModal from '../components/SettingsModal';
 import { useAuth } from '../lib/auth';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
@@ -17,28 +19,63 @@ import {
   getFollowedFighters,
   getFollowedOrganizations,
 } from '../lib/queries';
-import { colors, commonStyles, radius, spacing } from '../lib/theme';
-import { TIMEZONE_OPTIONS } from '../lib/timezones';
+import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
 type LoggedOutMode = 'login' | 'signup' | 'forgot-request' | 'forgot-confirm';
 
 export default function ProfileScreen() {
-  const { user, loading } = useAuth();
+  const { user, loading, timezoneOverride, setTimezoneOverride } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const commonStyles = useCommonStyles();
+  const navigation = useNavigation();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Rendered in the native header (top-right, level with the "Profil"
+  // title) via headerRight, not absolutely positioned inside the screen
+  // body — the latter put it level with the screen's own content instead
+  // (e.g. the "Anmelden" heading), not the header bar.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable
+          style={({ pressed }) => [styles.settingsButton, pressed && pressedStyle]}
+          onPress={() => setSettingsOpen(true)}
+          hitSlop={8}
+        >
+          <Ionicons name="settings-outline" size={22} color={colors.textPrimary} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, styles, colors]);
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator style={commonStyles.center} color={colors.accentGold} />
+        <ActivityIndicator style={commonStyles.center} color={colors.accent} />
+        <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </View>
     );
   }
 
-  return <View style={styles.container}>{user ? <LoggedInView userId={user.id} email={user.email ?? ''} /> : <LoggedOutView />}</View>;
+  return (
+    <View style={styles.container}>
+      {user ? <LoggedInView userId={user.id} email={user.email ?? ''} /> : <LoggedOutView />}
+      <SettingsModal
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        timezoneOverride={user ? timezoneOverride : undefined}
+        onTimezoneChange={user ? (tz) => setTimezoneOverride(tz) : undefined}
+      />
+    </View>
+  );
 }
 
 function LoggedOutView() {
   const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { signIn, signUp, requestPasswordReset, confirmPasswordReset } = useAuth();
   const [mode, setMode] = useState<LoggedOutMode>('login');
   const [email, setEmail] = useState('');
@@ -119,7 +156,11 @@ function LoggedOutView() {
           editable={mode === 'forgot-request'}
         />
         {mode === 'forgot-request' ? (
-          <Pressable style={styles.button} onPress={handleRequestCode} disabled={busy}>
+          <Pressable
+            style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+            onPress={handleRequestCode}
+            disabled={busy}
+          >
             <Text style={styles.buttonText}>{t.auth.sendCodeButton}</Text>
           </Pressable>
         ) : (
@@ -140,12 +181,16 @@ function LoggedOutView() {
               value={newPassword}
               onChangeText={setNewPassword}
             />
-            <Pressable style={styles.button} onPress={handleConfirmReset} disabled={busy}>
+            <Pressable
+              style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+              onPress={handleConfirmReset}
+              disabled={busy}
+            >
               <Text style={styles.buttonText}>{t.auth.resetPasswordButton}</Text>
             </Pressable>
           </>
         )}
-        <Pressable onPress={() => setMode('login')}>
+        <Pressable onPress={() => setMode('login')} style={({ pressed }) => pressed && pressedStyle}>
           <Text style={styles.link}>{t.auth.backToLogin}</Text>
         </Pressable>
       </ScrollView>
@@ -174,14 +219,21 @@ function LoggedOutView() {
         value={password}
         onChangeText={setPassword}
       />
-      <Pressable style={styles.button} onPress={isSignup ? handleSignup : handleLogin} disabled={busy}>
+      <Pressable
+        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+        onPress={isSignup ? handleSignup : handleLogin}
+        disabled={busy}
+      >
         <Text style={styles.buttonText}>{isSignup ? t.auth.signupButton : t.auth.loginButton}</Text>
       </Pressable>
-      <Pressable onPress={() => setMode(isSignup ? 'login' : 'signup')}>
+      <Pressable
+        onPress={() => setMode(isSignup ? 'login' : 'signup')}
+        style={({ pressed }) => pressed && pressedStyle}
+      >
         <Text style={styles.link}>{isSignup ? t.auth.switchToLogin : t.auth.switchToSignup}</Text>
       </Pressable>
       {!isSignup && (
-        <Pressable onPress={() => setMode('forgot-request')}>
+        <Pressable onPress={() => setMode('forgot-request')} style={({ pressed }) => pressed && pressedStyle}>
           <Text style={styles.link}>{t.auth.forgotPassword}</Text>
         </Pressable>
       )}
@@ -191,7 +243,9 @@ function LoggedOutView() {
 
 function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const { t, locale } = useLocale();
-  const { signOut, updateEmail, updatePassword, timezoneOverride, setTimezoneOverride } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { signOut, updateEmail, updatePassword, timezoneOverride } = useAuth();
   const [nickname, setNickname] = useState('');
   const [nicknameLoading, setNicknameLoading] = useState(true);
   const [newEmail, setNewEmail] = useState(email);
@@ -283,7 +337,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
     <ScrollView contentContainerStyle={styles.form}>
       <Text style={styles.sectionTitle}>{t.profile.nicknameLabel}</Text>
       {nicknameLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : (
         <>
           <TextInput
@@ -294,7 +348,11 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
             value={nickname}
             onChangeText={setNickname}
           />
-          <Pressable style={styles.button} onPress={handleSaveNickname} disabled={busy}>
+          <Pressable
+            style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+            onPress={handleSaveNickname}
+            disabled={busy}
+          >
             <Text style={styles.buttonText}>{t.profile.nicknameSave}</Text>
           </Pressable>
         </>
@@ -310,7 +368,11 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         value={newEmail}
         onChangeText={setNewEmail}
       />
-      <Pressable style={styles.button} onPress={handleSaveEmail} disabled={busy}>
+      <Pressable
+        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+        onPress={handleSaveEmail}
+        disabled={busy}
+      >
         <Text style={styles.buttonText}>{t.profile.changeEmailButton}</Text>
       </Pressable>
 
@@ -323,28 +385,17 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         value={newPassword}
         onChangeText={setNewPassword}
       />
-      <Pressable style={styles.button} onPress={handleSavePassword} disabled={busy}>
+      <Pressable
+        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+        onPress={handleSavePassword}
+        disabled={busy}
+      >
         <Text style={styles.buttonText}>{t.profile.changePasswordButton}</Text>
       </Pressable>
 
-      <Text style={styles.sectionTitle}>{t.profile.timezoneTitle}</Text>
-      {TIMEZONE_OPTIONS.map((option) => {
-        const active = (timezoneOverride ?? null) === option.value;
-        return (
-          <Pressable
-            key={option.value ?? 'device'}
-            style={[styles.timezoneRow, active && styles.timezoneRowActive]}
-            onPress={() => setTimezoneOverride(option.value)}
-          >
-            <Text style={styles.timezoneLabel}>{option.label[locale]}</Text>
-            {active && <Ionicons name="checkmark" size={18} color={colors.accentGold} />}
-          </Pressable>
-        );
-      })}
-
       <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
       {followsLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : followedFighters.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFollowedFighters}</Text>
       ) : (
@@ -358,7 +409,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
       <Text style={styles.sectionTitle}>{t.profile.followedEventsTitle}</Text>
       {followsLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : followedEvents.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFollowedEvents}</Text>
       ) : (
@@ -373,7 +424,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
       <Text style={styles.sectionTitle}>{t.profile.followedOrganizationsTitle}</Text>
       {followsLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : followedOrganizations.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFollowedOrganizations}</Text>
       ) : (
@@ -387,7 +438,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
       <Text style={styles.sectionTitle}>{t.profile.favoritedFightersTitle}</Text>
       {favoritesLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : favoritedFighters.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFavoritedFighters}</Text>
       ) : (
@@ -401,7 +452,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
       <Text style={styles.sectionTitle}>{t.profile.favoritedEventsTitle}</Text>
       {favoritesLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : favoritedEvents.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFavoritedEvents}</Text>
       ) : (
@@ -414,123 +465,110 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         ))
       )}
 
-      <Pressable style={styles.logoutButton} onPress={signOut}>
+      <Pressable style={({ pressed }) => [styles.logoutButton, pressed && pressedStyle]} onPress={signOut}>
         <Text style={styles.logoutButtonText}>{t.profile.logoutButton}</Text>
       </Pressable>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  form: {
-    padding: spacing.lg,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginTop: spacing.xl,
-    marginBottom: spacing.sm,
-  },
-  body: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: spacing.lg,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: 14,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  button: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.accentGold,
-    borderRadius: radius.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  buttonText: {
-    color: colors.textPrimary,
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  link: {
-    color: colors.link,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-  },
-  timezoneRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  timezoneRowActive: {
-    borderColor: colors.accentGold,
-  },
-  timezoneLabel: {
-    fontSize: 14,
-    color: colors.textPrimary,
-  },
-  listCard: {
-    padding: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    position: 'relative',
-  },
-  listCardTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    paddingRight: 56,
-  },
-  listCardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  listCardTitleInline: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  listCardMeta: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  logoutButton: {
-    marginTop: spacing.xl,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  logoutButtonText: {
-    color: colors.danger,
-    fontWeight: '700',
-    fontSize: 15,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    form: {
+      padding: spacing.lg,
+    },
+    title: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      marginBottom: spacing.md,
+    },
+    sectionTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      marginTop: spacing.xl,
+      marginBottom: spacing.sm,
+    },
+    body: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginBottom: spacing.lg,
+    },
+    input: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      padding: 14,
+      color: colors.textPrimary,
+      marginBottom: spacing.md,
+    },
+    button: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.accent,
+      borderRadius: radius.md,
+      paddingVertical: 14,
+      alignItems: 'center',
+      marginBottom: spacing.md,
+    },
+    buttonText: {
+      color: colors.textPrimary,
+      fontWeight: '700',
+      fontSize: 15,
+    },
+    link: {
+      color: colors.link,
+      textAlign: 'center',
+      marginTop: spacing.sm,
+    },
+    settingsButton: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: 4,
+    },
+    listCard: {
+      padding: 14,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      position: 'relative',
+    },
+    listCardTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      paddingRight: 56,
+    },
+    listCardRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    listCardTitleInline: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    listCardMeta: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    logoutButton: {
+      marginTop: spacing.xl,
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+    logoutButtonText: {
+      color: colors.danger,
+      fontWeight: '700',
+      fontSize: 15,
+    },
+  });
