@@ -9,6 +9,7 @@ import type { Fighter, FightWithEvent } from '../lib/types';
 import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
+import Flag from '../components/Flag';
 import FighterFollowBell from '../components/FighterFollowBell';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 
@@ -70,9 +71,12 @@ export default function FighterDetailScreen({ route }: Props) {
         {fighter?.photo_url && <Image source={{ uri: fighter.photo_url }} style={styles.photo} />}
         <Text style={styles.name}>{fighter?.name ?? fighterName}</Text>
         {(fighter?.nickname || fighter?.nationality) && (
-          <Text style={styles.meta}>
-            {[fighter?.nickname && `"${fighter.nickname}"`, fighter?.nationality].filter(Boolean).join(' · ')}
-          </Text>
+          <View style={styles.metaRow}>
+            <Flag country={fighter?.nationality} height={14} />
+            <Text style={styles.meta}>
+              {[fighter?.nickname && `"${fighter.nickname}"`, fighter?.nationality].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
         )}
         {fighter && formatRecord(fighter) && <Text style={styles.record}>{formatRecord(fighter)}</Text>}
         <View style={styles.linkRow}>
@@ -252,10 +256,16 @@ const makeStyles = (colors: ColorTokens) =>
       color: colors.textPrimary,
       textAlign: 'center',
     },
+    metaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      marginTop: 4,
+    },
     meta: {
       fontSize: 14,
       color: colors.textSecondary,
-      marginTop: 4,
       textAlign: 'center',
     },
     record: {

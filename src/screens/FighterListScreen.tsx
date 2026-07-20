@@ -11,15 +11,18 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList } from '../navigation';
-import { getFighters, getOrganizations, sortWeightClasses } from '../lib/queries';
+import { abbreviateWeightClass, getFighters, getOrganizations, sortWeightClasses, weightClassRank } from '../lib/queries';
 import { getFighterFavoriteIds } from '../lib/favorites';
 import type { Fighter, Organization } from '../lib/types';
 import { pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
+import Flag from '../components/Flag';
 import FighterFollowBell from '../components/FighterFollowBell';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 import FilterChip from '../components/FilterChip';
 import FilterModal, { FilterSection } from '../components/FilterModal';
+
+type FighterSort = 'name' | 'weight' | 'record' | 'nationality';
 
 type Props = NativeStackScreenProps<FightersStackParamList, 'FighterList'>;
 
@@ -34,6 +37,7 @@ export default function FighterListScreen({ navigation }: Props) {
   const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
   const [selectedWeightClass, setSelectedWeightClass] = useState<string | undefined>(undefined);
   const [selectedNationality, setSelectedNationality] = useState<string | undefined>(undefined);
+  const [sortBy, setSortBy] = useState<FighterSort>('name');
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -117,10 +121,39 @@ export default function FighterListScreen({ navigation }: Props) {
       const matchesNationality = !selectedNationality || fighter.nationality === selectedNationality;
       return matchesQuery && matchesOrg && matchesWeightClass && matchesNationality;
     });
-    // Stable sort — favorited fighters first, existing (alphabetical) order
-    // preserved within each group.
-    return [...filtered].sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)));
-  }, [fighters, search, selectedOrgId, selectedWeightClass, selectedNationality, favoriteIds]);
+    // Favorited fighters always float to the top (a deliberate feature); the
+    // chosen sort key orders within each group. Name is the tiebreaker for
+    // every non-name key so the order is fully deterministic.
+    return [...filtered].sort((a, b) => {
+      const fav = Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id));
+      if (fav !== 0) return fav;
+      switch (sortBy) {
+        case 'weight': {
+          const diff = weightClassRank(a.weight_class) - weightClassRank(b.weight_class);
+          return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        }
+        case 'record': {
+          // Most wins first; unknown records (null) rank last.
+          const diff = (b.record_wins ?? -1) - (a.record_wins ?? -1);
+          return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        }
+        case 'nationality': {
+          // '￿' sorts fighters with no nationality to the end.
+          const diff = (a.nationality ?? '￿').localeCompare(b.nationality ?? '￿');
+          return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        }
+        default:
+          return a.name.localeCompare(b.name);
+      }
+    });
+  }, [fighters, search, selectedOrgId, selectedWeightClass, selectedNationality, sortBy, favoriteIds]);
+
+  const sortOptions: { value: FighterSort; label: string }[] = [
+    { value: 'name', label: t.fighterList.sortName },
+    { value: 'weight', label: t.fighterList.sortWeight },
+    { value: 'record', label: t.fighterList.sortRecord },
+    { value: 'nationality', label: t.fighterList.sortNationality },
+  ];
 
   if (loading) {
     return <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />;
@@ -163,6 +196,17 @@ export default function FighterListScreen({ navigation }: Props) {
             resetLabel={t.fighterList.filterReset}
             onReset={resetFilters}
           >
+            <FilterSection title={t.fighterList.sortBy}>
+              {sortOptions.map((option) => (
+                <FilterChip
+                  key={option.value}
+                  label={option.label}
+                  active={sortBy === option.value}
+                  onPress={() => setSortBy(option.value)}
+                />
+              ))}
+            </FilterSection>
+
             {organizations.length > 0 && (
               <FilterSection title={t.fighterList.filterOrganization}>
                 <FilterChip
@@ -246,24 +290,38 @@ export default function FighterListScreen({ navigation }: Props) {
         />
       }
       ListEmptyComponent={<Text style={commonStyles.empty}>{t.fighterList.empty}</Text>}
-      renderItem={({ item }) => (
-        <Pressable
-          style={({ pressed }) => [styles.card, pressed && pressedStyle]}
-          onPress={() => navigation.navigate('FighterDetail', { fighterId: item.id, fighterName: item.name })}
-        >
-          <FighterFollowBell fighterId={item.id} />
-          <FighterFavoriteHeart
-            fighterId={item.id}
-            onToggle={(active) => handleFavoriteToggle(item.id, active)}
-          />
-          <Text style={styles.name}>{item.name}</Text>
-          {(item.nickname || item.nationality) && (
-            <Text style={styles.meta}>
-              {[item.nickname && `"${item.nickname}"`, item.nationality].filter(Boolean).join(' · ')}
-            </Text>
-          )}
-        </Pressable>
-      )}
+      renderItem={({ item }) => {
+        const weightAbbr = abbreviateWeightClass(item.weight_class);
+        const metaText = [item.nickname && `"${item.nickname}"`, item.nationality].filter(Boolean).join(' · ');
+        return (
+          <Pressable
+            style={({ pressed }) => [styles.card, pressed && pressedStyle]}
+            onPress={() => navigation.navigate('FighterDetail', { fighterId: item.id, fighterName: item.name })}
+          >
+            <FighterFollowBell fighterId={item.id} />
+            <FighterFavoriteHeart
+              fighterId={item.id}
+              onToggle={(active) => handleFavoriteToggle(item.id, active)}
+            />
+            <Text style={styles.name}>{item.name}</Text>
+            {(metaText.length > 0 || weightAbbr) && (
+              <View style={styles.metaRow}>
+                <Flag country={item.nationality} height={13} />
+                {weightAbbr && (
+                  <View style={styles.weightBadge}>
+                    <Text style={styles.weightBadgeText}>{weightAbbr}</Text>
+                  </View>
+                )}
+                {metaText.length > 0 && (
+                  <Text style={styles.meta} numberOfLines={1}>
+                    {metaText}
+                  </Text>
+                )}
+              </View>
+            )}
+          </Pressable>
+        );
+      }}
     />
   );
 }
@@ -320,8 +378,27 @@ const makeStyles = (colors: ColorTokens) =>
       marginBottom: 2,
       paddingRight: 56,
     },
+    metaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
     meta: {
       ...typography.meta,
+      color: colors.textSecondary,
+      flexShrink: 1,
+    },
+    weightBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    weightBadgeText: {
+      fontSize: 10,
+      fontWeight: '700',
       color: colors.textSecondary,
     },
   });

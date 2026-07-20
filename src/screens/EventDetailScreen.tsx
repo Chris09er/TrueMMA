@@ -12,13 +12,14 @@ import type { NavigationProp } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList, RootTabParamList } from '../navigation';
-import { getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
+import { abbreviateWeightClass, getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
 import { castVote, getEventVotes, type FightVoteSummary } from '../lib/voting';
 import type { EventDetail, Fight, Fighter } from '../lib/types';
 import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
+import Flag from '../components/Flag';
 import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import LiveBadge from '../components/LiveBadge';
@@ -40,22 +41,25 @@ function FighterLink({
   const name = fighter?.name ?? 'TBA';
   const style = [styles.fighterName, fighter && styles.fighterLink, isWinner && styles.fighterNameWinner];
 
-  if (!fighter) {
-    return <Text style={style}>{name}</Text>;
-  }
-
   return (
-    <Text
-      style={style}
-      onPress={() =>
-        navigation.navigate('FightersTab', {
-          screen: 'FighterDetail',
-          params: { fighterId: fighter.id, fighterName: fighter.name },
-        })
-      }
-    >
-      {name}
-    </Text>
+    <View style={styles.fighterCell}>
+      <Flag country={fighter?.nationality} height={12} />
+      {fighter ? (
+        <Text
+          style={style}
+          onPress={() =>
+            navigation.navigate('FightersTab', {
+              screen: 'FighterDetail',
+              params: { fighterId: fighter.id, fighterName: fighter.name },
+            })
+          }
+        >
+          {name}
+        </Text>
+      ) : (
+        <Text style={style}>{name}</Text>
+      )}
+    </View>
   );
 }
 
@@ -277,10 +281,13 @@ export default function EventDetailScreen({ route }: Props) {
               {formatEventDate(event.event_date, locale, 'long', timezoneOverride ?? undefined)}
             </Text>
           )}
-          {event && (
-            <Text style={styles.eventMeta}>
-              {[event.venue, event.city, event.venue_state, event.country].filter(Boolean).join(', ')}
-            </Text>
+          {event && (event.venue || event.city || event.venue_state || event.country) && (
+            <View style={styles.locationRow}>
+              <Flag country={event.country} height={12} />
+              <Text style={styles.eventMeta}>
+                {[event.venue, event.city, event.venue_state, event.country].filter(Boolean).join(', ')}
+              </Text>
+            </View>
           )}
           {event && (
             <BroadcastTimes event={event} locale={locale} t={t} timeZone={timezoneOverride ?? undefined} styles={styles} />
@@ -316,7 +323,10 @@ export default function EventDetailScreen({ route }: Props) {
             </View>
             {(item.weight_class || item.scheduled_rounds) && (
               <Text style={styles.weightClass}>
-                {[item.weight_class, item.scheduled_rounds ? `${item.scheduled_rounds} ${t.eventDetail.rounds}` : null]
+                {[
+                  abbreviateWeightClass(item.weight_class),
+                  item.scheduled_rounds ? `${item.scheduled_rounds} ${t.eventDetail.rounds}` : null,
+                ]
                   .filter(Boolean)
                   .join(' · ')}
               </Text>
@@ -368,6 +378,12 @@ const makeStyles = (colors: ColorTokens) =>
     eventMeta: {
       fontSize: 14,
       color: colors.textSecondary,
+      flexShrink: 1,
+    },
+    locationRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
     },
     liveBadgeSlot: {
       marginBottom: spacing.sm,
@@ -459,6 +475,12 @@ const makeStyles = (colors: ColorTokens) =>
       alignItems: 'center',
       flexWrap: 'wrap',
       gap: spacing.sm,
+    },
+    fighterCell: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      flexShrink: 1,
     },
     fighterName: {
       fontSize: 16,

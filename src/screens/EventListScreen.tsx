@@ -27,6 +27,7 @@ import { pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, t
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
+import Flag from '../components/Flag';
 import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FilterChip from '../components/FilterChip';
@@ -193,7 +194,12 @@ export default function EventListScreen({ navigation }: Props) {
         )}
         <Text style={[styles.eventName, styles.eventNameWithIcons]}>{item.name}</Text>
         <Text style={styles.eventMeta}>{formatEventDate(item.event_date, locale, 'short', timezoneOverride ?? undefined)}</Text>
-        <Text style={styles.eventMeta}>{[item.venue, item.city, item.country].filter(Boolean).join(', ')}</Text>
+        {(item.venue || item.city || item.country) && (
+          <View style={styles.locationRow}>
+            <Flag country={item.country} height={12} />
+            <Text style={styles.eventMeta}>{[item.venue, item.city, item.country].filter(Boolean).join(', ')}</Text>
+          </View>
+        )}
       </Pressable>
     );
   };
@@ -422,5 +428,11 @@ const makeStyles = (colors: ColorTokens) =>
     eventMeta: {
       ...typography.meta,
       color: colors.textSecondary,
+      flexShrink: 1,
+    },
+    locationRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
     },
   });

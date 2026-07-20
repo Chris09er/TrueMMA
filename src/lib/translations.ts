@@ -60,6 +60,11 @@ export const translations = {
       filterWeightClassMen: 'Männer',
       filterWeightClassWomen: 'Frauen',
       filterNationality: 'Nationalität',
+      sortBy: 'Sortieren nach',
+      sortName: 'Name',
+      sortWeight: 'Gewichtsklasse',
+      sortRecord: 'Bilanz',
+      sortNationality: 'Nationalität',
     },
     fighterDetail: {
       tapologyButton: 'Tapology-Profil',
@@ -240,6 +245,11 @@ export const translations = {
       filterWeightClassMen: 'Men',
       filterWeightClassWomen: 'Women',
       filterNationality: 'Nationality',
+      sortBy: 'Sort by',
+      sortName: 'Name',
+      sortWeight: 'Weight class',
+      sortRecord: 'Record',
+      sortNationality: 'Nationality',
     },
     fighterDetail: {
       tapologyButton: 'Tapology profile',

@@ -1759,6 +1759,54 @@ brand assets.
   `SegmentedControl` and the org `FilterChip`s, no crash. Not yet done: a
   logo and app icon (must be store-review-distinguishable from
   UFC/OKTAGON, plus font/icon-license checks for commercial use).
+  **Country flags, weight-class abbreviations, and fighter sorting — built
+  2026-07-20, committed on `dev` only, not yet hands-on-verified and not yet
+  promoted.**
+  - **Flags:** `src/components/Flag.tsx` renders a country flag via
+    `react-native-svg`'s `SvgXml` from `country-flag-icons`' 3x2 SVG strings;
+    `src/lib/countryFlags.ts` maps balldontlie's free-text country names
+    (`fighters.nationality`, `events.country` — plain English names like
+    `USA`/`Brazil`/`England`, not ISO codes) to flag keys, covering all ~120
+    distinct DB values plus common alternate spellings, case-insensitive
+    fallback, and renders nothing (never errors) on an unmapped name. Uses the
+    real **`GB_ENG`/`GB_SCT`/`GB_WLS`/`GB_NIR`** constituent flags for
+    England/Scotland/Wales/Northern Ireland, not the Union Jack — worth having
+    for a British-Isles-heavy roster. The whole 3x2 set (~265 flags) is
+    imported via `import * as` so a fighter from a new country gets a flag with
+    no code change beyond a name-map entry; deliberate bundle-size-over-
+    per-country-imports trade-off (SVG strings compress well, and this keeps
+    the feature self-healing as the roster grows). Shown on: fighter-list rows,
+    fighter-detail header, `EventDetailScreen`'s fight-card matchup (next to
+    each fighter name), and the event location line (list + detail). Not shown
+    (deliberately, to avoid clutter): fight-history opponent rows and filter
+    chips.
+  - **Library choice:** `country-flag-icons` (mainstream, MIT, ~weekly
+    releases) as a pure SVG-string data source + Expo's first-party
+    `react-native-svg` for rendering — chosen over the dedicated RN flag
+    components (`react-native-svg-circle-country-flags`/
+    `react-native-country-flag` both unmaintained since 2023,
+    `react-native-country-flag-icons` a v1.0.0 single-author package), to avoid
+    a stale/immature dependency for a project that's otherwise careful about
+    supply-chain surface.
+  - **Weight-class abbreviations:** `abbreviateWeightClass()` and the now-
+    exported `weightClassRank()` in `queries.ts` share the same free-text
+    substring match as `sortWeightClasses()`/`WEIGHT_CLASS_ORDER` (women's get
+    a `W` prefix, unrecognized values fall through to the full name). Shown as a
+    compact badge on fighter-list cards (the division wasn't surfaced there at
+    all before) and on the fight-card weight line; `TaleOfTheTape` and the
+    filter chips keep the full names on purpose (room + scannability).
+  - **Fighter sorting:** name / weight class / record / nationality, added as a
+    `Sortieren nach` section in the existing `FilterModal` (single-select
+    chips) rather than a new UI pattern. Favorited fighters still pin to the
+    top; the sort key orders within, with name as a deterministic tiebreaker.
+    Purely client-side over the already-loaded list — no query change. (Event
+    list stays chronological; sorting only makes sense for fighters.)
+  - **`react-native-svg@15.12.1` is the redesign's second native dependency**
+    (after `expo-linear-gradient`) — same caveat: it renders in Expo Go
+    (bundled in the SDK) but **needs a fresh `eas build --profile development`
+    before it appears in an existing custom dev client**. Not yet verified on a
+    real device/emulator. `country-flag-icons` itself is pure JS (no native
+    surface).
 - **Fighter-follow push on fight start — built 2026-07-20, promoted to
   stage (PR #12) and main (PR #13) the same day.** Migration
   `009_fighter_fight_start_push.sql` extends `send_league_start_pushes()`

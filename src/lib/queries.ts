@@ -303,10 +303,44 @@ const WEIGHT_CLASS_ORDER = [
   'heavyweight',
 ];
 
-function weightClassRank(weightClass: string): number {
+// Exported so the fighter list can sort by division (light-to-heavy). Accepts
+// null (a fighter with no weight_class) and unrecognized values, both of which
+// rank last so they sort to the bottom.
+export function weightClassRank(weightClass: string | null): number {
+  if (!weightClass) return WEIGHT_CLASS_ORDER.length;
   const normalized = weightClass.toLowerCase();
   const rank = WEIGHT_CLASS_ORDER.findIndex((known) => normalized.includes(known));
   return rank === -1 ? WEIGHT_CLASS_ORDER.length : rank;
+}
+
+// Short division codes for dense contexts (fighter cards, fight cards). Keyed
+// by the same substring match as weightClassRank/WEIGHT_CLASS_ORDER, so it
+// tolerates balldontlie's free-text weight_class. Women's divisions get a "W"
+// prefix (matching how the fighter filter already splits them, see
+// FighterListScreen). Order matters: "light heavyweight" must be checked before
+// "heavyweight" since the latter is a substring of the former.
+const WEIGHT_CLASS_ABBREV: [string, string][] = [
+  ['strawweight', 'SW'],
+  ['flyweight', 'FLW'],
+  ['bantamweight', 'BW'],
+  ['featherweight', 'FW'],
+  ['lightweight', 'LW'],
+  ['welterweight', 'WW'],
+  ['middleweight', 'MW'],
+  ['light heavyweight', 'LHW'],
+  ['heavyweight', 'HW'],
+  ['catchweight', 'CW'],
+  ['openweight', 'OW'],
+];
+
+export function abbreviateWeightClass(weightClass: string | null): string | null {
+  if (!weightClass) return null;
+  const normalized = weightClass.toLowerCase();
+  const isWomen = normalized.includes('women');
+  for (const [term, abbr] of WEIGHT_CLASS_ABBREV) {
+    if (normalized.includes(term)) return isWomen ? `W${abbr}` : abbr;
+  }
+  return weightClass; // unrecognized (e.g. a typo or a future division) — show as-is
 }
 
 export function sortWeightClasses(weightClasses: string[]): string[] {
