@@ -903,6 +903,21 @@ relationship on top of the new architecture surface.
 - `supabase/config.toml` has a commented-out, `enabled = false`
   `[auth.hook.send_email]` block with local-testing instructions — not live
   anywhere.
+- **`denomailer` is not published to npm** — the `npm:denomailer@1.6.0`
+  specifier fails the Edge Runtime's dependency graph at boot
+  (`Could not find npm package 'denomailer' matching '1.6.0'`); it's a
+  deno.land/x-only module, imported as
+  `https://deno.land/x/denomailer@1.6.0/mod.ts` instead. Found by locally
+  serving the function (`supabase functions serve send-auth-email
+  --env-file ... --no-verify-jwt`) and posting a hand-signed Standard
+  Webhooks payload (HMAC-SHA256 over `${id}.${timestamp}.${payload}`, base64
+  secret) — verified all four paths: valid signature + known type reaches the
+  real `smtp.ionos.de:465` and correctly surfaces an auth failure as a 500
+  (fake credentials, by design — no real email sent, no project touched);
+  valid signature + unhandled type returns the "no template" 500; a tampered
+  signature is rejected with 401 before any business logic runs. **Still not
+  deployed anywhere** — this only proves the function's own logic, not real
+  end-to-end delivery.
 - **What's still needed before this does anything, on each project
   separately:** `supabase secrets set IONOS_SMTP_USER=... IONOS_SMTP_PASSWORD=...`,
   `supabase functions deploy send-auth-email`, then enabling the hook in the
