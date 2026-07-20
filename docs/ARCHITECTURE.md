@@ -779,6 +779,23 @@ treating as a standing pattern, not a one-off patch:
   storage, no account linkage; a **why-should-I-log-in nudge for anonymous
   users was explicitly deferred**, not part of this pass.
 
+**Locale synced to `auth.users.user_metadata` (added 2026-07-20, first piece
+of the planned multilingual-auth-emails work):** `i18n.tsx`'s `LocaleProvider`
+only ever stored the locale in AsyncStorage — purely client-side, invisible
+to any server-side process. A future auth-email Edge Function (see [Known
+open items](#known-open-items)) needs to read it without device access, so:
+- `setLocale()` now also calls `supabase.auth.updateUser({ data: { locale } })`
+  whenever a session exists — called directly on the `supabase` client rather
+  than through `useAuth()`, since `LocaleProvider` sits *above* `AuthProvider`
+  in `App.tsx`'s provider tree and has no access to its context.
+- `signUp()` (`auth.tsx`) now takes a `locale` parameter and passes it as
+  `options: { data: { locale } }`, so even the very first confirmation email
+  has a locale to read (no `profiles` row exists yet at that point).
+- Verified against stage via a direct signup API call — `user_metadata`
+  correctly comes back with `"locale":"de"`.
+- Not yet consumed by anything (the Edge Function itself doesn't exist yet)
+  — this just closes the gap so that work isn't blocked on it later.
+
 **Password policy (added 2026-07-20):** minimum 8 characters, at least one
 letter and one number — `supabase/config.toml`'s `minimum_password_length`
 (was 6) and `password_requirements = "letters_digits"` (was unset). **Local

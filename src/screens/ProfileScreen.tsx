@@ -196,7 +196,7 @@ function showAuthError(t: Translations, result: AuthResult) {
 }
 
 function LoggedOutView() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { signIn, signUp, requestPasswordReset, confirmPasswordReset } = useAuth();
@@ -238,7 +238,7 @@ function LoggedOutView() {
     const normalizedEmail = normalizeEmail(email);
     setBusy(true);
     try {
-      const result = await signUp(normalizedEmail, password);
+      const result = await signUp(normalizedEmail, password, locale);
       if (result.status === 'error') {
         showAuthError(t, result);
         return;

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { translations, type Locale, type Translations } from './translations';
+import { supabase } from './supabase';
 
 export type { Locale, Translations };
 
@@ -35,6 +36,18 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const setLocale = (next: Locale) => {
     setLocaleState(next);
     AsyncStorage.setItem(STORAGE_KEY, next).catch(() => {});
+    // Keep auth.users.user_metadata.locale in sync for logged-in users, so a
+    // server-side process (e.g. a future auth-email Edge Function, see
+    // docs/ARCHITECTURE.md's Login/Profile section) can read the user's
+    // language without access to this device's AsyncStorage. Called directly
+    // on the supabase client rather than via useAuth()/AuthProvider, since
+    // LocaleProvider sits above AuthProvider in App.tsx's provider tree and
+    // has no access to its context.
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user) {
+        supabase.auth.updateUser({ data: { locale: next } }).catch(() => {});
+      }
+    });
   };
 
   const value = useMemo<LocaleContextValue>(

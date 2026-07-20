@@ -6,6 +6,7 @@ import { claimAnonymousFollows } from './pushSubscriptions';
 import { claimLocalFavorites } from './favorites';
 import { claimAnonymousOrganizationFollows } from './organizationFollows';
 import { getProfile, updateTimezoneOverride } from './profile';
+import type { Locale } from './translations';
 
 export type AuthResult = { status: 'ok' } | { status: 'error'; code: string; message: string };
 
@@ -23,7 +24,7 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   loading: boolean;
-  signUp: (email: string, password: string) => Promise<AuthResult>;
+  signUp: (email: string, password: string, locale: Locale) => Promise<AuthResult>;
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<AuthResult>;
@@ -83,8 +84,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       user: session?.user ?? null,
       loading,
-      signUp: async (email, password) => {
-        const { error } = await supabase.auth.signUp({ email, password });
+      signUp: async (email, password, locale) => {
+        // Stashed in user_metadata so a future server-side process (e.g. the
+        // planned auth-email Edge Function, see docs/ARCHITECTURE.md) can
+        // send the very first confirmation email in the right language —
+        // there's no profile row yet at signup time to read it from.
+        const { error } = await supabase.auth.signUp({ email, password, options: { data: { locale } } });
         return toAuthResult(error);
       },
       signIn: async (email, password) => {
