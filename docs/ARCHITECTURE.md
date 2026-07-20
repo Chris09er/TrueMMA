@@ -1351,6 +1351,19 @@ after seeding data doesn't create duplicate organizations) →
   `supabase/migrations/` sequence should be assumed lost the next time a
   project is bootstrapped from a baseline snapshot, not just "already
   fixed."
+- **Performance advisor findings, fixed 2026-07-20 via
+  `supabase/migrations/011_perf_advisor_fixes.sql`** (identical on stage and
+  production, unlike the `010` security fix): 12 RLS policies
+  (`profiles`/`push_subscriptions`/`organization_follows`/`event_follows`/
+  `fighter_favorites`/`event_favorites`) called `auth.uid()` directly, which
+  Postgres re-evaluates per row instead of once per statement — rewritten as
+  `(select auth.uid())`, same logical condition, cheaper at scale. Also added
+  12 missing indexes on foreign-key columns the linter flagged (`INFO`
+  level). **Not fixed, and not a bug:** an `unused_index` finding on stage
+  only (`idx_events_league_start_push_pending`) — production's real
+  `league_start_push_health()` traffic does use that index; stage just has
+  too little traffic to have ever hit it, so removing it would hurt
+  production for a stage-only non-issue.
 - **Supabase's "leaked password protection" (HaveIBeenPwned check) is
   Pro-plan-only** — flagged by the linter as disabled on both stage and
   production, but not fixable on the current Free tier. Same "revisit once
