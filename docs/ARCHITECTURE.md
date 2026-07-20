@@ -1851,11 +1851,39 @@ brand assets.
     logged in **and** the device actually reports usable biometric hardware).
     This gates access to an *already-persisted* session — it is not a new
     sign-in method and never talks to Supabase.
-  - **Still open:** Google/Apple social login (`expo-auth-session` + Google
-    Cloud Console/Apple Developer setup, needs a new EAS native build, likely
-    makes Sign In with Apple close to mandatory on iOS per App Store
-    guideline 4.8 once Google login exists) — sequenced last since it's the
-    highest-risk/most-external item.
+  - ~~Google/Apple social login~~ — **code written 2026-07-20, untested and
+    not functional yet** (needs a new EAS native build, plus external console
+    setup only the user can do — see below). `signInWithGoogle()`/
+    `signInWithApple()` (`auth.tsx`), buttons on the login/signup screen
+    (Apple's only rendered when `AppleAuthentication.isAvailableAsync()` is
+    true — effectively iOS only, and this project has no iOS build yet
+    either way).
+    - **Google:** `expo-web-browser` opens `supabase.auth.signInWithOAuth()`'s
+      URL, then `expo-auth-session`'s `getQueryParams()` helper
+      (`src/lib/oauthRedirect.ts`) parses the returned session tokens out of
+      the redirect URL — needed because they come back as a URL *fragment*,
+      which React Native's URL parsing doesn't handle reliably on its own.
+      `app.json` now has `"scheme": "truemma"` for the redirect to reach the
+      app at all.
+    - **Apple:** `expo-apple-authentication`'s native `signInAsync()` +
+      `supabase.auth.signInWithIdToken({ provider: 'apple' })` — no browser
+      round-trip needed.
+    - `supabase/config.toml` has `[auth.external.google]`/
+      `[auth.external.apple]` stanzas, both `enabled = false`, `client_id`/
+      `secret` wired to `env(...)` placeholders.
+    - **What's still needed, entirely external and user-only — Claude cannot
+      do this part:** a Google Cloud Console OAuth client (web + Android + iOS
+      client IDs, consent screen) and an Apple Developer Services ID + Sign
+      In with Apple key. Once those exist: real values as env vars (local +
+      EAS + `supabase secrets set` for stage/prod), `enabled = true` on both
+      Supabase projects, and a fresh EAS native build.
+    - **Store-review implication:** adding Google Sign-In makes Sign In with
+      Apple close to mandatory on iOS per App Store guideline 4.8, not
+      optional — budget for both together, not just Google.
+    - `docs/ARCHITECTURE.md:669`'s "email+password only (no magic link, no
+      OAuth)" claim is already stale now that magic-link exists — updated
+      above; the "no OAuth" half stays accurate until this is actually
+      enabled.
 - **Production's email-send rate limit was found silently set to 2/hour,
   2026-07-20** (an auth log line surfaced it mid-debugging:
   `"env GOTRUE_RATE_LIMIT_EMAIL_SENT changed, updating Email limiter from 30

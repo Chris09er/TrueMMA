@@ -27,6 +27,7 @@ import { useLocale } from '../lib/i18n';
 import type { Translations } from '../lib/i18n';
 import { getProfile, updateNickname } from '../lib/profile';
 import { PASSWORD_REQUIREMENTS, isPasswordValid } from '../lib/passwordPolicy';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { isBiometricLockAvailable, isBiometricLockEnabled, setBiometricLockEnabled } from '../lib/biometrics';
 import {
   getFavoritedEvents,
@@ -235,6 +236,8 @@ function LoggedOutView() {
     resendSignupConfirmation,
     requestMagicLink,
     confirmMagicLink,
+    signInWithGoogle,
+    signInWithApple,
     requestPasswordReset,
     confirmPasswordReset,
   } = useAuth();
@@ -245,6 +248,11 @@ function LoggedOutView() {
   const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [appleAvailable, setAppleAvailable] = useState(false);
+
+  useEffect(() => {
+    AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
+  }, []);
 
   const passwordRef = useRef<TextInput>(null);
   const codeRef = useRef<TextInput>(null);
@@ -365,6 +373,30 @@ function LoggedOutView() {
         return;
       }
       setResendCooldown(RESEND_COOLDOWN_SECONDS);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setBusy(true);
+    try {
+      const result = await signInWithGoogle();
+      if (result.status === 'error' && result.code !== 'oauth_cancelled') {
+        showAuthError(t, result);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    setBusy(true);
+    try {
+      const result = await signInWithApple();
+      if (result.status === 'error' && result.code !== 'oauth_cancelled') {
+        showAuthError(t, result);
+      }
     } finally {
       setBusy(false);
     }
@@ -646,6 +678,34 @@ function LoggedOutView() {
               <Text style={styles.link}>{t.auth.magicLinkButton}</Text>
             </Pressable>
           </>
+        )}
+
+        <View style={styles.dividerRow}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>{t.auth.orDivider}</Text>
+          <View style={styles.dividerLine} />
+        </View>
+        <Pressable
+          style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+          onPress={handleGoogleSignIn}
+          disabled={busy}
+        >
+          <View style={styles.oauthButtonContent}>
+            <Ionicons name="logo-google" size={18} color={colors.textPrimary} />
+            <Text style={styles.buttonText}>{t.auth.googleButton}</Text>
+          </View>
+        </Pressable>
+        {appleAvailable && (
+          <Pressable
+            style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+            onPress={handleAppleSignIn}
+            disabled={busy}
+          >
+            <View style={styles.oauthButtonContent}>
+              <Ionicons name="logo-apple" size={18} color={colors.textPrimary} />
+              <Text style={styles.buttonText}>{t.auth.appleButton}</Text>
+            </View>
+          </Pressable>
         )}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -936,6 +996,26 @@ const makeStyles = (colors: ColorTokens) =>
       paddingVertical: 14,
       alignItems: 'center',
       marginBottom: spacing.md,
+    },
+    dividerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginVertical: spacing.md,
+      gap: spacing.sm,
+    },
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: colors.border,
+    },
+    dividerText: {
+      color: colors.textSecondary,
+      fontSize: 13,
+    },
+    oauthButtonContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
     },
     buttonText: {
       color: colors.textPrimary,

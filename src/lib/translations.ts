@@ -155,6 +155,9 @@ export const translations = {
       magicLinkRequestBody: 'Wir senden dir einen Code per E-Mail, mit dem du dich ohne Passwort anmelden kannst.',
       magicLinkConfirmTitle: 'Code eingeben',
       magicLinkConfirmBody: 'Gib den Code ein, den wir dir per E-Mail geschickt haben.',
+      googleButton: 'Mit Google anmelden',
+      appleButton: 'Mit Apple anmelden',
+      orDivider: 'oder',
     },
     profile: {
       title: 'Profil',
@@ -332,6 +335,9 @@ export const translations = {
       magicLinkRequestBody: "We'll send you a code by email that lets you log in without a password.",
       magicLinkConfirmTitle: 'Enter code',
       magicLinkConfirmBody: "Enter the code we've sent to your email.",
+      googleButton: 'Sign in with Google',
+      appleButton: 'Sign in with Apple',
+      orDivider: 'or',
     },
     profile: {
       title: 'Profile',
