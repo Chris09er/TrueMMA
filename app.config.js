@@ -14,6 +14,6 @@ module.exports = {
     url: 'https://u.expo.dev/3bac330a-fffa-4c5c-b561-c12757f6c72d',
   },
   runtimeVersion: {
-    policy: 'appVersion',
+    policy: 'fingerprint',
   },
 };

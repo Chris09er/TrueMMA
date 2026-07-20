@@ -29,6 +29,10 @@ jobs:
       # docs/ARCHITECTURE.md -> Environments.
       EAS_ENVIRONMENT: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
       EAS_CHANNEL: ${{ github.ref_name == 'main' && 'production' || 'stage' }}
+      # eas.json build profile name, NOT the same as EAS_ENVIRONMENT above —
+      # "preview" happens to match here but the two are conceptually
+      # different slots (build profile vs. env-var environment).
+      EAS_BUILD_PROFILE: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,6 +44,26 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
+      # runtimeVersion policy is "fingerprint" (app.config.js) — a native-
+      # relevant change (new native module, app.json/eas.json config, etc.)
+      # changes the fingerprint hash, so any OTA update built from this
+      # commit would only be installable by a build sharing that exact
+      # hash. If no finished build with this channel+fingerprint exists yet,
+      # kick one off (async, --no-wait) before publishing, so the channel
+      # ends up with both a matching build and a matching update.
+      - name: Compute project fingerprint
+        id: fingerprint
+        run: |
+          HASH=$(npx eas-cli fingerprint:generate --non-interactive --json --platform android | jq -r '.hash')
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+      - name: Check for an existing build with this fingerprint
+        id: build_check
+        run: |
+          COUNT=$(npx eas-cli build:list --platform android --channel "$EAS_CHANNEL" --status finished --fingerprint-hash "${{ steps.fingerprint.outputs.hash }}" --limit 1 --non-interactive --json | jq 'length')
+          echo "needs_build=$([ "$COUNT" -eq 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Trigger native build (fingerprint has no matching build yet)
+        if: steps.build_check.outputs.needs_build == 'true'
+        run: npx eas-cli build --profile "$EAS_BUILD_PROFILE" --platform android --non-interactive --no-wait
       - env:
           # Pass the commit message through the environment rather than
           # interpolating ${{ ... }} straight into the run: line — otherwise a
