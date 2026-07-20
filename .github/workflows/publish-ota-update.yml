@@ -54,7 +54,12 @@ jobs:
       - name: Compute project fingerprint
         id: fingerprint
         run: |
-          HASH=$(npx eas-cli fingerprint:generate --non-interactive --json --platform android | jq -r '.hash')
+          # --build-profile must match the "eas build" call below — without it,
+          # this resolves config (e.g. GOOGLE_SERVICES_JSON) differently than a
+          # real build does, producing a hash the build server won't agree with
+          # (hit this exact mismatch the first time this step ran, see
+          # docs/ARCHITECTURE.md -> Build & deployment).
+          HASH=$(npx eas-cli fingerprint:generate --non-interactive --json --platform android --build-profile "$EAS_BUILD_PROFILE" | jq -r '.hash')
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
       - name: Check for an existing build with this fingerprint
         id: build_check
