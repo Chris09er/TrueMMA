@@ -868,6 +868,52 @@ which is a hard requirement, not just a "nice to have for scale."
   the project once via the exact same failure mode (a fix landing on one
   project's dashboard being silently assumed to apply everywhere).
 
+**Multilingual auth emails via Edge Function — scaffolded 2026-07-20, NOT YET
+ENABLED on either project.** The dashboard templates above are per-*project*,
+not per-*user* — there's no way to send German to a German-locale user and
+English to an English-locale user through them. This is the project's
+**first Supabase Edge Function** (previously deliberately avoided — push
+notifications are "kept entirely in SQL to avoid needing the Supabase CLI,"
+see [Notifications](#notifications) — though the CLI is already adopted for
+migrations now, weakening that original reason). Worth stating the trade-off
+explicitly rather than treating this as a free win: an Edge Function is a new
+cost surface (its own free-tier limits, separate from the Postgres-only
+approach used everywhere else so far), inserts an HTTP round-trip into the
+auth email path (Auth waits on the hook's response), needs its own secrets
+store (Supabase Function secrets, not dashboard config), and is harder to
+observe than SQL (Function logs, not `pg_cron`/SQL-editor debugging).
+Decided anyway because it's the only way to actually solve per-user language,
+and because reusing the existing IONOS mailbox directly (chosen over a
+transactional API like Resend/SendGrid) avoids adding a new vendor
+relationship on top of the new architecture surface.
+
+- `supabase/functions/send-auth-email/index.ts` — a Supabase Auth **Send
+  Email Hook**. Verifies the webhook signature (`standardwebhooks`), reads
+  `user.user_metadata.locale` (see the locale-sync note above; falls back to
+  `de`), and sends via direct IONOS SMTP (`denomailer`) instead of Supabase's
+  built-in dispatch.
+- **Scope deliberately narrow for this first pass:** only handles
+  `email_action_type` values `signup` and `recovery` (both OTP-code-based —
+  `recovery` already is, via the existing `confirmPasswordReset()`; `signup`
+  becoming OTP-based instead of link-based, and the client-side UI for
+  entering that code, is separate follow-up work, not done yet). Any other
+  action type (`email_change`, `invite`, ...) returns an error rather than
+  silently sending nothing — Supabase logs that as a failed send, which is
+  more honest than a fake success while those templates don't exist yet.
+- `supabase/config.toml` has a commented-out, `enabled = false`
+  `[auth.hook.send_email]` block with local-testing instructions — not live
+  anywhere.
+- **What's still needed before this does anything, on each project
+  separately:** `supabase secrets set IONOS_SMTP_USER=... IONOS_SMTP_PASSWORD=...`,
+  `supabase functions deploy send-auth-email`, then enabling the hook in the
+  dashboard (Authentication → Hooks → Send Email) and setting
+  `SEND_AUTH_EMAIL_HOOK_SECRET` from the secret the dashboard generates. All
+  manual, deliberately not done yet — flipping this on immediately changes
+  how every real user's auth email is sent, so it needs its own explicit
+  go-ahead rather than being bundled into scaffolding work.
+- Email content is currently plain text, not branded HTML — visual design is
+  explicitly deferred, not a blocker for the mechanism working.
+
 ## Favorites
 
 Separate concept from follows/reminders (see [Notifications](#notifications)
@@ -1662,23 +1708,35 @@ after seeding data doesn't create duplicate organizations) →
   chaining/password-visibility form polish) are **done**, see the "Auth error
   handling & form UX" note under [Login / Profile](#login--profile). **Still
   open:**
-  - **Timezone picker reported unreachable on a real device** despite the
-    `flexShrink: 1` fix already being present in `FilterModal.tsx` — needs
-    re-verification on a confirmed-current build/OTA update before assuming a
-    second code fix is needed; may just have been a stale build.
-  - **Signup confirmation still lands on Supabase's default, unbranded
-    confirmation page** — decided fix is to make signup OTP-code-based (same
-    pattern as password reset) instead of link-based, not yet built.
-  - **Multilingual auth emails** — decided to build the project's **first
-    Supabase Edge Function** (a Send Email Hook, `supabase/functions/`,
-    sending via direct IONOS SMTP from Deno) so confirmation/reset/etc. emails
-    match the user's in-app language instead of one project-wide template.
-    Needs `user_metadata.locale` written at signup/locale-change (not done
-    yet) since the function runs server-side with no access to the
-    AsyncStorage-backed `LocaleProvider`. Not yet started.
-  - **Password policy** — decided on minimum 8 characters + at least one
-    letter and one number, not yet applied to `supabase/config.toml` or (more
-    importantly) either project's live dashboard.
+  - ~~Timezone picker reported unreachable on a real device~~ — **confirmed
+    fixed 2026-07-20**, was a stale build, the existing `flexShrink: 1` fix
+    was already correct.
+  - **Double-tap on submit buttons needed a stronger fix than planned** —
+    `keyboardShouldPersistTaps="handled"` (Phase 0) didn't fully solve it with
+    manually-typed input (only looked fixed because the first retest
+    happened to use autofill); changed to `"always"`, see the "Auth error
+    handling & form UX" note under [Login / Profile](#login--profile).
+  - Further login-experience polish landed same day: submit-button spinners,
+    email trim/lowercase normalization, a distinct network-error message,
+    remembered last-used email, and an accessibility label on the
+    password-visibility toggle — see the same note.
+  - ~~Password policy~~ — **done 2026-07-20**: minimum 8 characters + at
+    least one letter and one number, `src/lib/passwordPolicy.ts` drives both
+    the live checklist and pre-submit checks. **Still needed:** the matching
+    dashboard settings on both stage and prod (local `config.toml` only
+    affects local dev).
+  - **Multilingual auth emails** — locale-sync groundwork
+    (`user_metadata.locale`, see the note above) and the Edge Function itself
+    (`supabase/functions/send-auth-email/`) are both **scaffolded 2026-07-20**
+    — see the "Multilingual auth emails via Edge Function" note above. **Not
+    yet enabled on either project** (needs secrets, deployment, and a
+    dashboard hook toggle — deliberately left for an explicit go-ahead, not
+    bundled into the scaffolding work). Signup confirmation itself is still
+    link-based and still lands on Supabase's default unbranded page — moving
+    it to OTP-based (like recovery already is) is the piece that actually
+    fixes that, and hasn't been built yet (needs a `confirmSignup()` client
+    method + a code-entry UI, planned together with the "check your inbox"
+    state below so the OTP-entry pattern isn't built twice).
   - **Signup "check your inbox" state + resend cooldown**, **magic-link/OTP-only
     login**, **biometric re-auth** (`expo-local-authentication`, needs a new
     EAS native build), and **Google/Apple social login** (`expo-auth-session`

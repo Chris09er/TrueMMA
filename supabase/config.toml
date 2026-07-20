@@ -285,6 +285,20 @@ max_frequency = "5s"
 # enabled = true
 # uri = "pg-functions://<database>/<schema>/<hook_name>"
 
+# Send Email Hook — routes every outgoing auth email through
+# supabase/functions/send-auth-email instead of Supabase's per-project
+# dashboard templates, so it can be sent in the user's own language (see
+# docs/ARCHITECTURE.md, "Auth emails"). Deliberately left disabled here —
+# this is scaffolding, not yet wired up on either Supabase project. To test
+# locally: run `supabase functions serve send-auth-email`, set
+# IONOS_SMTP_USER/IONOS_SMTP_PASSWORD/SEND_AUTH_EMAIL_HOOK_SECRET via
+# `supabase secrets set` (or a local .env for `functions serve`), then flip
+# `enabled` to true.
+# [auth.hook.send_email]
+# enabled = false
+# uri = "http://host.docker.internal:54321/functions/v1/send-auth-email"
+# secrets = "env(SEND_AUTH_EMAIL_HOOK_SECRET)"
+
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
 [auth.sms.twilio]
 enabled = false
