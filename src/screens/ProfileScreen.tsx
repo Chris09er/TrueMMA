@@ -716,10 +716,14 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { signOut, updateEmail, updatePassword, timezoneOverride } = useAuth();
+  const { signOut, updateEmail, confirmEmailChange, updatePassword, timezoneOverride } = useAuth();
   const [nickname, setNickname] = useState('');
   const [nicknameLoading, setNicknameLoading] = useState(true);
   const [newEmail, setNewEmail] = useState(email);
+  // Set once updateEmail() has sent a code — holds the address the code went
+  // to, which is also the address verifyOtp must be called against.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [emailCode, setEmailCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [followedFighters, setFollowedFighters] = useState<Fighter[]>([]);
@@ -776,14 +780,36 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   };
 
   const handleSaveEmail = async () => {
+    const normalized = normalizeEmail(newEmail);
     setBusy(true);
     try {
-      const result = await updateEmail(normalizeEmail(newEmail));
+      const result = await updateEmail(normalized);
       if (result.status === 'error') {
         showAuthError(t, result);
         return;
       }
+      // The address isn't changed yet — a code went to the new address and
+      // has to be confirmed before Auth applies it.
+      setEmailCode('');
+      setPendingEmail(normalized);
       Alert.alert(t.profile.changeEmailTitle, t.profile.changeEmailSaved);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleConfirmEmailChange = async () => {
+    if (!pendingEmail) return;
+    setBusy(true);
+    try {
+      const result = await confirmEmailChange(pendingEmail, emailCode);
+      if (result.status === 'error') {
+        showAuthError(t, result);
+        return;
+      }
+      setPendingEmail(null);
+      setEmailCode('');
+      Alert.alert(t.profile.changeEmailTitle, t.profile.changeEmailConfirmed);
     } finally {
       setBusy(false);
     }
@@ -841,15 +867,50 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         autoComplete="email"
         value={newEmail}
         onChangeText={setNewEmail}
+        editable={pendingEmail === null}
       />
-      <SubmitButton
-        label={t.profile.changeEmailButton}
-        busy={busy}
-        onPress={handleSaveEmail}
-        style={styles.button}
-        textStyle={styles.buttonText}
-        spinnerColor={colors.accent}
-      />
+      {pendingEmail === null ? (
+        <SubmitButton
+          label={t.profile.changeEmailButton}
+          busy={busy}
+          onPress={handleSaveEmail}
+          style={styles.button}
+          textStyle={styles.buttonText}
+          spinnerColor={colors.accent}
+        />
+      ) : (
+        <>
+          <Text style={styles.body}>{t.profile.changeEmailConfirmBody}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder={t.auth.codeLabel}
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="number-pad"
+            returnKeyType="done"
+            onSubmitEditing={handleConfirmEmailChange}
+            value={emailCode}
+            onChangeText={setEmailCode}
+          />
+          <SubmitButton
+            label={t.profile.changeEmailConfirmButton}
+            busy={busy}
+            onPress={handleConfirmEmailChange}
+            style={styles.button}
+            textStyle={styles.buttonText}
+            spinnerColor={colors.accent}
+          />
+          <Pressable
+            onPress={() => {
+              setPendingEmail(null);
+              setEmailCode('');
+              setNewEmail(email);
+            }}
+            style={({ pressed }) => pressed && pressedStyle}
+          >
+            <Text style={styles.link}>{t.profile.changeEmailCancel}</Text>
+          </Pressable>
+        </>
+      )}
 
       <Text style={styles.sectionTitle}>{t.profile.changePasswordTitle}</Text>
       <PasswordField

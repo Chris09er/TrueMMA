@@ -12,14 +12,19 @@
 // calls below were added specifically to diagnose this and haven't been
 // reviewed in the Function logs yet).
 //
-// Scope, deliberately narrow: only `signup`, `recovery`, and `magiclink`
-// email_action_types are handled (all OTP-code-based — see
-// src/lib/auth.tsx's confirmPasswordReset/confirmSignup/verifyMagicLink; the
-// magic-link login flow never surfaces a clickable link, only a code, same
-// UX pattern as the other two). Any other action type (email_change,
-// invite, ...) returns an error rather than silently sending nothing or
-// falling back — Supabase logs that as a failed send, which is more honest
-// than a fake success while those templates don't exist yet.
+// Scope: `signup`, `recovery`, `magiclink` and `email_change` (plus its
+// `email_change_current`/`email_change_new` variants) — all OTP-code-based, see
+// src/lib/auth.tsx's confirmSignup/confirmPasswordReset/confirmMagicLink/
+// confirmEmailChange; no flow here ever surfaces a clickable link, only a code.
+// Any *other* action type (`invite`, ...) still returns an error rather than
+// silently sending nothing — Supabase logs that as a failed send, which is more
+// honest than a fake success while those templates don't exist.
+//
+// `email_change` was added 2026-07-20 after a review found the profile screen's
+// "change email" feature was broken on **both** stage and production: it calls
+// updateUser({ email }), which makes Auth emit an `email_change` mail, which
+// this hook had no template for — so it returned 500 and the change failed
+// outright, on every environment where the hook is enabled.
 
 import { Webhook } from 'npm:standardwebhooks@1.0.0';
 // denomailer isn't published to npm — it's a deno.land/x-only module.
@@ -61,6 +66,10 @@ const templates: Record<Locale, Record<string, (token: string) => { subject: str
       subject: 'Dein Anmeldecode — True MMA',
       text: `Dein Code zum Anmelden ohne Passwort lautet: ${token}\n\nGib diesen Code in der App ein, um dich anzumelden. Falls du das nicht angefordert hast, kannst du diese E-Mail ignorieren.`,
     }),
+    email_change: (token) => ({
+      subject: 'Neue E-Mail-Adresse bestätigen — True MMA',
+      text: `Dein Code zum Bestätigen deiner neuen E-Mail-Adresse lautet: ${token}\n\nGib diesen Code in der App ein, um die Änderung abzuschließen. Falls du das nicht angefordert hast, kannst du diese E-Mail ignorieren — deine Adresse bleibt dann unverändert.`,
+    }),
   },
   en: {
     signup: (token) => ({
@@ -75,8 +84,25 @@ const templates: Record<Locale, Record<string, (token: string) => { subject: str
       subject: 'Your login code — True MMA',
       text: `Your passwordless login code is: ${token}\n\nEnter this code in the app to log in. If you didn't request this, you can safely ignore this email.`,
     }),
+    email_change: (token) => ({
+      subject: 'Confirm your new email address — True MMA',
+      text: `Your code to confirm your new email address is: ${token}\n\nEnter this code in the app to complete the change. If you didn't request this, you can safely ignore this email — your address stays unchanged.`,
+    }),
   },
 };
+
+// Supabase splits the email-change confirmation into two action types when
+// "Secure email change" is enabled (one mail to the current address, one to the
+// new one) and uses a single `email_change` when it's disabled. The app's flow
+// expects a single code sent to the *new* address (see confirmEmailChange in
+// src/lib/auth.tsx), so "Secure email change" is deliberately off on both
+// projects — but all three names are aliased to the same template so a
+// dashboard toggle can never silently turn this back into an unhandled type
+// (which would 500 and break the change outright, the exact bug this fixes).
+for (const locale of ['de', 'en'] as Locale[]) {
+  templates[locale].email_change_new = templates[locale].email_change;
+  templates[locale].email_change_current = templates[locale].email_change;
+}
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') {

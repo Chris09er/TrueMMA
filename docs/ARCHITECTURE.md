@@ -70,16 +70,25 @@ UI/org to develop against:
   (used by the `development` build profile / dev-client APK) both point
   at the **stage** Supabase project — originally left pointing at prod
   from before this pipeline existed, switched deliberately so on-device
-  testing can't accidentally read/write real production data. Note this
+  testing can't accidentally read/write real production data.
+  `SUPABASE_SERVICE_ROLE_KEY` in local `.env` is the **stage** service-role key
+  (a `sb_secret_...` key — verified 2026-07-20: it authorizes against the stage
+  project and 401s against prod), matching the stage `EXPO_PUBLIC_SUPABASE_URL`
+  above, so a local sync run can't touch prod either. (An earlier note here said
+  it was still the prod key — that was superseded when the stage key was put in
+  place, see [Known open items](#known-open-items). Anything needing the prod
+  service-role key — e.g. deleting a prod test user — fetches it on demand via
+  `supabase projects api-keys --project-ref mytdfwceuzgqopndqmjt --reveal`.)
+  Note this
   is orthogonal to the `dev`/`stage`/`main` **git branches**: pushing to
   `dev` triggers no CI at all (`deploy-migrations.yml`/
   `publish-ota-update.yml` only watch `stage`/`main`); a dev-client APK
   reflects whatever's on disk live via Metro (`npx expo start`), not any
-  git or CI state. `SUPABASE_SERVICE_ROLE_KEY` in local `.env` is **still
-  the prod key** — only the sync scripts read it, not the app, but fetch
-  the stage key too (`supabase projects api-keys --project-ref
-  qvjgsbeugllobgwabebv --reveal`, or the stage project's dashboard) before
-  running `npm run sync:balldontlie`/`sync:live` locally against stage.
+  git or CI state. `SUPABASE_SERVICE_ROLE_KEY` in local `.env` is the
+  **stage** key (see the dev-branch bullet above) — only the sync scripts read
+  it, not the app, so `npm run sync:balldontlie`/`sync:live` run locally target
+  stage. Fetch it (if ever re-provisioning) via `supabase projects api-keys
+  --project-ref qvjgsbeugllobgwabebv --reveal` or the stage dashboard.
 - **`stage` branch** — a real, persistent test environment: its own
   Supabase project (`true-mma-stage`, ref `qvjgsbeugllobgwabebv`,
   eu-central-1, **free tier**), its own EAS build profile (`preview` in
@@ -695,6 +704,24 @@ items](#known-open-items) if that changes.
   Password" email template references `{{ .Token }}` (the OTP code)
   instead of the default magic-link `{{ .ConfirmationURL }}` — without
   that, users get a link instead of a code and the in-app flow breaks.
+- **Email change (OTP, same pattern as reset), fixed 2026-07-20:**
+  `updateEmail()` (`auth.tsx`) calls `updateUser({ email })`, which does *not*
+  apply the change immediately — Auth sends a 6-digit code to the **new**
+  address, and `confirmEmailChange(newEmail, token)` verifies it with
+  `verifyOtp({ type: 'email_change', email: newEmail })`. `ProfileScreen`'s
+  change-email section switches to a code-entry sub-state (`pendingEmail`) after
+  the code is sent, mirroring the signup/reset/magic-link code flows, with a
+  Cancel that restores the original address. This flow **requires the auth-email
+  hook to handle `email_change`** (added the same day, see [Auth
+  emails](#auth-emails)) and **requires "Secure email change" /
+  `double_confirm_changes` to be OFF** on both Supabase projects: with it ON,
+  Auth demands confirmation from *both* the old and new address (two separate
+  mails), which the single-code in-app UI can't complete. `supabase/config.toml`
+  currently still has `double_confirm_changes = true` (a CLI default, local-only)
+  — the dashboard value on stage/prod is the one that matters and must be set to
+  OFF there, same manual per-project sync caveat as the SMTP/template config.
+  Before this fix the feature was broken outright on every environment (the hook
+  500'd on the unhandled `email_change` type).
 - **Anonymous → account linking:** fighter-follow (`push_subscriptions`)
   keeps working without login, keyed by push token as before, now with an
   additional nullable `user_id`. On sign-in, `claimAnonymousFollows()`
@@ -869,8 +896,8 @@ which is a hard requirement, not just a "nice to have for scale."
   the project once via the exact same failure mode (a fix landing on one
   project's dashboard being silently assumed to apply everywhere).
 
-**Multilingual auth emails via Edge Function — live on stage, not yet working
-on production, 2026-07-20.** The dashboard templates above are per-*project*,
+**Multilingual auth emails via Edge Function — live on stage, and fixed on
+production 2026-07-20 (was a stale SMTP-password secret).** The dashboard templates above are per-*project*,
 not per-*user* — there's no way to send German to a German-locale user and
 English to an English-locale user through them. This is the project's
 **first Supabase Edge Function** (previously deliberately avoided — push
@@ -930,38 +957,47 @@ relationship on top of the new architecture surface.
   `"hook":"https://qvjgsbeugllobgwabebv.supabase.co/functions/v1/send-auth-email"`,
   `"msg":"Hook ran successfully"`, `"success":true` — the function reached
   real IONOS SMTP and sent successfully.
-- **Production: still failing, unresolved as of 2026-07-20.** Every signup
-  against production returns `500 unexpected_failure` /
-  `"Unexpected status code returned from hook: 500"` — Auth confirms it's
-  calling the right hook URL and getting a real HTTP 500 back (not a
-  connection failure), so the function itself boots and runs; the failure is
-  somewhere inside its own logic (most likely the SMTP send, though this is
-  unconfirmed). Debugging steps tried, none resolved it:
-  - Re-deploying with Docker running (a `supabase functions deploy` run
-    without Docker uses a raw-upload path instead of "Bundling Function",
-    which seemed like a plausible culprit — ruled out, still 500 after a
-    clean bundled deploy).
-  - Re-running `secrets set IONOS_SMTP_PASSWORD` twice with a freshly-typed
-    (not pasted-from-clipboard) value.
-  - Raising production's email-send rate limit from 2/hour (found
-    unexpectedly low mid-investigation, see Known open items) to 100 — ruled
-    out a `429` being mistaken for the real error, but the underlying `500`
-    persists independently.
-  - Added `console.log`/`console.error` calls at every error path and inside
-    the SMTP-config check, to get real diagnostic output into the Function's
-    own log viewer (previously empty, since the function only put error
-    detail in its HTTP response body, which Auth's hook-relay never
-    forwards). **Not yet actually seen** — both the Supabase MCP `get_logs`
-    tool and the dashboard's own Function logs UI kept showing stale entries
-    from before this logging was added, even several minutes after a fresh
-    test; unclear whether this is a genuine multi-minute log-pipeline delay
-    or the new deploy hadn't gone live yet. Needs a fresh look next session —
-    check the Function logs for the new `console.log`/`console.error` output
-    first, that should immediately reveal the real cause.
-  - Stage and production are meant to use identical IONOS credentials (same
-    mailbox, `noreply@true-mma.com`) — since stage works, production's
-    failure is most likely a data-entry slip specific to that project's
-    secret value, not a code or architecture problem.
+- **Production: fixed 2026-07-20 — it was the `IONOS_SMTP_PASSWORD` secret
+  after all.** Every signup used to return `500 unexpected_failure` /
+  `"Unexpected status code returned from hook: 500"`; Auth confirmed it was
+  calling the right hook URL and getting a real HTTP 500 back (not a connection
+  failure), so the function booted and ran and the failure was inside its own
+  logic. The `execution_time_ms` on the failing calls (~730–810 ms) was the
+  tell: a template-lookup 500 returns in milliseconds, whereas ~800 ms is a
+  real TLS handshake + AUTH to `smtp.ionos.de:465` that then fails — i.e. the
+  SMTP send, exactly the earlier `535 "Authentication credentials invalid"`
+  signature. Re-setting `IONOS_SMTP_PASSWORD` on production
+  (`npx supabase secrets set IONOS_SMTP_PASSWORD=... --project-ref
+  mytdfwceuzgqopndqmjt`) and re-running a real signup against production
+  returned **`POST /auth/v1/signup` → 200** — the same endpoint that had been
+  cascading to 500 on every prior attempt, so a 200 there is a reliable proof
+  the hook ran. (Confirmation of the *sent mail* via the Function's own
+  `console.log` output was still pending at fix time — the Supabase log
+  pipeline lags several minutes and the MCP `get_logs` edge-function stream
+  only surfaces the request-level line, not stdout — but the endpoint-level
+  200 is conclusive on its own.) Earlier ruled-out theories are kept for the
+  record: a non-bundled Docker-less deploy, a mistaken `429` rate-limit (prod's
+  limit was found silently at 2/hour and raised to 100, see Known open items),
+  and the template-lookup path. **Lesson: `execution_time_ms` on an Edge
+  Function 500 distinguishes "failed instantly in its own logic" from "failed
+  in an outbound network call" — check it before assuming the cause.**
+  Debugging steps that had been tried before the fix: re-deploying with Docker
+  running; adding `console.log`/`console.error` at every error path (still in
+  the code — the credential-length check at
+  `send-auth-email/index.ts` is the one diagnostic worth *removing* once this
+  is confirmed stable, see Known open items).
+- **`email_change` added to the hook 2026-07-20.** A review found the profile
+  screen's "change email" feature was broken on **both** stage and production:
+  `updateUser({ email })` makes Auth emit an `email_change` mail, which the
+  hook's original narrow scope (`signup`/`recovery`/`magiclink` only) had no
+  template for, so it 500'd and the change failed outright. The hook now
+  handles `email_change` (and aliases `email_change_current`/
+  `email_change_new` to the same template, so toggling "Secure email change" in
+  the dashboard can never silently reintroduce an unhandled type). See [Login /
+  Profile](#login--profile)'s email-change flow for the app side and the
+  `double_confirm_changes` caveat. **Not yet redeployed** — the updated
+  function is committed on `dev` but the live stage/production functions still
+  run the pre-`email_change` version until the next deploy.
 - Email content is currently plain text, not branded HTML — visual design is
   explicitly deferred, not a blocker for the mechanism working.
 
@@ -1869,9 +1905,16 @@ brand assets.
     dashboard settings on both stage and prod (local `config.toml` only
     affects local dev).
   - ~~Multilingual auth emails~~ — Edge Function **live on stage** (verified
-    working end-to-end), **still failing on production** with an unresolved
-    generic 500 — see the "Multilingual auth emails via Edge Function" note
-    above for the full debugging trail and what to check first next session.
+    working end-to-end) and **now fixed on production too (2026-07-20)**: the
+    generic 500 was a stale `IONOS_SMTP_PASSWORD` secret; re-setting it made a
+    real prod signup return `POST /auth/v1/signup` → 200. See the "Multilingual
+    auth emails via Edge Function" note above (Auth emails section) for the
+    `execution_time_ms` diagnosis. **Still to do:** (1) redeploy the function to
+    stage+prod to ship the new `email_change` template (committed on `dev`, not
+    yet deployed); (2) remove the credential-length `console.log` diagnostic
+    now that the cause is known; (3) set "Secure email change" OFF on both
+    dashboards for the email-change flow (see [Login /
+    Profile](#login--profile)).
   - ~~Signup confirmation link-based~~ — **done 2026-07-20**: `confirmSignup()`
     + `resendSignupConfirmation()` (`src/lib/auth.tsx`) and a new
     `signup-confirm` mode in `ProfileScreen.tsx` (code-entry UI, resend button

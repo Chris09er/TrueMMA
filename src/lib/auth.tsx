@@ -44,6 +44,7 @@ type AuthContextValue = {
   requestPasswordReset: (email: string) => Promise<AuthResult>;
   confirmPasswordReset: (email: string, token: string, newPassword: string) => Promise<AuthResult>;
   updateEmail: (email: string) => Promise<AuthResult>;
+  confirmEmailChange: (newEmail: string, token: string) => Promise<AuthResult>;
   updatePassword: (newPassword: string) => Promise<AuthResult>;
   // null = device-local (default). Only ever set for logged-in users — see
   // docs/ARCHITECTURE.md, Timezone override.
@@ -211,7 +212,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return toAuthResult(updateError);
       },
       updateEmail: async (email) => {
+        // Does NOT change the address yet — Auth emails a confirmation code to
+        // the new address and only applies the change once it's verified via
+        // confirmEmailChange() below. The send goes through the auth-email Edge
+        // Function's `email_change` template (see
+        // supabase/functions/send-auth-email/index.ts).
         const { error } = await supabase.auth.updateUser({ email });
+        return toAuthResult(error);
+      },
+      confirmEmailChange: async (newEmail, token) => {
+        // `email_change` verifies against the *new* address — that's where the
+        // code was sent. On success the session's user.email is updated and
+        // onAuthStateChange fires, so the profile screen picks it up on its own.
+        const { error } = await supabase.auth.verifyOtp({
+          email: newEmail,
+          token,
+          type: 'email_change',
+        });
         return toAuthResult(error);
       },
       updatePassword: async (newPassword) => {
