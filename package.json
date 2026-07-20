@@ -13,6 +13,7 @@
     "@supabase/supabase-js": "^2.110.3",
     "expo": "~54.0.36",
     "expo-dev-client": "~6.0.21",
+    "expo-linear-gradient": "^57.0.1",
     "expo-notifications": "~0.32.17",
     "expo-status-bar": "~3.0.9",
     "expo-updates": "~29.0.19",

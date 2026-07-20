@@ -1342,16 +1342,22 @@ after seeding data doesn't create duplicate organizations) →
   empty-leagues changes described in [App structure](#app-structure).
   Explicitly deferred/decided: no per-organization branding accent
   (UFC/OKTAGON/... stay visually neutral, text-only distinction) — avoids
-  trade-dress proximity to real orgs' brand colors. Not yet done: a logo
-  and app icon (must be store-review-distinguishable from UFC/OKTAGON, plus
-  font/icon-license checks for commercial use); the UI still reads as
-  visually flat per user feedback — latest ask is specifically a subtle
-  gradient/metallic treatment on the accent blue (referencing UFC's own use
-  of gradients/transparency), not done yet. Likely needs
-  `expo-linear-gradient`, which has native code — **would need a fresh EAS
-  dev-client build** before it's usable in a dev build (unlike the JS/asset
-  additions so far in this redesign), flag this to the user before adding
-  it as a dependency.
+  trade-dress proximity to real orgs' brand colors. `expo-linear-gradient`
+  added 2026-07-20 for a subtle metallic sheen on filled-accent surfaces —
+  `colors.accentGradient` (a two-stop `[string, string]` per palette in
+  `theme.tsx`) is used by `SegmentedControl`'s active segment,
+  `FilterChip`'s active chip, `EventDetailScreen`'s title-fight tag, and its
+  vote-bar fill; deliberately not applied everywhere ("ohne zu aufregend zu
+  werden" — the flat `accent` value still exists and is still the right
+  choice for smaller/text-level uses). This is the redesign's first native
+  (non-JS-only) dependency — it renders fine in Expo Go (bundled in the SDK)
+  but **needs a fresh `eas build --profile development` before it shows up
+  in an existing custom dev client**, since a dev client only has the
+  native modules it was built with. Verified hands-on on a real Android
+  emulator via Expo Go 2026-07-20: gradient renders correctly on both
+  `SegmentedControl` and the org `FilterChip`s, no crash. Not yet done: a
+  logo and app icon (must be store-review-distinguishable from
+  UFC/OKTAGON, plus font/icon-license checks for commercial use).
 - **Fighter-follow push should fire on fight start, not just on booking —
   flagged 2026-07-20, not built.** Current behavior (`FighterFollowBell`'s
   explanation text is accurate to it): notifies when the followed fighter

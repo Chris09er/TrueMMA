@@ -23,6 +23,15 @@ export type ColorTokens = {
   /** "On air" red for the live badge — kept separate from `danger` since live is urgent, not negative. */
   live: string;
   link: string;
+  /**
+   * Two-stop diagonal gradient for filled-accent surfaces (active
+   * SegmentedControl segment, active FilterChip, title-fight tag, vote-bar
+   * fill) — a lighter sheen into a deeper steel-blue, for a brushed-metal
+   * feel instead of a flat fill. Use sparingly (feedback: "ohne zu
+   * aufregend zu werden") — not every accent-colored element needs it, the
+   * flat `accent` value still exists for smaller/text-level uses.
+   */
+  accentGradient: [string, string];
 };
 
 const darkColors: ColorTokens = {
@@ -37,6 +46,7 @@ const darkColors: ColorTokens = {
   danger: '#ff4d6d',
   live: '#ff3b3b',
   link: '#9aa5b8',
+  accentGradient: ['#8fb3ff', '#3a5bc7'],
 };
 
 const lightColors: ColorTokens = {
@@ -51,6 +61,7 @@ const lightColors: ColorTokens = {
   danger: '#e0335a',
   live: '#e02020',
   link: '#5c6b85',
+  accentGradient: ['#6b8bff', '#28469e'],
 };
 
 export const palettes: Record<ThemeMode, ColorTokens> = { dark: darkColors, light: lightColors };

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import { getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
@@ -108,12 +109,14 @@ function FightVoteRow({
   onVote,
   t,
   styles,
+  colors,
 }: {
   fight: Fight;
   summary: FightVoteSummary;
   onVote: (fightId: string, fighterId: string) => void;
   t: ReturnType<typeof useLocale>['t'];
   styles: Styles;
+  colors: ColorTokens;
 }) {
   if (!fight.fighter1 || !fight.fighter2) return null;
   const fighter1 = fight.fighter1;
@@ -157,7 +160,12 @@ function FightVoteRow({
         </Text>
       </View>
       <View style={styles.voteBarTrack}>
-        <View style={[styles.voteBarFill1, { flex: Math.max(pct1, 1) }]} />
+        <LinearGradient
+          colors={colors.accentGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[styles.voteBarFill1, { flex: Math.max(pct1, 1) }]}
+        />
         <View style={[styles.voteBarFill2, { flex: Math.max(pct2, 1) }]} />
       </View>
     </View>
@@ -290,7 +298,16 @@ export default function EventDetailScreen({ route }: Props) {
               {item.id === prelimMainEventId && (
                 <Text style={styles.tagPrelimMain}>{t.eventDetail.prelimMainEvent}</Text>
               )}
-              {item.is_title_fight && <Text style={styles.tagTitle}>{t.eventDetail.titleFight}</Text>}
+              {item.is_title_fight && (
+                <LinearGradient
+                  colors={colors.accentGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.tagTitleGradient}
+                >
+                  <Text style={styles.tagTitle}>{t.eventDetail.titleFight}</Text>
+                </LinearGradient>
+              )}
             </View>
             <View style={styles.matchupRow}>
               <FighterLink fighter={item.fighter1} isWinner={item.fighter1?.id === item.result_winner_id} styles={styles} />
@@ -318,6 +335,7 @@ export default function EventDetailScreen({ route }: Props) {
                 onVote={handleVote}
                 t={t}
                 styles={styles}
+                colors={colors}
               />
             )}
           </View>
@@ -425,14 +443,16 @@ const makeStyles = (colors: ColorTokens) =>
       paddingVertical: 2,
       borderRadius: 6,
     },
+    tagTitleGradient: {
+      borderRadius: 6,
+      overflow: 'hidden',
+    },
     tagTitle: {
       fontSize: 11,
       fontWeight: '700',
       color: colors.background,
-      backgroundColor: colors.accent,
       paddingHorizontal: spacing.sm,
       paddingVertical: 3,
-      borderRadius: 6,
     },
     matchupRow: {
       flexDirection: 'row',

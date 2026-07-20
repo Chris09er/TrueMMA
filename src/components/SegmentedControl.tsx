@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { minTapTarget, pressedStyle, radius, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
 
 type Segment<T extends string> = {
@@ -27,8 +28,16 @@ export default function SegmentedControl<T extends string>({ segments, value, on
           <Pressable
             key={segment.value}
             onPress={() => onChange(segment.value)}
-            style={({ pressed }) => [styles.segment, active && styles.segmentActive, pressed && pressedStyle]}
+            style={({ pressed }) => [styles.segment, pressed && pressedStyle]}
           >
+            {active && (
+              <LinearGradient
+                colors={colors.accentGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+            )}
             <Text style={[styles.label, active && styles.labelActive]} numberOfLines={1}>
               {segment.label}
             </Text>
@@ -57,9 +66,7 @@ const makeStyles = (colors: ColorTokens) =>
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: spacing.sm,
-    },
-    segmentActive: {
-      backgroundColor: colors.accent,
+      overflow: 'hidden',
     },
     label: {
       ...typography.meta,
