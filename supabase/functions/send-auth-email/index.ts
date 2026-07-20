@@ -23,7 +23,8 @@
 // logs that as a failed send, which is more honest than a fake success.
 
 import { Webhook } from 'npm:standardwebhooks@1.0.0';
-import { SMTPClient } from 'npm:denomailer@1.6.0';
+// denomailer isn't published to npm — it's a deno.land/x-only module.
+import { SMTPClient } from 'https://deno.land/x/denomailer@1.6.0/mod.ts';
 
 type Locale = 'de' | 'en';
 
