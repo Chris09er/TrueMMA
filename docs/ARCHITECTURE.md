@@ -674,8 +674,9 @@ see what they follow across devices, pick a nickname, and manage their
 email/password. No feature is gated behind login (yet) — see [Known open
 items](#known-open-items) if that changes.
 
-- **Auth backend:** Supabase Auth, email+password only (no magic link, no
-  OAuth). `src/lib/supabase.ts` now persists the session
+- **Auth backend:** Supabase Auth, email+password plus passwordless magic-link
+  login (added 2026-07-20, see below — no OAuth yet). `src/lib/supabase.ts`
+  persists the session
   (`persistSession: true`, `AsyncStorage` as storage, `autoRefreshToken:
   true`) — previously disabled since the app had no concept of a logged-in
   user. `src/lib/auth.tsx` (`AuthProvider`/`useAuth`) wraps
@@ -892,14 +893,15 @@ relationship on top of the new architecture surface.
   `user.user_metadata.locale` (see the locale-sync note above; falls back to
   `de`), and sends via direct IONOS SMTP (`denomailer`) instead of Supabase's
   built-in dispatch.
-- **Scope deliberately narrow for this first pass:** only handles
-  `email_action_type` values `signup` and `recovery` (both OTP-code-based —
-  `recovery` already is, via the existing `confirmPasswordReset()`; `signup`
-  becoming OTP-based instead of link-based, and the client-side UI for
-  entering that code, is separate follow-up work, not done yet). Any other
-  action type (`email_change`, `invite`, ...) returns an error rather than
-  silently sending nothing — Supabase logs that as a failed send, which is
-  more honest than a fake success while those templates don't exist yet.
+- **Scope deliberately narrow:** handles `email_action_type` values `signup`,
+  `recovery`, and `magiclink` (all OTP-code-based — see `confirmSignup()`,
+  `confirmPasswordReset()`, and `confirmMagicLink()` in `src/lib/auth.tsx`; the
+  magic-link flow never surfaces a clickable link, only a code, so
+  `verifyOtp({ type: 'email' })` is used to confirm it, matching the send-side
+  `email_action_type`). Any other action type (`email_change`, `invite`, ...)
+  returns an error rather than silently sending nothing — Supabase logs that
+  as a failed send, which is more honest than a fake success while those
+  templates don't exist yet.
 - `supabase/config.toml` has a commented-out, `enabled = false`
   `[auth.hook.send_email]` block with local-testing instructions — not live
   anywhere.
@@ -1829,13 +1831,20 @@ brand assets.
     stage only, since production's Edge Function isn't sending real emails
     yet — the OTP-entry logic itself doesn't depend on which project's hook
     is fixed.
-  - **Still open:** magic-link/OTP-only login, biometric re-auth
-    (`expo-local-authentication`, needs a new EAS native build), and
-    Google/Apple social login (`expo-auth-session` + Google Cloud
-    Console/Apple Developer setup, needs a new EAS native build, likely makes
-    Sign In with Apple close to mandatory on iOS per App Store guideline 4.8
-    once Google login exists) — sequenced last since they're the
-    highest-risk/most-external items.
+  - ~~Magic-link/OTP-only login~~ — **done 2026-07-20**: `requestMagicLink()`/
+    `confirmMagicLink()` (`auth.tsx`) + a new `magic-request`/`magic-confirm`
+    mode pair in `ProfileScreen.tsx`, reusing the same code-entry pattern as
+    signup/reset. `shouldCreateUser: false` so it can't be used to create new
+    accounts (that stays through `signUp()`, keeping the password-policy/OTP
+    gate intact). Verified against stage — hook fires successfully for the
+    `magiclink` email type. Entry point is a "Log in without a password" link
+    on the login screen.
+  - **Still open:** biometric re-auth (`expo-local-authentication`, needs a
+    new EAS native build), and Google/Apple social login
+    (`expo-auth-session` + Google Cloud Console/Apple Developer setup, needs a
+    new EAS native build, likely makes Sign In with Apple close to mandatory
+    on iOS per App Store guideline 4.8 once Google login exists) — sequenced
+    last since they're the highest-risk/most-external items.
 - **Production's email-send rate limit was found silently set to 2/hour,
   2026-07-20** (an auth log line surfaced it mid-debugging:
   `"env GOTRUE_RATE_LIMIT_EMAIL_SENT changed, updating Email limiter from 30

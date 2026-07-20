@@ -12,13 +12,14 @@
 // calls below were added specifically to diagnose this and haven't been
 // reviewed in the Function logs yet).
 //
-// Scope, deliberately narrow for this first pass: only `signup` and
-// `recovery` email_action_types are handled (both OTP-code-based — see
-// src/lib/auth.tsx's confirmPasswordReset for the existing recovery flow;
-// signup becomes OTP-based the same way once this ships, planned
-// separately). Any other action type (email_change, invite, ...) returns an
-// error rather than silently sending nothing or falling back — Supabase
-// logs that as a failed send, which is more honest than a fake success.
+// Scope, deliberately narrow: only `signup`, `recovery`, and `magiclink`
+// email_action_types are handled (all OTP-code-based — see
+// src/lib/auth.tsx's confirmPasswordReset/confirmSignup/verifyMagicLink; the
+// magic-link login flow never surfaces a clickable link, only a code, same
+// UX pattern as the other two). Any other action type (email_change,
+// invite, ...) returns an error rather than silently sending nothing or
+// falling back — Supabase logs that as a failed send, which is more honest
+// than a fake success while those templates don't exist yet.
 
 import { Webhook } from 'npm:standardwebhooks@1.0.0';
 // denomailer isn't published to npm — it's a deno.land/x-only module.
@@ -56,6 +57,10 @@ const templates: Record<Locale, Record<string, (token: string) => { subject: str
       subject: 'Passwort zurücksetzen — True MMA',
       text: `Dein Code zum Zurücksetzen des Passworts lautet: ${token}\n\nGib diesen Code in der App ein, um ein neues Passwort zu setzen. Falls du das nicht angefordert hast, kannst du diese E-Mail ignorieren.`,
     }),
+    magiclink: (token) => ({
+      subject: 'Dein Anmeldecode — True MMA',
+      text: `Dein Code zum Anmelden ohne Passwort lautet: ${token}\n\nGib diesen Code in der App ein, um dich anzumelden. Falls du das nicht angefordert hast, kannst du diese E-Mail ignorieren.`,
+    }),
   },
   en: {
     signup: (token) => ({
@@ -65,6 +70,10 @@ const templates: Record<Locale, Record<string, (token: string) => { subject: str
     recovery: (token) => ({
       subject: 'Reset your password — True MMA',
       text: `Your password reset code is: ${token}\n\nEnter this code in the app to set a new password. If you didn't request this, you can safely ignore this email.`,
+    }),
+    magiclink: (token) => ({
+      subject: 'Your login code — True MMA',
+      text: `Your passwordless login code is: ${token}\n\nEnter this code in the app to log in. If you didn't request this, you can safely ignore this email.`,
     }),
   },
 };
