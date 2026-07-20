@@ -1032,11 +1032,42 @@ after seeding data doesn't create duplicate organizations) →
   native module — requires a fresh `eas build --profile development` once,
   same as any native module addition, see the rebuild-triggers note
   above). `app.config.js` sets `updates.url` (the project's EAS Update
-  endpoint, `https://u.expo.dev/<projectId>`) and `runtimeVersion: {
-  policy: 'appVersion' }` — a build and an OTA update are only compatible
-  if `app.json`'s `version` matches, so bumping `version` on a release
-  that also changes native code is what forces a fresh build instead of
-  silently serving an incompatible update.
+  endpoint, `https://u.expo.dev/<projectId>`).
+  - **`runtimeVersion` policy switched `appVersion` → `fingerprint` on
+    2026-07-20.** `appVersion` only forced a rebuild when someone
+    remembered to bump `app.json`'s `version` — a manual, easy-to-forget
+    step, and the actual failure mode (a native-incompatible OTA update
+    silently served to an old build) has no visible symptom until a user
+    hits a crash. `fingerprint` instead hashes everything that can affect
+    the native runtime (native deps, `app.json`/`eas.json`, config
+    plugins, `google-services.json`, etc. — see `eas fingerprint:generate`)
+    and uses that hash as the runtime version, so an incompatible update
+    is *structurally* unable to reach a build it doesn't match, no manual
+    bump required. Trade-off (documented by Expo): more frequent native
+    builds, since any change touching the fingerprint needs a new build
+    before its OTA update becomes reachable — accepted, since builds are
+    now triggered automatically (below) rather than manually.
+  - **Auto-triggered native builds, `publish-ota-update.yml` (2026-07-20):**
+    before publishing, the workflow runs `eas fingerprint:generate` for the
+    current commit, then `eas build:list --fingerprint-hash <hash> --channel
+    <channel> --status finished` to check whether a build already exists on
+    that channel for this exact fingerprint. If not, it kicks off `eas
+    build --profile <profile> --non-interactive --no-wait` (async — the
+    workflow doesn't block on it) before publishing the OTA update, so the
+    channel ends up with both a matching build and a matching update rather
+    than an update nobody can consume yet. Android-only for now (no iOS
+    build has ever been made for this project, see [Build &
+    deployment](#build--deployment)). This closes the gap where a native
+    change pushed to `stage`/`main` used to publish a same-day OTA update
+    that no installed build could actually use until someone manually
+    remembered to run a fresh `eas build`.
+  - **Still manual either way:** installing the resulting build.
+    EAS Build doesn't push anything to a device — `preview`/`development`
+    builds are internal-distribution APKs that must be downloaded and
+    sideloaded by hand each time; only a real store release (Play
+    Store/App Store) would make a native update install itself on already-
+    installed devices, and that's still a separate, not-yet-done step (see
+    [Known open items](#known-open-items)).
   - **Channels** (`eas.json` → `build.<profile>.channel`), named after the
     branch pipeline rather than the build-profile names: `development`
     profile → `development` channel, `preview` profile → `stage` channel,
@@ -1363,8 +1394,8 @@ after seeding data doesn't create duplicate organizations) →
   `SegmentedControl` and the org `FilterChip`s, no crash. Not yet done: a
   logo and app icon (must be store-review-distinguishable from
   UFC/OKTAGON, plus font/icon-license checks for commercial use).
-- **Fighter-follow push on fight start — built 2026-07-20, on `dev`, not
-  yet promoted to stage/main.** Migration
+- **Fighter-follow push on fight start — built 2026-07-20, promoted to
+  stage (PR #12) and main (PR #13) the same day.** Migration
   `009_fighter_fight_start_push.sql` extends `send_league_start_pushes()`
   (name kept for continuity even though it now covers two audiences — see
   [Notifications](#notifications)) to also message followers of any fighter
@@ -1382,9 +1413,9 @@ after seeding data doesn't create duplicate organizations) →
   complexity for a rare overlap. `FighterFollowBell`'s explanation text
   updated to match. **Not yet applied to any real database** — migrations
   only auto-deploy on push to `stage`/`main` (see
-  `deploy-migrations.yml`); this needs the normal `dev` → `stage` → `main`
-  promotion, and stage should be checked against a real upcoming event
-  before promoting further.
+  `deploy-migrations.yml`); applied cleanly to both stage and production —
+  should be checked against a real upcoming event once one is on the
+  calendar, still unverified against real push delivery.
 - **Data gaps — checked directly against the live DB 2026-07-20, both
   confirmed real, neither a code bug.** (1) Bellator, Invicta, KSW, and ONE
   have **zero** event rows in the database at all (not just zero upcoming)
