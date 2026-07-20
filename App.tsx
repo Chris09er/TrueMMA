@@ -9,6 +9,7 @@ import { useFonts } from 'expo-font';
 import type { EventsStackParamList, FightersStackParamList, RootTabParamList } from './src/navigation';
 import { LocaleProvider, useLocale } from './src/lib/i18n';
 import { AuthProvider } from './src/lib/auth';
+import BiometricGate from './src/components/BiometricGate';
 import { colors, ThemeProvider, useTheme } from './src/lib/theme';
 import EventDetailScreen from './src/screens/EventDetailScreen';
 import EventListScreen from './src/screens/EventListScreen';
@@ -160,7 +161,9 @@ export default function App() {
     <ThemeProvider>
       <LocaleProvider>
         <AuthProvider>
-          <Navigation />
+          <BiometricGate>
+            <Navigation />
+          </BiometricGate>
         </AuthProvider>
       </LocaleProvider>
     </ThemeProvider>

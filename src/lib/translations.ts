@@ -180,6 +180,9 @@ export const translations = {
       favoritedEventsTitle: 'Favorisierte Veranstaltungen',
       noFavoritedFighters: 'Du hast noch keine Kämpfer favorisiert.',
       noFavoritedEvents: 'Du hast noch keine Veranstaltungen favorisiert.',
+      biometricLockTitle: 'Biometrische Sperre',
+      biometricPrompt: 'Entsperre True MMA',
+      unlockButton: 'Entsperren',
     },
   },
   en: {
@@ -354,6 +357,9 @@ export const translations = {
       favoritedEventsTitle: 'Favorited events',
       noFavoritedFighters: "You haven't favorited any fighters yet.",
       noFavoritedEvents: "You haven't favorited any events yet.",
+      biometricLockTitle: 'Biometric lock',
+      biometricPrompt: 'Unlock True MMA',
+      unlockButton: 'Unlock',
     },
   },
 } satisfies Record<Locale, unknown>;
