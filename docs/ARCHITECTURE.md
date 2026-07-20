@@ -868,8 +868,8 @@ which is a hard requirement, not just a "nice to have for scale."
   the project once via the exact same failure mode (a fix landing on one
   project's dashboard being silently assumed to apply everywhere).
 
-**Multilingual auth emails via Edge Function — scaffolded 2026-07-20, NOT YET
-ENABLED on either project.** The dashboard templates above are per-*project*,
+**Multilingual auth emails via Edge Function — live on stage, not yet working
+on production, 2026-07-20.** The dashboard templates above are per-*project*,
 not per-*user* — there's no way to send German to a German-locale user and
 English to an English-locale user through them. This is the project's
 **first Supabase Edge Function** (previously deliberately avoided — push
@@ -915,17 +915,51 @@ relationship on top of the new architecture surface.
   real `smtp.ionos.de:465` and correctly surfaces an auth failure as a 500
   (fake credentials, by design — no real email sent, no project touched);
   valid signature + unhandled type returns the "no template" 500; a tampered
-  signature is rejected with 401 before any business logic runs. **Still not
-  deployed anywhere** — this only proves the function's own logic, not real
-  end-to-end delivery.
-- **What's still needed before this does anything, on each project
-  separately:** `supabase secrets set IONOS_SMTP_USER=... IONOS_SMTP_PASSWORD=...`,
-  `supabase functions deploy send-auth-email`, then enabling the hook in the
-  dashboard (Authentication → Hooks → Send Email) and setting
-  `SEND_AUTH_EMAIL_HOOK_SECRET` from the secret the dashboard generates. All
-  manual, deliberately not done yet — flipping this on immediately changes
-  how every real user's auth email is sent, so it needs its own explicit
-  go-ahead rather than being bundled into scaffolding work.
+  signature is rejected with 401 before any business logic runs.
+- **Deployed and enabled on both stage and production, 2026-07-20.** Secrets
+  (`IONOS_SMTP_USER`, `IONOS_SMTP_PASSWORD`, `SEND_AUTH_EMAIL_HOOK_SECRET`) set
+  via `supabase secrets set` on both projects; function deployed via
+  `supabase functions deploy send-auth-email --no-verify-jwt` (CLI) for
+  production and the Supabase MCP server's `deploy_edge_function` for stage;
+  Send Email Hook enabled in each project's dashboard (Authentication →
+  Hooks), pointing at `https://<project-ref>.supabase.co/functions/v1/send-auth-email`.
+- **Stage: confirmed working end-to-end.** A real signup against stage
+  produced an auth log entry
+  `"hook":"https://qvjgsbeugllobgwabebv.supabase.co/functions/v1/send-auth-email"`,
+  `"msg":"Hook ran successfully"`, `"success":true` — the function reached
+  real IONOS SMTP and sent successfully.
+- **Production: still failing, unresolved as of 2026-07-20.** Every signup
+  against production returns `500 unexpected_failure` /
+  `"Unexpected status code returned from hook: 500"` — Auth confirms it's
+  calling the right hook URL and getting a real HTTP 500 back (not a
+  connection failure), so the function itself boots and runs; the failure is
+  somewhere inside its own logic (most likely the SMTP send, though this is
+  unconfirmed). Debugging steps tried, none resolved it:
+  - Re-deploying with Docker running (a `supabase functions deploy` run
+    without Docker uses a raw-upload path instead of "Bundling Function",
+    which seemed like a plausible culprit — ruled out, still 500 after a
+    clean bundled deploy).
+  - Re-running `secrets set IONOS_SMTP_PASSWORD` twice with a freshly-typed
+    (not pasted-from-clipboard) value.
+  - Raising production's email-send rate limit from 2/hour (found
+    unexpectedly low mid-investigation, see Known open items) to 100 — ruled
+    out a `429` being mistaken for the real error, but the underlying `500`
+    persists independently.
+  - Added `console.log`/`console.error` calls at every error path and inside
+    the SMTP-config check, to get real diagnostic output into the Function's
+    own log viewer (previously empty, since the function only put error
+    detail in its HTTP response body, which Auth's hook-relay never
+    forwards). **Not yet actually seen** — both the Supabase MCP `get_logs`
+    tool and the dashboard's own Function logs UI kept showing stale entries
+    from before this logging was added, even several minutes after a fresh
+    test; unclear whether this is a genuine multi-minute log-pipeline delay
+    or the new deploy hadn't gone live yet. Needs a fresh look next session —
+    check the Function logs for the new `console.log`/`console.error` output
+    first, that should immediately reveal the real cause.
+  - Stage and production are meant to use identical IONOS credentials (same
+    mailbox, `noreply@true-mma.com`) — since stage works, production's
+    failure is most likely a data-entry slip specific to that project's
+    secret value, not a code or architecture problem.
 - Email content is currently plain text, not branded HTML — visual design is
   explicitly deferred, not a blocker for the mechanism working.
 
@@ -1341,6 +1375,50 @@ after seeding data doesn't create duplicate organizations) →
   catch this, since it only validates directly-declared dependencies, not
   what a dependency pulls in transitively.
 
+## Marketing landing page
+
+Added 2026-07-20 as part of the marketing strategy's launch plan (see
+`docs/MARKETING.md` §6 Phase A) — the one piece of that plan allowed to start
+before the design overhaul, since it needs only minimal styling, not final
+brand assets.
+
+- **`website/index.html`** — a single self-contained static file (inline
+  CSS/JS, no build step, no framework) — a one-pager with a hero, the three
+  lead messaging pillars from `docs/MARKETING.md` §2, and a waitlist signup
+  form. Deliberately outside the Expo app entirely; this is a separate
+  deployable artifact, not part of the React Native bundle.
+- **Waitlist storage: `waitlist_signups` table, production Supabase project**
+  (`supabase/migrations/012_waitlist_signups.sql`) — real prospective-user
+  emails, not disposable test data, so it goes to prod rather than stage
+  despite this being marketing rather than app functionality. Anonymous
+  insert-only (`for insert with check (true)`, mirroring `fight_votes`'
+  trust model — see [Data model](#data-model)) with **no SELECT/UPDATE/DELETE
+  policy at all**, stricter than `fight_votes`/`push_subscriptions`: nothing
+  about a waitlist entry ever needs to be read back through the anon key, so
+  RLS simply grants nothing beyond insert. `email` has a basic regex format
+  check constraint (the only validation available at this boundary, since
+  there's no auth layer in front of it) and a `unique` constraint so a
+  repeat signup fails harmlessly (surfaced client-side as "already on the
+  list" via Postgres's `23505` unique-violation code) rather than
+  duplicating.
+- **`utm_source`/`utm_medium`/`utm_campaign` columns** — populated client-side
+  from the landing page's own query string, implementing the launch plan's
+  tagging requirement (`docs/MARKETING.md` §6) from day one, before any paid
+  spend exists to attribute.
+- **Client talks to Supabase directly from the static page** via
+  `@supabase/supabase-js` loaded from a CDN (`esm.sh`), using the project's
+  publishable anon key inline in the HTML — the same trust model as the
+  app's own `EXPO_PUBLIC_SUPABASE_ANON_KEY` usage, safe to embed client-side
+  since RLS is the actual gate, not key secrecy.
+- **Hosting is a manual, undocumented-in-repo step, same treatment as the
+  SMTP/email-template dashboard config** (see [Auth emails](#auth-emails)):
+  intended to be served from `true-mma.com` (already owned via IONOS, see the
+  naming note at the top of this doc), but deploying `website/index.html`
+  there is not automated by any workflow in this repo yet.
+- **No CI deploys this migration automatically to prod except via the normal
+  `stage`→`main` PR flow** (see [GitHub Actions](#environments-dev--stage--main))
+  — same as any other migration, nothing waitlist-specific bypasses that.
+
 ## Known open items
 
 - ~~`main` had never received any of the dev/stage/main pipeline's work~~ —
@@ -1740,23 +1818,29 @@ after seeding data doesn't create duplicate organizations) →
     the live checklist and pre-submit checks. **Still needed:** the matching
     dashboard settings on both stage and prod (local `config.toml` only
     affects local dev).
-  - **Multilingual auth emails** — locale-sync groundwork
-    (`user_metadata.locale`, see the note above) and the Edge Function itself
-    (`supabase/functions/send-auth-email/`) are both **scaffolded 2026-07-20**
-    — see the "Multilingual auth emails via Edge Function" note above. **Not
-    yet enabled on either project** (needs secrets, deployment, and a
-    dashboard hook toggle — deliberately left for an explicit go-ahead, not
-    bundled into the scaffolding work). Signup confirmation itself is still
-    link-based and still lands on Supabase's default unbranded page — moving
-    it to OTP-based (like recovery already is) is the piece that actually
-    fixes that, and hasn't been built yet (needs a `confirmSignup()` client
-    method + a code-entry UI, planned together with the "check your inbox"
-    state below so the OTP-entry pattern isn't built twice).
-  - **Signup "check your inbox" state + resend cooldown**, **magic-link/OTP-only
-    login**, **biometric re-auth** (`expo-local-authentication`, needs a new
-    EAS native build), and **Google/Apple social login** (`expo-auth-session`
-    + Google Cloud Console/Apple Developer setup, needs a new EAS native
-    build, likely makes Sign In with Apple close to mandatory on iOS per App
-    Store guideline 4.8 once Google login exists) are all agreed scope, not
-    yet started — sequenced last since they're the highest-risk/most-external
-    items.
+  - ~~Multilingual auth emails~~ — Edge Function **live on stage** (verified
+    working end-to-end), **still failing on production** with an unresolved
+    generic 500 — see the "Multilingual auth emails via Edge Function" note
+    above for the full debugging trail and what to check first next session.
+  - ~~Signup confirmation link-based~~ — **done 2026-07-20**: `confirmSignup()`
+    + `resendSignupConfirmation()` (`src/lib/auth.tsx`) and a new
+    `signup-confirm` mode in `ProfileScreen.tsx` (code-entry UI, resend button
+    with a 60s cooldown) replace the old link-based flow. Verified against
+    stage only, since production's Edge Function isn't sending real emails
+    yet — the OTP-entry logic itself doesn't depend on which project's hook
+    is fixed.
+  - **Still open:** magic-link/OTP-only login, biometric re-auth
+    (`expo-local-authentication`, needs a new EAS native build), and
+    Google/Apple social login (`expo-auth-session` + Google Cloud
+    Console/Apple Developer setup, needs a new EAS native build, likely makes
+    Sign In with Apple close to mandatory on iOS per App Store guideline 4.8
+    once Google login exists) — sequenced last since they're the
+    highest-risk/most-external items.
+- **Production's email-send rate limit was found silently set to 2/hour,
+  2026-07-20** (an auth log line surfaced it mid-debugging:
+  `"env GOTRUE_RATE_LIMIT_EMAIL_SENT changed, updating Email limiter from 30
+  to 2"` — unclear whether ever deliberately changed or a side effect of
+  another config change). Raised to 100 as an immediate fix. **Still open:**
+  a full review of every rate limit (not just email) on both stage and prod
+  dashboards, to confirm each is intentional rather than a leftover/accidental
+  value — nobody had reviewed these as a standing setting before this.

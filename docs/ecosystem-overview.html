@@ -378,7 +378,7 @@
     <p class="eyebrow">Systemübersicht · Stand 19.07.2026</p>
     <h1>True MMA — wie das Ökosystem zusammenhängt</h1>
     <p class="lede">
-      Acht Dienste, zwei Datenbanken, fünf Wege, auf denen Daten fließen. Diese Seite ist zum
+      Neun Dienste, zwei Datenbanken, sechs Wege, auf denen Daten fließen. Diese Seite ist zum
       Wieder-Reinfinden gedacht: erst was es gibt, dann wie es zusammenspielt, dann was es kostet
       und wo es noch klemmt.
     </p>
@@ -491,11 +491,23 @@
         </dl>
       </article>
 
+      <article class="part">
+        <div class="part-top">
+          <h3>Marketing-Landingpage</h3>
+          <span class="tag t-core">Kern</span>
+        </div>
+        <p>Statische Ein-Seiten-Website, losgelöst von der Expo-App — sammelt Warteliste-Anmeldungen vor dem Store-Launch und schreibt direkt in Supabase prod.</p>
+        <dl>
+          <dt>Config</dt><dd>website/index.html</dd>
+          <dt>Hosting</dt><dd>true-mma.com (manuell)</dd>
+        </dl>
+      </article>
+
     </div>
   </section>
 
   <section>
-    <h2>Die fünf Wege</h2>
+    <h2>Die sechs Wege</h2>
     <p>
       Jeder Weg ist eine Kette. Wenn etwas nicht funktioniert, ist fast immer genau eine dieser
       Ketten unterbrochen — die Frage lautet dann nur, an welchem Glied.
@@ -642,6 +654,25 @@
         Supabase-Dashboard, in keinem Repo.
       </div>
     </div>
+
+    <div class="flow" style="--fc: var(--ingest)">
+      <div class="flow-head">
+        <h3>6 · Warteliste — der einzige Weg ohne App dazwischen</h3>
+        <p>Eine separate, statische Seite außerhalb der Expo-App schreibt Anmeldungen direkt in Supabase.</p>
+      </div>
+      <div class="chain">
+        <div class="node"><span class="n-name">website/index.html</span><span class="n-sub">Formular</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">supabase-js (CDN)</span><span class="n-sub">publishable Key</span></div>
+        <i class="arrow" aria-hidden="true"><svg viewBox="0 0 26 12"><path d="M0 6h20M16 2l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></i>
+        <div class="node"><span class="n-name">Supabase prod</span><span class="n-sub">waitlist_signups, insert-only</span></div>
+      </div>
+      <div class="note">
+        Landet bewusst in <strong>prod</strong>, nicht stage — echte Interessenten-E-Mails, keine
+        Wegwerfdaten. UTM-Parameter aus der Landingpage-URL werden mitgespeichert, für die spätere
+        Kanal-Zuordnung (siehe <code>docs/MARKETING.md</code>).
+      </div>
+    </div>
   </section>
 
   <section>
@@ -756,6 +787,14 @@
           <h3>Supabase Branching statt zwei Projekten</h3>
         </div>
         <p>Zwei Free-Tier-Projekte kosten 0 € statt rund 35 €/Monat. Sobald prod ohnehin Pro-Features braucht — etwa bessere Backups vor einem Release — wird der Wechsel attraktiv und ist dann billig, weil stage nur Wegwerfdaten hält.</p>
+      </div>
+
+      <div class="gap">
+        <span class="sev" style="color: var(--warn)">offen</span>
+        <div>
+          <h3>Landingpage geschrieben, aber nirgends gehostet</h3>
+        </div>
+        <p><code>website/index.html</code> existiert und schreibt schon erfolgreich in <code>waitlist_signups</code> (prod), ist aber noch nicht unter <code>true-mma.com</code> live geschaltet — reines Deployment, kein Code-Problem.</p>
       </div>
 
     </div>
