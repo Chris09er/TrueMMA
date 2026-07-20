@@ -1341,6 +1341,50 @@ after seeding data doesn't create duplicate organizations) →
   catch this, since it only validates directly-declared dependencies, not
   what a dependency pulls in transitively.
 
+## Marketing landing page
+
+Added 2026-07-20 as part of the marketing strategy's launch plan (see
+`docs/MARKETING.md` §6 Phase A) — the one piece of that plan allowed to start
+before the design overhaul, since it needs only minimal styling, not final
+brand assets.
+
+- **`website/index.html`** — a single self-contained static file (inline
+  CSS/JS, no build step, no framework) — a one-pager with a hero, the three
+  lead messaging pillars from `docs/MARKETING.md` §2, and a waitlist signup
+  form. Deliberately outside the Expo app entirely; this is a separate
+  deployable artifact, not part of the React Native bundle.
+- **Waitlist storage: `waitlist_signups` table, production Supabase project**
+  (`supabase/migrations/012_waitlist_signups.sql`) — real prospective-user
+  emails, not disposable test data, so it goes to prod rather than stage
+  despite this being marketing rather than app functionality. Anonymous
+  insert-only (`for insert with check (true)`, mirroring `fight_votes`'
+  trust model — see [Data model](#data-model)) with **no SELECT/UPDATE/DELETE
+  policy at all**, stricter than `fight_votes`/`push_subscriptions`: nothing
+  about a waitlist entry ever needs to be read back through the anon key, so
+  RLS simply grants nothing beyond insert. `email` has a basic regex format
+  check constraint (the only validation available at this boundary, since
+  there's no auth layer in front of it) and a `unique` constraint so a
+  repeat signup fails harmlessly (surfaced client-side as "already on the
+  list" via Postgres's `23505` unique-violation code) rather than
+  duplicating.
+- **`utm_source`/`utm_medium`/`utm_campaign` columns** — populated client-side
+  from the landing page's own query string, implementing the launch plan's
+  tagging requirement (`docs/MARKETING.md` §6) from day one, before any paid
+  spend exists to attribute.
+- **Client talks to Supabase directly from the static page** via
+  `@supabase/supabase-js` loaded from a CDN (`esm.sh`), using the project's
+  publishable anon key inline in the HTML — the same trust model as the
+  app's own `EXPO_PUBLIC_SUPABASE_ANON_KEY` usage, safe to embed client-side
+  since RLS is the actual gate, not key secrecy.
+- **Hosting is a manual, undocumented-in-repo step, same treatment as the
+  SMTP/email-template dashboard config** (see [Auth emails](#auth-emails)):
+  intended to be served from `true-mma.com` (already owned via IONOS, see the
+  naming note at the top of this doc), but deploying `website/index.html`
+  there is not automated by any workflow in this repo yet.
+- **No CI deploys this migration automatically to prod except via the normal
+  `stage`→`main` PR flow** (see [GitHub Actions](#environments-dev--stage--main))
+  — same as any other migration, nothing waitlist-specific bypasses that.
+
 ## Known open items
 
 - ~~`main` had never received any of the dev/stage/main pipeline's work~~ —
