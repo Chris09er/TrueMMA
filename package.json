@@ -45,7 +45,8 @@
     "web": "expo start --web",
     "sync:balldontlie": "tsx scripts/sync-balldontlie.ts",
     "sync:live": "tsx scripts/sync-live-event.ts",
-    "check:i18n": "tsx scripts/check-i18n-parity.ts"
+    "check:i18n": "tsx scripts/check-i18n-parity.ts",
+    "check:logs": "tsx scripts/check-supabase-logs.ts"
   },
   "overrides": {
     "expo-font": "14.0.12"

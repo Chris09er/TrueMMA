@@ -1,0 +1,51 @@
+name: Monitor Supabase (runtime errors)
+
+# Scheduled runtime-error scan of BOTH Supabase projects (stage + production),
+# complementing the interactive advisor-check habit with actual runtime signals
+# — edge-function 5xx, auth errors, Postgres ERROR/FATAL over the last ~24h.
+# See scripts/check-supabase-logs.ts for the checks and docs/ARCHITECTURE.md.
+#
+# Alerting (v1): the scan exits non-zero when it finds errors (or when a check
+# can't run), which fails this workflow — GitHub then emails the repo admins
+# about the failed scheduled run. That's the whole alert path, no extra secret
+# or vendor. If the daily "still broken" emails ever get noisy, upgrade to an
+# open-or-update GitHub issue (needs only the default GITHUB_TOKEN's
+# `issues: write`).
+#
+# NOTE: like every new workflow in this repo, this can't be `workflow_dispatch`ed
+# or fire its `schedule` until it exists on the default branch (`main`) — see
+# docs/ARCHITECTURE.md, GitHub Actions. It stays dormant on dev/stage.
+
+on:
+  schedule:
+    # Twice daily. Deliberately low-frequency (GitHub reliably delivers these,
+    # unlike the */5 sync trigger it sheds) and off-the-hour to avoid scheduler
+    # contention. Would have surfaced the production auth-email 500 within a day.
+    - cron: '17 6,18 * * *'
+  workflow_dispatch: {}
+
+# One account-level SUPABASE_ACCESS_TOKEN covers both projects, so this is a
+# single job (not the per-environment split the sync workflows need for their
+# per-project service-role keys).
+concurrency:
+  group: monitor-supabase
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run check:logs
+        env:
+          # Repo-level secret (account credential, not project-specific) — same
+          # token the migration/OTA workflows already use.
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

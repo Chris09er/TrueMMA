@@ -1993,3 +1993,29 @@ brand assets.
   a full review of every rate limit (not just email) on both stage and prod
   dashboards, to confirm each is intentional rather than a leftover/accidental
   value — nobody had reviewed these as a standing setting before this.
+- **Automated runtime-error monitoring — built 2026-07-20, committed on `dev`,
+  not yet validated live or promoted.** The project's repeated failure mode has
+  been *silence* (the production auth-email 500 ran for hours unnoticed), so
+  this complements the interactive advisor-check habit with actual runtime
+  signals. `scripts/check-supabase-logs.ts` (`npm run check:logs`) scans **both**
+  projects over the last ~24h via the Management API log-analytics endpoint
+  (`/v1/projects/{ref}/analytics/endpoints/logs.all`) for edge-function 5xx,
+  auth `level = 'error'`, and Postgres `ERROR`/`FATAL`, using the single
+  account-level `SUPABASE_ACCESS_TOKEN` (no per-project service-role key needed).
+  `.github/workflows/monitor-supabase.yml` runs it twice daily; the scan's
+  non-zero exit on any error (or on a check that can't run — it fails loudly, it
+  never silently passes) fails the workflow, and GitHub emails the repo admins
+  about the failed scheduled run (the v1 alert path — no extra secret/vendor;
+  upgrade to an open-or-update GitHub issue if the daily "still broken" mails get
+  noisy). **Caveats / still to do:** (1) the log-analytics endpoint is an
+  unstable Management API surface and its BigQuery-style nested-field SQL is
+  best-effort — needs one live `SUPABASE_ACCESS_TOKEN=... npm run check:logs` run
+  to confirm the queries return the expected shape before a green result can be
+  trusted (the token isn't available in the local shell — the CLI keeps it in
+  the OS keychain, not a file); (2) the workflow can't fire until it's on `main`
+  (the standard new-workflow constraint); (3) scope is Supabase-side only —
+  **Expo/client crash telemetry is deliberately out of v1** (needs a crash
+  reporter like Sentry: a new vendor + GDPR surface, a separate decision). The
+  `pg_cron` push health (`league_start_push_health()`) stays a service-role-only
+  interactive check for now — it's not in the token-only script, though pg_cron
+  failures would also surface via the Postgres ERROR scan.
