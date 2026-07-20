@@ -21,8 +21,11 @@
 // notify.
 //
 // The log-analytics endpoint is an unstable/undocumented-guarantee Management
-// API surface and the BigQuery-style nested-field SQL below is best-effort —
-// validate the queries with one live run before trusting a green result.
+// API surface and the BigQuery-style nested-field SQL below is best-effort.
+// Validated live against both projects 2026-07-20: the `logs.all` union endpoint
+// backend-errors on a *second-level* unnest (and on unnesting auth_logs'
+// metadata at all), so the auth/postgres checks avoid it — see the per-check
+// notes below. Re-validate with one live run if a query is ever changed.
 
 const ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
 
@@ -53,20 +56,26 @@ const CHECKS: LogCheck[] = [
   },
   {
     label: 'Auth errors',
+    // auth_logs' `metadata` can't be unnested on the `logs.all` union endpoint
+    // (it backend-errors), but `event_message` is the raw gotrue JSON line which
+    // carries the level, so match on that instead. Validated live 2026-07-20.
     sql: `select cast(timestamp as string) as ts, event_message
           from auth_logs
-          cross join unnest(metadata) as m
-          where m.level = 'error'
+          where event_message like '%"level":"error"%'
           order by timestamp desc
           limit ${SAMPLE_LIMIT}`,
   },
   {
     label: 'Postgres ERROR/FATAL',
+    // `metadata.parsed` is a repeated field, but a *second* unnest on the
+    // `logs.all` union endpoint backend-errors ("Retry your query") even though
+    // selecting the array works — so index the first element instead of a nested
+    // `cross join unnest(m.parsed)`. Postgres log rows carry a single parsed
+    // entry, so OFFSET(0) is the row's severity. Validated live 2026-07-20.
     sql: `select cast(timestamp as string) as ts, event_message
           from postgres_logs
           cross join unnest(metadata) as m
-          cross join unnest(m.parsed) as parsed
-          where parsed.error_severity in ('ERROR', 'FATAL')
+          where m.parsed[SAFE_OFFSET(0)].error_severity in ('ERROR', 'FATAL')
           order by timestamp desc
           limit ${SAMPLE_LIMIT}`,
   },

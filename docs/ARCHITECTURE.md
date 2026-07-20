@@ -153,12 +153,19 @@ and diverge only through new files in `supabase/migrations/`.
   Management API rather than requiring the raw DB password.
 - **Supabase MCP server, added 2026-07-20** (`.mcp.json`, project-scoped): two
   entries, `supabase` (stage, `qvjgsbeugllobgwabebv`, full read/write) and
-  `supabase-prod` (production, `mytdfwceuzgqopndqmjt`, `read_only=true`) —
-  deliberately separate so an agent's default production access is read-only.
+  `supabase-prod` (production, `mytdfwceuzgqopndqmjt`) — deliberately separate.
   Lets an agent query logs/tables/migrations/linter-advisors and run SQL
   directly instead of routing through manual dashboard copy-paste. No secrets
   in the file itself; each server needs a one-time interactive `claude /mcp`
-  authentication per machine.
+  authentication per machine. **2026-07-20: `read_only=true` was removed from
+  the `supabase-prod` URL to make production read/write** (that URL param was the
+  only gate — there is no dashboard-side MCP read-only toggle). Caveat that bit
+  us once: a running session binds the server URL at start, so a `/mcp reconnect`
+  does **not** pick up the edited URL — a full Claude Code restart is required
+  before the write scope applies (a prod `deploy_edge_function` still errored
+  `Cannot deploy … in read-only mode` after only a reconnect, which is why that
+  day's prod redeploy went via the CLI). Until a restart is done, prod writes
+  must use the Supabase CLI.
 
 **GitHub Actions:**
 - Two GitHub **Environments** exist (`production`, `stage`), each with
@@ -995,9 +1002,13 @@ relationship on top of the new architecture surface.
   `email_change_new` to the same template, so toggling "Secure email change" in
   the dashboard can never silently reintroduce an unhandled type). See [Login /
   Profile](#login--profile)'s email-change flow for the app side and the
-  `double_confirm_changes` caveat. **Not yet redeployed** — the updated
-  function is committed on `dev` but the live stage/production functions still
-  run the pre-`email_change` version until the next deploy.
+  `double_confirm_changes` caveat. **Deployed to both environments 2026-07-20**
+  — stage via the MCP `deploy_edge_function` (v5), production via the CLI
+  (`supabase functions deploy send-auth-email --no-verify-jwt --project-ref
+  mytdfwceuzgqopndqmjt`); the CLI path was used for prod because the prod MCP
+  was still read-only at deploy time (see the MCP note below). "Secure email
+  change" / `double_confirm_changes` was also set OFF on both dashboards the
+  same day, so the single-code in-app flow can complete.
 - Email content is currently plain text, not branded HTML — visual design is
   explicitly deferred, not a blocker for the mechanism working.
 
@@ -1914,11 +1925,12 @@ brand assets.
     auth emails via Edge Function" note above (Auth emails section) for the
     `execution_time_ms` diagnosis. The credential-length `console.log`
     diagnostic has since been removed (replaced by a non-sensitive "creds
-    missing" `console.error` guard). **Still to do:** (1) redeploy the function
-    to stage+prod to ship the new `email_change` template *and* the log cleanup
-    (both committed on `dev`, not yet deployed); (2) set "Secure email change"
-    OFF on both dashboards for the email-change flow (see [Login /
-    Profile](#login--profile)).
+    missing" `console.error` guard). ~~**Still to do:** (1) redeploy the function
+    to stage+prod to ship the new `email_change` template *and* the log cleanup;
+    (2) set "Secure email change" OFF on both dashboards.~~ **Both done
+    2026-07-20:** the function was redeployed to stage (MCP) and prod (CLI), and
+    "Secure email change" was switched OFF on both dashboards — the email-change
+    flow is now live end-to-end on both environments.
   - ~~Signup confirmation link-based~~ — **done 2026-07-20**: `confirmSignup()`
     + `resendSignupConfirmation()` (`src/lib/auth.tsx`) and a new
     `signup-confirm` mode in `ProfileScreen.tsx` (code-entry UI, resend button
