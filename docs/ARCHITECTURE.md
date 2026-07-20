@@ -252,10 +252,13 @@ else (UFC + 9 other leagues) is populated by
 
 ## App structure
 
-- `App.tsx` — root: `LocaleProvider` → `NavigationContainer` (dark theme) →
-  bottom tabs.
+- `App.tsx` — root: `ThemeProvider` → `LocaleProvider` → `AuthProvider` →
+  `NavigationContainer` (theme-aware, see [theme.tsx](#shared-lib)) → bottom
+  tabs.
 - **Navigation** (`src/navigation.ts`): `RootTabParamList` (EventsTab,
-  FightersTab, ProfileTab, LanguageTab, ContactTab) +
+  FightersTab, ProfileTab, ContactTab — `LanguageTab` removed 2026-07-20,
+  folded into a settings gear icon on `ProfileScreen`, see [Login /
+  Profile](#login--profile)) +
   `EventsStackParamList` (EventList → EventDetail) and
   `FightersStackParamList` (FighterList → FighterDetail), both native
   stacks nested inside their tab. Both `RootTabParamList.EventsTab` and
@@ -268,22 +271,39 @@ else (UFC + 9 other leagues) is populated by
   ('EventsTab', { screen: 'EventDetail', params: {...} })`. Standard React
   Navigation pattern, not a workaround.
 - **Screens** (`src/screens/`):
-  - `EventListScreen` — list/calendar view toggle (top row); list mode:
-    today/upcoming/past toggle (added 2026-07-19 — "today" =
-    `getTodayEvents()` in `queries.ts`, events on today's local calendar
-    date **or** still `isEventLive()` — covers a card that started before
-    midnight and hasn't rolled into "past" yet), org filter (UFC/OKTAGON pinned first via
-    `PINNED_ORG_ORDER` in `queries.ts`, rest alphabetical; horizontally
-    scrollable — the org list is longer than one screen width, e.g. PFL
-    only shows up if you scroll), text search (client-side substring
-    match), pull-to-refresh; calendar mode: month grid
+  - `EventListScreen` — list/calendar view toggle (top `SegmentedControl`);
+    list mode: **Vergangene / Heute / Kommende** `SegmentedControl`, in that
+    order (reordered 2026-07-20; "Kommende" stays the default-selected
+    segment). `getEvents()` in `queries.ts` (backing `getUpcomingEvents`/
+    `getPastEvents`) compares against local start-of-today, not the current
+    instant (changed 2026-07-20) — so "Kommende" always includes all of
+    today's events too, intentionally overlapping with the "Heute" tab
+    (feedback: a user expects today's card under "upcoming", not just a
+    separate bucket), and "Vergangene" never includes an event from today
+    even one that already concluded. "Heute" itself is `getTodayEvents()` —
+    events on today's local calendar date **or** still `isEventLive()`
+    (covers a card that started before midnight and hasn't rolled into
+    "past" yet). Org filter (via the shared `FilterModal`, see the Components list below)
+    is scoped to
+    whichever timeframe/orgs actually have events — `listOrganizations` is
+    derived client-side from the currently-loaded (unfiltered-by-org)
+    `events` array, filtering the full `organizations` list down to only
+    the org ids present (changed 2026-07-20: org filtering itself moved
+    client-side too, so switching the org filter no longer refetches —
+    only switching timeframe does). If the selected org has no events in a
+    newly-active timeframe, the selection resets automatically instead of
+    silently filtering the list to empty. Text search (client-side
+    substring match), pull-to-refresh; calendar mode: month grid
     (`react-native-calendars`, pure JS — no native module, no EAS rebuild)
     with a dot on days that have events, fed per-month by
-    `getEventsInRange()` (independent of the upcoming/past split), tapping
-    a day filters the list below to that day; org filter applies in both
-    modes. Per-event reminder bell + favorite heart (only bell rendered
-    for events where `isEventUpcoming()` is true, heart always). A pulsing
-    red `LiveBadge` (`src/components/`, added 2026-07-19, RN's built-in
+    `getEventsInRange()` (independent of the upcoming/past split, still
+    filtered server-side by org — calendar mode's org list is the full,
+    unfiltered `organizations`, not `listOrganizations`, since "does this
+    league have an event this month" isn't the same question), tapping
+    a day filters the list below to that day. Per-event reminder bell +
+    favorite heart (only bell rendered for events where `isEventUpcoming()`
+    is true, heart always). A pulsing
+    red `LiveBadge` (`src/components/`, RN's built-in
     `Animated` API — no new dependency) renders on any card where
     `isEventLive()` is true (also used in `EventDetailScreen`'s header);
     see `isEventLive()` in `queries.ts` — same ~6h post-start buffer
@@ -316,17 +336,20 @@ else (UFC + 9 other leagues) is populated by
     `OrganizationFollowBell` next to the org name (added 2026-07-19, see
     [Notifications](#notifications)); and, for any fight with no result
     yet, a vote UI (see [Voting](#voting)).
-  - `FighterListScreen` — search, a single "Filter" button (added
-    2026-07-19, replacing what used to be a lone horizontal-scroll
-    nationality row) opening a bottom-sheet `Modal` (RN built-in, no new
-    dependency) with three independently-combinable (AND) sections —
-    Organisation (`primary_organization_id`, see [Data
-    model](#data-model)), Gewichtsklasse (`weight_class`), Nationalität —
-    each a wrapped chip row rather than horizontal-scroll, since a modal
-    has the vertical room a header row doesn't. All three still derive
-    their options client-side from the already-loaded fighter list, same
-    as the original nationality-only filter. Pull-to-refresh, per-fighter
-    follow bell. Tapping a fighter opens `FighterDetailScreen`
+  - `FighterListScreen` — search, a single "Filter" button opening the
+    shared `FilterModal` (see [App structure → Components](#app-structure))
+    with independently-combinable (AND) sections — Organisation
+    (`primary_organization_id`, see [Data model](#data-model)),
+    Gewichtsklasse, Nationalität. Gewichtsklasse is itself split into two
+    `FilterSection`s, Männer/Frauen (added 2026-07-20, feedback: the flat
+    alphabetical/weight-ordered list mixed both) — split purely by whether
+    `weight_class` starts with `"Women's "` (confirmed against the live DB:
+    balldontlie already prefixes every women's division that way, e.g.
+    `"Women's Bantamweight"` vs `"Bantamweight"` — no schema change needed,
+    the women's-section chip label strips the prefix for display, the
+    stored/matched value keeps it). All three still derive their options
+    client-side from the already-loaded fighter list. Pull-to-refresh,
+    per-fighter follow bell. Tapping a fighter opens `FighterDetailScreen`
     (used to jump straight to Tapology/Sherdog — now shows an in-app
     profile first, external links are explicit buttons there).
   - `FighterDetailScreen` — photo/name/nickname/nationality, W-L-D record
@@ -344,25 +367,65 @@ else (UFC + 9 other leagues) is populated by
     Navigation above). Within each upcoming/history row, the opponent name
     and event name are themselves tappable, navigating on to that
     opponent's `FighterDetail` or the event's `EventDetail` respectively.
-  - `LanguageScreen`, `ContactScreen` — simple settings-style screens.
-    `LanguageScreen` shows a flag emoji per entry (`SUPPORTED_LOCALES` in
-    `i18n.tsx` now carries a `flag` field alongside `code`/`label`).
-    `ContactScreen` (updated 2026-07-19) shows the support email as
-    selectable `Text` (RN's built-in `selectable` prop — native
+  - `ContactScreen` — simple settings-style screen. Shows the support email
+    as selectable `Text` (RN's built-in `selectable` prop — native
     long-press-copy, no new dependency) above the mailto button, and
     guards `Linking.openURL` with `Linking.canOpenURL` first, falling back
     to an alert instead of failing silently if no mail client is
     configured.
   - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
-    flow. Logged-in: nickname, change email/password, a timezone-override
-    picker (added 2026-07-19, see [Login / Profile](#login--profile)),
+    flow. Logged-in: nickname, change email/password,
     followed fighters/events/**organizations** (added 2026-07-19) and
     favorited fighters/events (reusing the same bell/heart components to
-    unfollow/unfavorite directly from the list), logout. See
-    [Login / Profile](#login--profile) and [Favorites](#favorites).
+    unfollow/unfavorite directly from the list), logout. **Settings gear
+    icon (2026-07-20, replaces the old standalone `LanguageScreen` tab)** —
+    top-right on `ProfileScreen`, shown in both logged-in and logged-out
+    states, opens `SettingsModal` (built on the shared `FilterModal` shell):
+    language picker (`SUPPORTED_LOCALES`, flag emoji per entry), a
+    System/Light/Dark appearance picker (`useTheme().themeOverride` +
+    `setThemeOverride()`, persisted to AsyncStorage — see `theme.tsx`
+    below), and — only when logged in, since it's stored server-side on the
+    user's profile — the timezone-override picker (moved out of the main
+    scroll view into the modal). See [Login / Profile](#login--profile) and
+    [Favorites](#favorites).
 - **Shared lib** (`src/lib/`):
-  - `theme.ts` — dark palette, spacing/radius tokens, `commonStyles`
-    (loading/error/empty — reused by every list/detail screen).
+  - `theme.tsx` (renamed from `theme.ts` 2026-07-20 — see [Known open
+    items](#known-open-items) for the visual redesign this is part of) —
+    dual dark/light color palettes ("Chrome & Indigo" — replaced the
+    original "Steel & Ember" orange palette 2026-07-20, feedback: orange
+    read as "unsexy"; electric-blue primary accent, cool silver secondary,
+    danger deliberately a different hue from the accent so an active filter
+    never reads as an error, `live` kept separate from `danger` for the same
+    reason), a `typography` scale
+    (Barlow Condensed for display/headings, Inter for body — both loaded via
+    `useFonts` in `App.tsx`, each `require()`d as an individual `.ttf` file
+    rather than importing the named exports from `@expo-google-fonts/*` —
+    those packages' index modules `require()` every weight of the family
+    unconditionally, so importing even one named export pulled all ~34 font
+    files, most unused, into the bundle), spacing/radius tokens,
+    `minTapTarget` (44 — iOS HIG/Material minimum). Exports a
+    `ThemeProvider`/`useTheme()` — defaults to system-driven via
+    `useColorScheme()`, now overridable (2026-07-20, see [Login /
+    Profile](#login--profile)'s settings gear) via
+    `themeOverride`/`setThemeOverride()`, a `'system' | 'light' | 'dark'`
+    persisted to AsyncStorage the same way `i18n.tsx`'s `LocaleProvider`
+    persists the locale. Wired through the **entire**
+    app: `App.tsx`'s navigator chrome and every screen/component call
+    `useTheme()` for `colors` and build their `StyleSheet` via a
+    `makeStyles(colors)` factory wrapped in `useMemo(() => makeStyles(colors),
+    [colors])`, rather than a module-level `StyleSheet.create` baked to one
+    palette at import time. Screen-local helper components that render
+    inside a `FlatList`/`map` (`FighterLink`, `BroadcastTimes`,
+    `FightVoteRow` in `EventDetailScreen`; `TaleOfTheTape`, `FightRow` in
+    `FighterDetailScreen`) take `styles` as a prop from their parent instead
+    of calling `useTheme()` themselves, to avoid redundant context reads in
+    a loop. `useCommonStyles()` is the theme-aware replacement for the old
+    static `commonStyles` export (same `.center`/`.error`/`.empty` shape).
+    The flat `colors` export still exists but now only backs the
+    `App.tsx` splash placeholder shown before fonts finish loading and
+    `ThemeProvider` mounts — nothing else imports it. Light mode therefore
+    now reaches screen content, not just the nav chrome, though it's still
+    system-driven only (no manual in-app toggle).
   - `i18n.tsx` — hand-rolled DE/EN dictionary + React context
     (`LocaleProvider`/`useLocale`), persisted via AsyncStorage. Add a
     language by adding its code to `Locale`, an entry in
@@ -380,26 +443,59 @@ else (UFC + 9 other leagues) is populated by
   `FighterFollowBell` (each wraps `BellIconButton`, shows an `Alert` after
   a successful toggle explaining what enabling/disabling the reminder
   does), `EventFavoriteHeart`, `FighterFavoriteHeart` (same pattern, see
-  [Favorites](#favorites)). `FilterButton` (shared filter-chip, used by
-  the event org filter and the fighter nationality filter) — always
-  resolves to a concrete style object per state (`active ? styleA :
-  styleB`, never a bare `false` in a style array) with an explicit
-  `minHeight`, after a real-device Android bug where inactive chips
-  rendered as an unreadable blank/white sliver until the row was
-  otherwise forced to re-layout. The wrapping horizontal `ScrollView` in
-  both `EventListScreen` and `FighterListScreen` also needs an explicit
-  `style={{ flexGrow: 0 }}` (separate from `contentContainerStyle`) —
-  without it, RN's default `flexGrow` behavior lets the row collapse when
-  a flex-column sibling (the list/calendar below) claims space on
-  re-layout. **Same bug family, hit again 2026-07-19:** `flexGrow: 0`
-  alone still wasn't enough on a real device for `EventListScreen`'s org
-  filter row — the first event card visibly overlapped it. Fixed with an
-  explicit `height: 60` (36px `FilterButton` `minHeight` + 2×12px vertical
-  padding) on the container, so its height is reserved immediately instead
-  of depending on the horizontal `ScrollView`'s intrinsic-size layout
-  timing at all. Worth applying the same explicit-height fix proactively
-  to any future horizontal filter row, rather than waiting for it to
-  surface again on-device.
+  [Favorites](#favorites)).
+  - **Filter system (redesigned 2026-07-20, replaces the old `FilterButton`
+    below).** Three components, each for a distinct interaction that used
+    to look identical: `SegmentedControl` (exclusive small mode switches —
+    `EventListScreen`'s list/calendar and today/upcoming/past — a single
+    pill track, not separate buttons, so it visually reads as "mode" rather
+    than "filter"); `FilterChip` (a single multi-value filter option — 44pt
+    tap target, `Pressable`'s `pressed` state renders `pressedStyle` from
+    `theme.tsx`, active state uses the Ember accent, no `numberOfLines` cap
+    so a long German label grows the chip instead of being silently cut
+    off); `FilterModal`/`FilterSection` (the shared bottom-sheet shell —
+    previously `FighterListScreen` had its own bespoke modal and
+    `EventListScreen` used an always-visible horizontal-scroll chip row
+    instead, two different UX patterns for the same concept). Both list
+    screens now open the same modal pattern for their filters
+    (`EventListScreen`: organization only; `FighterListScreen`:
+    organization/weight class/nationality) via a `Filter (N)` button
+    showing the active-filter count. This also fixes the documented
+    discoverability problem where "PFL only shows up if you scroll" —
+    everything is now inside a modal, not an easy-to-miss scroll row.
+    Weight-class chips are ordered by `sortWeightClasses()` in `queries.ts`
+    (light-to-heavy by real division, e.g. `Bantamweight` before
+    `Featherweight`; `weight_class` is free text from balldontlie, not a
+    fixed enum, so unrecognized values fall back to alphabetical rather
+    than erroring) instead of the previous plain alphabetical sort, which
+    put divisions in an order with no real-world meaning.
+  - The old `FilterButton`'s real-device Android bug (inactive chips
+    rendering as an unreadable blank/white sliver without a concrete style
+    object per state, or its containing horizontal `ScrollView` collapsing
+    without an explicit `flexGrow: 0` + height) no longer applies —
+    `EventListScreen`'s persistent horizontal org-filter row is gone,
+    replaced by the modal above. `FilterChip` still follows the same
+    defensive pattern (concrete style per state, no bare `false` in a style
+    array) since the underlying RN behavior that caused it hasn't changed;
+    worth reapplying the explicit-height fix proactively if a future screen
+    ever needs a persistent horizontal scroll row of buttons again.
+  - Tab bar icons switched from Ionicons to MaterialCommunityIcons
+    (2026-07-20, same bundled `@expo/vector-icons` font set, no new
+    dependency) for a less generic-utility-app feel — e.g. `boxing-glove`
+    for Fighters instead of `people`.
+  - `SettingsModal` (2026-07-20) — built on the shared `FilterModal` shell,
+    see [Login / Profile](#login--profile) for what it contains and why
+    `LanguageScreen` was removed in favor of it.
+  - `OrganizationFollowBell` (2026-07-20) — now shows a success `Alert` on
+    toggle explaining the effect ("you'll be notified when an event from
+    this league starts"), matching the pattern `EventReminderBell` and
+    `FighterFollowBell` already had; it was the one bell missing this
+    explanation. Note the fighter-follow bell's explanation is accurate to
+    its *current* behavior (notifies when the fighter is booked for a new
+    fight) — notifying when that fighter's fight actually **starts** is a
+    distinct, not-yet-built feature (see [Known open
+    items](#known-open-items)), don't reword the alert to promise it before
+    the trigger exists.
 
 ## Notifications
 
@@ -426,6 +522,11 @@ constraints:
    - **Expo Go cannot receive real push notifications since SDK 54** — a
      development build (EAS) is required to test this path. Local
      reminders are unaffected.
+   - **Also fires on fight start** (2026-07-20, `dev` only — see [Known open
+     items](#known-open-items)), piggybacked onto `send_league_start_pushes()`
+     below rather than its own trigger, since "did this event start" is
+     already that function's job and there's no per-fight start time to key
+     a separate trigger off anyway.
 3. **League-follow push** (`src/lib/organizationFollows.ts`, added
    2026-07-19) — same push-token/anonymous-follow shape as fighter-follow,
    but fires when a followed organization's event actually **starts**, not
@@ -986,6 +1087,24 @@ after seeding data doesn't create duplicate organizations) →
 
 ## Known open items
 
+- ~~`main` had never received any of the dev/stage/main pipeline's work~~ —
+  **resolved 2026-07-19.** First promotion since the pipeline was set up:
+  PR #11 merged all 21 commits from `stage` into `main` in one go (sync-cost
+  optimization, the two live-sync bug fixes, the league-start push and its
+  006/007 security fix — shipped together deliberately, see
+  [Notifications](#notifications) — auth/voting/favorites/org-follows, OTA
+  channel setup, and this session's push-chunking/receipts work).
+  `deploy-migrations.yml` applied migrations 001–008 to the production
+  Supabase project without error; `publish-ota-update.yml` published to the
+  `production` EAS Update channel (a no-op today — no production build has
+  ever embedded `expo-updates`, so nothing is listening on that channel
+  yet). `main` and `stage` are now at the same commit. Verified against the
+  production project post-merge via `supabase login` (CLI-level access
+  token, kept separate from local `.env` — which deliberately still holds
+  only the stage service-role key, see below) + `supabase projects
+  api-keys --reveal`: `league_start_push_health()` returns
+  `job_scheduled`/`job_active` true and a recent `succeeded` run on
+  production, same as already confirmed on stage.
 - ~~EAS Update (OTA) channels configured but not yet live end-to-end~~ —
   **resolved 2026-07-19.** `EXPO_TOKEN` repo secret created (an Expo
   **robot user** token, not a personal one — see [Build &
@@ -1186,3 +1305,96 @@ after seeding data doesn't create duplicate organizations) →
   need this considered), and how it interacts with `FighterDetailScreen`'s
   fight history (which shows W/L for every past fight) versus
   `EventDetailScreen`'s per-fight result line.
+- **Full visual/UX redesign — in progress, started 2026-07-20.** Agreed
+  process: critical analysis → mood/color → typography → component system →
+  screen-by-screen, nothing final without discussion (see [App
+  structure](#app-structure) for what's landed). Done: critical analysis of
+  the pre-redesign UI; a "Chrome & Indigo" dark+light palette (replaced an
+  initial "Steel & Ember" orange direction after user feedback that it read
+  as "unsexy") and a Barlow Condensed/Inter type scale in
+  `src/lib/theme.tsx`; a filter-system overhaul (`SegmentedControl`,
+  `FilterChip`, `FilterModal`/`FilterSection`) covering both list screens,
+  including a Männer/Frauen split on the fighter weight-class filter; a
+  real weight-class ordering; tab bar icons switched to
+  MaterialCommunityIcons; press feedback (`pressedStyle`) on every
+  `Pressable` app-wide; the full `useTheme()` migration (every
+  screen/component builds styles from the current theme via
+  `makeStyles(colors)`); a manual System/Light/Dark appearance toggle
+  (`themeOverride`, persisted) plus a consolidated settings area (gear icon
+  on `ProfileScreen`, works logged-in or out) that folded the standalone
+  Language tab into it; the previously-missing explanation `Alert` on
+  `OrganizationFollowBell`. Verified hands-on 2026-07-20 on a real Android
+  emulator via Expo Go (had to match the Expo Go APK version to the
+  project's exact SDK — 54.0.8 — since the generic download 404s/crashes
+  with "Incompatible SDK version" against a mismatched build): palette,
+  typography, `SegmentedControl`, `FilterModal`, calendar mode, and live
+  data all render correctly with no crashes. Didn't get to visually verify
+  `FighterListScreen` in that session — an emulator/adb touch-input quirk
+  unrelated to the app code, not a known issue.
+  **Bugs found from that same hands-on pass, fixed 2026-07-20:**
+  `FilterModal`'s `ScrollView` had no `flexShrink` — RN defaults that to 0,
+  so content taller than the sheet's `maxHeight: '80%'` was clipped instead
+  of scrollable (this is why the Settings modal's "Dunkel" option was hard
+  to tap and the timezone section wasn't visible at all — both were just
+  past the clipped edge, not actually broken); fixed by giving the
+  `ScrollView` `flexShrink: 1`. The settings gear icon was absolutely
+  positioned inside `ProfileScreen`'s body, landing it level with the
+  screen's own content (e.g. the "Anmelden" heading) instead of the native
+  header bar; moved to `headerRight` via `navigation.setOptions()` in a
+  `useLayoutEffect`, so it now sits at the "Profil" header's height like a
+  standard gear icon. Also this round: the Vergangene/Heute/Kommende
+  timeframe reorder and the "Kommende includes today" / org-filter-hides-
+  empty-leagues changes described in [App structure](#app-structure).
+  Explicitly deferred/decided: no per-organization branding accent
+  (UFC/OKTAGON/... stay visually neutral, text-only distinction) — avoids
+  trade-dress proximity to real orgs' brand colors. `expo-linear-gradient`
+  added 2026-07-20 for a subtle metallic sheen on filled-accent surfaces —
+  `colors.accentGradient` (a two-stop `[string, string]` per palette in
+  `theme.tsx`) is used by `SegmentedControl`'s active segment,
+  `FilterChip`'s active chip, `EventDetailScreen`'s title-fight tag, and its
+  vote-bar fill; deliberately not applied everywhere ("ohne zu aufregend zu
+  werden" — the flat `accent` value still exists and is still the right
+  choice for smaller/text-level uses). This is the redesign's first native
+  (non-JS-only) dependency — it renders fine in Expo Go (bundled in the SDK)
+  but **needs a fresh `eas build --profile development` before it shows up
+  in an existing custom dev client**, since a dev client only has the
+  native modules it was built with. Verified hands-on on a real Android
+  emulator via Expo Go 2026-07-20: gradient renders correctly on both
+  `SegmentedControl` and the org `FilterChip`s, no crash. Not yet done: a
+  logo and app icon (must be store-review-distinguishable from
+  UFC/OKTAGON, plus font/icon-license checks for commercial use).
+- **Fighter-follow push on fight start — built 2026-07-20, on `dev`, not
+  yet promoted to stage/main.** Migration
+  `009_fighter_fight_start_push.sql` extends `send_league_start_pushes()`
+  (name kept for continuity even though it now covers two audiences — see
+  [Notifications](#notifications)) to also message followers of any fighter
+  with a non-cancelled fight on an event, when that event's broadcast
+  starts. Granularity is per-**event**, not per-fight — balldontlie only
+  gives broadcast segment start times, never an individual fight's start
+  time, so there's nothing finer to key off; this reuses the exact same
+  30-minute "did this event just start" gate and
+  `league_start_push_sent_at`/`_request_ids` tracking the org-follow push
+  already had, just with a second `send_expo_push_chunked()` call tagged
+  `'fighter_follow'` (matching the tag `notify_fighter_added_to_fight()`
+  already uses for the "booked" push) instead of `'league_start'`. A user
+  following both the org and one of the card's fighters gets two separate
+  messages — accepted as a minor duplicate rather than adding dedup
+  complexity for a rare overlap. `FighterFollowBell`'s explanation text
+  updated to match. **Not yet applied to any real database** — migrations
+  only auto-deploy on push to `stage`/`main` (see
+  `deploy-migrations.yml`); this needs the normal `dev` → `stage` → `main`
+  promotion, and stage should be checked against a real upcoming event
+  before promoting further.
+- **Data gaps — checked directly against the live DB 2026-07-20, both
+  confirmed real, neither a code bug.** (1) Bellator, Invicta, KSW, and ONE
+  have **zero** event rows in the database at all (not just zero upcoming)
+  — balldontlie simply has no data for them. CW has 2 events/0 upcoming,
+  LFA 20/0, RIZIN 4/0 — all past, nothing announced. Confirms
+  `sync-balldontlie.ts` (no allowlist, pulls every league balldontlie
+  returns) was never the problem. (2) Fight-history coverage: of 1,000
+  active fighters checked, 417 (42%) have exactly 1 fight row, 371 (37%)
+  have 2, only 1 has 6+; 986 total fight rows across all of them. Confirms
+  `getFighterFights()` (no `.limit()`) isn't truncating anything —
+  balldontlie's historical coverage is just shallow for most fighters.
+  Both are upstream data-source limitations, not bugs to chase in this
+  codebase.
