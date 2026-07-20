@@ -1060,7 +1060,18 @@ after seeding data doesn't create duplicate organizations) →
     deployment](#build--deployment)). This closes the gap where a native
     change pushed to `stage`/`main` used to publish a same-day OTA update
     that no installed build could actually use until someone manually
-    remembered to run a fresh `eas build`.
+    remembered to run a fresh `eas build`. **Must pass `--build-profile
+    "$EAS_BUILD_PROFILE"` to the `fingerprint:generate` call** (added after
+    the first live run failed) — without it, the CI-computed hash resolves
+    config (notably the `GOOGLE_SERVICES_JSON` file-type env var behind
+    `app.config.js`'s `googleServicesFile`) differently than the real `eas
+    build` does, so the two disagree on the hash and the auto-triggered
+    build fails at its `CONFIGURE_EXPO_UPDATES` phase with "Runtime version
+    calculated on local machine not equal to runtime version calculated
+    during build." Confirmed by inspecting the failed build's logs (`eas
+    build:view <id> --json` → `logFiles`, brotli-compressed — `zlib.
+    brotliDecompressSync` in Node reads it) on the first stage run after
+    this feature shipped.
   - **Still manual either way:** installing the resulting build.
     EAS Build doesn't push anything to a device — `preview`/`development`
     builds are internal-distribution APKs that must be downloaded and
