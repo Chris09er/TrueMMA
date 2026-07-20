@@ -23,7 +23,7 @@ import {
 } from '../lib/queries';
 import { getEventFavoriteIds } from '../lib/favorites';
 import type { EventListItem, Organization } from '../lib/types';
-import { colors, commonStyles, pressedStyle, radius, spacing, typography } from '../lib/theme';
+import { pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
@@ -46,6 +46,9 @@ function currentYearMonth(): string {
 export default function EventListScreen({ navigation }: Props) {
   const { t, locale } = useLocale();
   const { timezoneOverride } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const commonStyles = useCommonStyles();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
   const [timeframe, setTimeframe] = useState<Timeframe>('upcoming');
@@ -126,13 +129,13 @@ export default function EventListScreen({ navigation }: Props) {
     const marks: Record<string, { marked?: boolean; dotColor?: string; selected?: boolean; selectedColor?: string }> = {};
     for (const event of monthEvents) {
       const day = event.event_date.slice(0, 10);
-      marks[day] = { ...marks[day], marked: true, dotColor: colors.accentGold };
+      marks[day] = { ...marks[day], marked: true, dotColor: colors.accent };
     }
     if (selectedDate) {
-      marks[selectedDate] = { ...marks[selectedDate], selected: true, selectedColor: colors.accentGold };
+      marks[selectedDate] = { ...marks[selectedDate], selected: true, selectedColor: colors.accent };
     }
     return marks;
-  }, [monthEvents, selectedDate]);
+  }, [monthEvents, selectedDate, colors]);
 
   const dayEvents = useMemo(() => {
     if (!selectedDate) return [];
@@ -265,12 +268,12 @@ export default function EventListScreen({ navigation }: Props) {
                   calendarBackground: colors.background,
                   textSectionTitleColor: colors.textSecondary,
                   dayTextColor: colors.textPrimary,
-                  todayTextColor: colors.accentGold,
+                  todayTextColor: colors.accent,
                   monthTextColor: colors.textPrimary,
-                  arrowColor: colors.accentGold,
+                  arrowColor: colors.accent,
                   textDisabledColor: colors.border,
-                  dotColor: colors.accentGold,
-                  selectedDayBackgroundColor: colors.accentGold,
+                  dotColor: colors.accent,
+                  selectedDayBackgroundColor: colors.accent,
                   selectedDayTextColor: colors.background,
                 }}
                 style={styles.calendar}
@@ -300,7 +303,7 @@ export default function EventListScreen({ navigation }: Props) {
                   refreshing={refreshing}
                   onRefresh={handleRefresh}
                   tintColor={colors.textPrimary}
-                  colors={[colors.accentGold]}
+                  colors={[colors.accent]}
                 />
               }
               ListEmptyComponent={
@@ -321,79 +324,80 @@ export default function EventListScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  controlsRow: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-  },
-  searchInput: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    color: colors.textPrimary,
-  },
-  filterOpenButton: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    minHeight: 44,
-    justifyContent: 'center',
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterOpenButtonText: {
-    ...typography.body,
-    fontFamily: typography.label.fontFamily,
-    color: colors.textPrimary,
-  },
-  calendar: {
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  list: {
-    padding: spacing.md,
-    gap: 10,
-  },
-  eventCard: {
-    padding: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    position: 'relative',
-  },
-  eventOrg: {
-    ...typography.label,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  liveBadgeSlot: {
-    marginBottom: 4,
-  },
-  eventName: {
-    ...typography.cardTitle,
-    marginBottom: 4,
-    color: colors.textPrimary,
-  },
-  eventNameWithIcons: {
-    paddingRight: 56,
-  },
-  eventMeta: {
-    ...typography.meta,
-    color: colors.textSecondary,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    controlsRow: {
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.md,
+    },
+    searchInput: {
+      marginHorizontal: spacing.md,
+      marginTop: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      color: colors.textPrimary,
+    },
+    filterOpenButton: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: 14,
+      minHeight: 44,
+      justifyContent: 'center',
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    filterOpenButtonText: {
+      ...typography.body,
+      fontFamily: typography.label.fontFamily,
+      color: colors.textPrimary,
+    },
+    calendar: {
+      marginHorizontal: spacing.md,
+      marginBottom: spacing.md,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    list: {
+      padding: spacing.md,
+      gap: 10,
+    },
+    eventCard: {
+      padding: 14,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      position: 'relative',
+    },
+    eventOrg: {
+      ...typography.label,
+      color: colors.textSecondary,
+      marginBottom: 4,
+    },
+    liveBadgeSlot: {
+      marginBottom: 4,
+    },
+    eventName: {
+      ...typography.cardTitle,
+      marginBottom: 4,
+      color: colors.textPrimary,
+    },
+    eventNameWithIcons: {
+      paddingRight: 56,
+    },
+    eventMeta: {
+      ...typography.meta,
+      color: colors.textSecondary,
+    },
+  });

@@ -373,17 +373,25 @@ else (UFC + 9 other leagues) is populated by
     those packages' index modules `require()` every weight of the family
     unconditionally, so importing even one named export pulled all ~34 font
     files, most unused, into the bundle), spacing/radius tokens,
-    `minTapTarget` (44 — iOS HIG/Material minimum, `FilterButton` doesn't
-    honor this yet), and `commonStyles` (loading/error/empty — reused by
-    every list/detail screen). Also exports a `ThemeProvider`/`useTheme()`
-    (system-driven via `useColorScheme()`, no manual override yet) now
-    wired into `App.tsx`'s navigator chrome (headers, tab bar, status bar) —
-    but **not yet** into individual screens/components, which still import
-    the flat legacy `colors` export (fixed to the dark palette, includes an
-    `accentGold` alias for ~30 existing call sites so they inherit the new
-    Ember accent without a rewrite). Migrating those call sites to
-    `useTheme()` is the remaining redesign work (component system, then
-    screen-by-screen).
+    `minTapTarget` (44 — iOS HIG/Material minimum). Exports a
+    `ThemeProvider`/`useTheme()` (system-driven via `useColorScheme()`, no
+    manual override yet) — as of 2026-07-20 wired through the **entire**
+    app: `App.tsx`'s navigator chrome and every screen/component call
+    `useTheme()` for `colors` and build their `StyleSheet` via a
+    `makeStyles(colors)` factory wrapped in `useMemo(() => makeStyles(colors),
+    [colors])`, rather than a module-level `StyleSheet.create` baked to one
+    palette at import time. Screen-local helper components that render
+    inside a `FlatList`/`map` (`FighterLink`, `BroadcastTimes`,
+    `FightVoteRow` in `EventDetailScreen`; `TaleOfTheTape`, `FightRow` in
+    `FighterDetailScreen`) take `styles` as a prop from their parent instead
+    of calling `useTheme()` themselves, to avoid redundant context reads in
+    a loop. `useCommonStyles()` is the theme-aware replacement for the old
+    static `commonStyles` export (same `.center`/`.error`/`.empty` shape).
+    The flat `colors` export still exists but now only backs the
+    `App.tsx` splash placeholder shown before fonts finish loading and
+    `ThemeProvider` mounts — nothing else imports it. Light mode therefore
+    now reaches screen content, not just the nav chrome, though it's still
+    system-driven only (no manual in-app toggle).
   - `i18n.tsx` — hand-rolled DE/EN dictionary + React context
     (`LocaleProvider`/`useLocale`), persisted via AsyncStorage. Add a
     language by adding its code to `Locale`, an entry in
@@ -1248,24 +1256,22 @@ after seeding data doesn't create duplicate organizations) →
 - **Full visual/UX redesign — in progress, started 2026-07-20.** Agreed
   process: critical analysis → mood/color → typography → component system →
   screen-by-screen, nothing final without discussion (see [App
-  structure](#app-structure) for what's landed). Done so far: critical
-  analysis of the pre-redesign UI; a new "Steel & Ember" dark+light palette
-  and a Barlow Condensed/Inter type scale in `src/lib/theme.tsx`;
-  `App.tsx`'s navigator chrome is theme-aware, system-driven light/dark (no
-  manual toggle yet); a filter-system overhaul (`SegmentedControl`,
-  `FilterChip`, `FilterModal`/`FilterSection` — see [App
-  structure](#app-structure)) covering both list screens, with press
-  feedback, 44pt tap targets, no more silent DE-label truncation, and a
-  real weight-class ordering; tab bar icons switched to
-  MaterialCommunityIcons; every remaining `Pressable` across all screens and
-  `BellIconButton`/`OrganizationFollowBell` now renders `pressedStyle` from
-  `theme.tsx` on press, so no interactive element in the app is silently
-  unresponsive-looking anymore. Explicitly deferred/decided: no
-  per-organization branding accent (UFC/OKTAGON/... stay visually neutral,
-  text-only distinction) — a decision made specifically to avoid
-  trade-dress proximity to real orgs' brand colors. Not yet done: migrating
-  the ~30 `colors.accentGold`/flat `colors` call sites across
-  screens/components to `useTheme()` (so light mode actually reaches screen
-  content, not just the nav chrome); a logo and
-  app icon (must be store-review-distinguishable from UFC/OKTAGON, plus
-  font/icon-license checks for commercial use).
+  structure](#app-structure) for what's landed). Done: critical analysis of
+  the pre-redesign UI; a new "Steel & Ember" dark+light palette and a
+  Barlow Condensed/Inter type scale in `src/lib/theme.tsx`; a filter-system
+  overhaul (`SegmentedControl`, `FilterChip`, `FilterModal`/`FilterSection`)
+  covering both list screens, with 44pt tap targets and no more silent
+  DE-label truncation; a real weight-class ordering; tab bar icons switched
+  to MaterialCommunityIcons; press feedback (`pressedStyle`) on every
+  `Pressable` app-wide; the full `useTheme()` migration — every
+  screen/component builds its styles from the current theme's colors via a
+  `makeStyles(colors)` factory, so light mode now reaches screen content,
+  not just the nav chrome (still system-driven only, no manual in-app
+  toggle). Explicitly deferred/decided: no per-organization branding accent
+  (UFC/OKTAGON/... stay visually neutral, text-only distinction) — a
+  decision made specifically to avoid trade-dress proximity to real orgs'
+  brand colors. Not yet done: a logo and app icon (must be
+  store-review-distinguishable from UFC/OKTAGON, plus font/icon-license
+  checks for commercial use); a manual light/dark toggle (currently
+  system-only); actually testing the light palette on a real device rather
+  than by code review alone.

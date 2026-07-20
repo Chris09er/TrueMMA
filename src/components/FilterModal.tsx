@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { colors, pressedStyle, radius, spacing, typography } from '../lib/theme';
+import { pressedStyle, radius, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
 
 type Props = {
   visible: boolean;
@@ -26,6 +26,8 @@ export default function FilterModal({
   onReset,
   children,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -54,6 +56,8 @@ export default function FilterModal({
 }
 
 export function FilterSection({ title, children }: { title: string; children: ReactNode }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -62,56 +66,57 @@ export function FilterSection({ title, children }: { title: string; children: Re
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    padding: spacing.lg,
-    maxHeight: '80%',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  title: {
-    ...typography.title,
-    fontSize: 18,
-    lineHeight: 22,
-    color: colors.textPrimary,
-  },
-  close: {
-    ...typography.body,
-    fontFamily: typography.label.fontFamily,
-    color: colors.accentGold,
-  },
-  section: {
-    marginBottom: spacing.lg,
-  },
-  sectionTitle: {
-    ...typography.label,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
-  chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  resetButton: {
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-  },
-  resetButtonText: {
-    ...typography.body,
-    fontFamily: typography.label.fontFamily,
-    color: colors.danger,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'flex-end',
+    },
+    sheet: {
+      backgroundColor: colors.background,
+      borderTopLeftRadius: radius.lg,
+      borderTopRightRadius: radius.lg,
+      padding: spacing.lg,
+      maxHeight: '80%',
+    },
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.lg,
+    },
+    title: {
+      ...typography.title,
+      fontSize: 18,
+      lineHeight: 22,
+      color: colors.textPrimary,
+    },
+    close: {
+      ...typography.body,
+      fontFamily: typography.label.fontFamily,
+      color: colors.accent,
+    },
+    section: {
+      marginBottom: spacing.lg,
+    },
+    sectionTitle: {
+      ...typography.label,
+      color: colors.textSecondary,
+      marginBottom: spacing.sm,
+    },
+    chipWrap: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    resetButton: {
+      alignItems: 'center',
+      paddingVertical: spacing.md,
+    },
+    resetButtonText: {
+      ...typography.body,
+      fontFamily: typography.label.fontFamily,
+      color: colors.danger,
+    },
+  });

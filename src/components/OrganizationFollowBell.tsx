@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocale } from '../lib/i18n';
 import { followOrganization, isFollowingOrganization, unfollowOrganization } from '../lib/organizationFollows';
-import { colors, pressedStyle } from '../lib/theme';
+import { pressedStyle, useTheme, type ColorTokens } from '../lib/theme';
 
 type Props = {
   organizationId: string;
@@ -13,6 +13,8 @@ type Props = {
 // to the organization name in running text, not pinned to a card corner.
 export default function OrganizationFollowBell({ organizationId }: Props) {
   const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -55,7 +57,7 @@ export default function OrganizationFollowBell({ organizationId }: Props) {
       {busy ? (
         <ActivityIndicator size="small" color={colors.textSecondary} />
       ) : (
-        <Ionicons name={active ? 'notifications' : 'notifications-outline'} size={15} color={active ? colors.accentGold : colors.textSecondary} />
+        <Ionicons name={active ? 'notifications' : 'notifications-outline'} size={15} color={active ? colors.accent : colors.textSecondary} />
       )}
       <Text style={[styles.label, active && styles.labelActive]}>
         {active ? t.eventDetail.unfollowOrganization : t.eventDetail.followOrganization}
@@ -64,19 +66,20 @@ export default function OrganizationFollowBell({ organizationId }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  labelActive: {
-    color: colors.accentGold,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    button: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      alignSelf: 'flex-start',
+    },
+    label: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    labelActive: {
+      color: colors.accent,
+    },
+  });

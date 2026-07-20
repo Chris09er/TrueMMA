@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -14,7 +14,7 @@ import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import { getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
 import { castVote, getEventVotes, type FightVoteSummary } from '../lib/voting';
 import type { EventDetail, Fight, Fighter } from '../lib/types';
-import { colors, commonStyles, pressedStyle, radius, spacing } from '../lib/theme';
+import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
@@ -24,8 +24,17 @@ import LiveBadge from '../components/LiveBadge';
 import OrganizationFollowBell from '../components/OrganizationFollowBell';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventDetail'>;
+type Styles = ReturnType<typeof makeStyles>;
 
-function FighterLink({ fighter, isWinner }: { fighter: Fighter | null; isWinner: boolean }) {
+function FighterLink({
+  fighter,
+  isWinner,
+  styles,
+}: {
+  fighter: Fighter | null;
+  isWinner: boolean;
+  styles: Styles;
+}) {
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const name = fighter?.name ?? 'TBA';
   const style = [styles.fighterName, fighter && styles.fighterLink, isWinner && styles.fighterNameWinner];
@@ -54,11 +63,13 @@ function BroadcastTimes({
   locale,
   t,
   timeZone,
+  styles,
 }: {
   event: EventDetail;
   locale: string;
   t: ReturnType<typeof useLocale>['t'];
   timeZone?: string;
+  styles: Styles;
 }) {
   const segments: { label: string; time: string }[] = [];
   const formatTime = (iso: string) =>
@@ -96,11 +107,13 @@ function FightVoteRow({
   summary,
   onVote,
   t,
+  styles,
 }: {
   fight: Fight;
   summary: FightVoteSummary;
   onVote: (fightId: string, fighterId: string) => void;
   t: ReturnType<typeof useLocale>['t'];
+  styles: Styles;
 }) {
   if (!fight.fighter1 || !fight.fighter2) return null;
   const fighter1 = fight.fighter1;
@@ -155,6 +168,9 @@ export default function EventDetailScreen({ route }: Props) {
   const { eventId, eventName } = route.params;
   const { t, locale } = useLocale();
   const { timezoneOverride } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const commonStyles = useCommonStyles();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [fights, setFights] = useState<Fight[]>([]);
   const [votes, setVotes] = useState<Map<string, FightVoteSummary>>(new Map());
@@ -259,7 +275,7 @@ export default function EventDetailScreen({ route }: Props) {
             </Text>
           )}
           {event && (
-            <BroadcastTimes event={event} locale={locale} t={t} timeZone={timezoneOverride ?? undefined} />
+            <BroadcastTimes event={event} locale={locale} t={t} timeZone={timezoneOverride ?? undefined} styles={styles} />
           )}
         </View>
       }
@@ -277,9 +293,9 @@ export default function EventDetailScreen({ route }: Props) {
               {item.is_title_fight && <Text style={styles.tagTitle}>{t.eventDetail.titleFight}</Text>}
             </View>
             <View style={styles.matchupRow}>
-              <FighterLink fighter={item.fighter1} isWinner={item.fighter1?.id === item.result_winner_id} />
+              <FighterLink fighter={item.fighter1} isWinner={item.fighter1?.id === item.result_winner_id} styles={styles} />
               <Text style={styles.vs}>vs</Text>
-              <FighterLink fighter={item.fighter2} isWinner={item.fighter2?.id === item.result_winner_id} />
+              <FighterLink fighter={item.fighter2} isWinner={item.fighter2?.id === item.result_winner_id} styles={styles} />
             </View>
             {(item.weight_class || item.scheduled_rounds) && (
               <Text style={styles.weightClass}>
@@ -301,6 +317,7 @@ export default function EventDetailScreen({ route }: Props) {
                 summary={votes.get(item.id) ?? { fighter1Votes: 0, fighter2Votes: 0, myVote: null }}
                 onVote={handleVote}
                 t={t}
+                styles={styles}
               />
             )}
           </View>
@@ -310,192 +327,193 @@ export default function EventDetailScreen({ route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  list: {
-    padding: spacing.md,
-  },
-  header: {
-    marginBottom: spacing.lg,
-    position: 'relative',
-  },
-  eventName: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 6,
-    color: colors.textPrimary,
-    paddingRight: 60,
-  },
-  eventMeta: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  liveBadgeSlot: {
-    marginBottom: spacing.sm,
-  },
-  orgRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: 4,
-  },
-  orgName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-  },
-  eventCancelledBanner: {
-    alignSelf: 'flex-start',
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.background,
-    backgroundColor: colors.danger,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginBottom: spacing.sm,
-  },
-  broadcastTimes: {
-    marginTop: spacing.sm,
-    gap: 2,
-  },
-  fightCard: {
-    padding: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  fightCardCancelled: {
-    opacity: 0.5,
-  },
-  tagCancelled: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.background,
-    backgroundColor: colors.danger,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  fightTags: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: 6,
-  },
-  tagMain: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.background,
-    backgroundColor: colors.textPrimary,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  tagPrelimMain: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: colors.textPrimary,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  tagTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.background,
-    backgroundColor: colors.accentGold,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  matchupRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  fighterName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  fighterNameWinner: {
-    color: colors.accentGold,
-  },
-  fighterLink: {
-    color: colors.link,
-    textDecorationLine: 'underline',
-  },
-  vs: {
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-  weightClass: {
-    marginTop: 6,
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-  result: {
-    marginTop: 4,
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontStyle: 'italic',
-  },
-  voteRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  voteButton: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-  },
-  voteButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  voteBarContainer: {
-    marginTop: spacing.sm,
-  },
-  voteBarLabelsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  voteBarLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    flexShrink: 1,
-  },
-  voteBarLabelActive: {
-    color: colors.accentGold,
-    fontWeight: '700',
-  },
-  voteBarTrack: {
-    flexDirection: 'row',
-    height: 8,
-    borderRadius: 4,
-    overflow: 'hidden',
-    backgroundColor: colors.border,
-  },
-  voteBarFill1: {
-    backgroundColor: colors.accentGold,
-  },
-  voteBarFill2: {
-    backgroundColor: colors.surfaceAlt,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    list: {
+      padding: spacing.md,
+    },
+    header: {
+      marginBottom: spacing.lg,
+      position: 'relative',
+    },
+    eventName: {
+      fontSize: 22,
+      fontWeight: '700',
+      marginBottom: 6,
+      color: colors.textPrimary,
+      paddingRight: 60,
+    },
+    eventMeta: {
+      fontSize: 14,
+      color: colors.textSecondary,
+    },
+    liveBadgeSlot: {
+      marginBottom: spacing.sm,
+    },
+    orgRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      marginBottom: 4,
+    },
+    orgName: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textSecondary,
+    },
+    eventCancelledBanner: {
+      alignSelf: 'flex-start',
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.background,
+      backgroundColor: colors.danger,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      borderRadius: 6,
+      marginBottom: spacing.sm,
+    },
+    broadcastTimes: {
+      marginTop: spacing.sm,
+      gap: 2,
+    },
+    fightCard: {
+      padding: 14,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    fightCardCancelled: {
+      opacity: 0.5,
+    },
+    tagCancelled: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: colors.background,
+      backgroundColor: colors.danger,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+    fightTags: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginBottom: 6,
+    },
+    tagMain: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: colors.background,
+      backgroundColor: colors.textPrimary,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+    tagPrelimMain: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: colors.textPrimary,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: 6,
+    },
+    tagTitle: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: colors.background,
+      backgroundColor: colors.accent,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+    matchupRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    fighterName: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.textPrimary,
+    },
+    fighterNameWinner: {
+      color: colors.accent,
+    },
+    fighterLink: {
+      color: colors.link,
+      textDecorationLine: 'underline',
+    },
+    vs: {
+      fontSize: 13,
+      color: colors.textSecondary,
+    },
+    weightClass: {
+      marginTop: 6,
+      fontSize: 13,
+      color: colors.textSecondary,
+    },
+    result: {
+      marginTop: 4,
+      fontSize: 12,
+      color: colors.textSecondary,
+      fontStyle: 'italic',
+    },
+    voteRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    voteButton: {
+      flex: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+    },
+    voteButtonText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    voteBarContainer: {
+      marginTop: spacing.sm,
+    },
+    voteBarLabelsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    voteBarLabel: {
+      fontSize: 11,
+      color: colors.textSecondary,
+      flexShrink: 1,
+    },
+    voteBarLabelActive: {
+      color: colors.accent,
+      fontWeight: '700',
+    },
+    voteBarTrack: {
+      flexDirection: 'row',
+      height: 8,
+      borderRadius: 4,
+      overflow: 'hidden',
+      backgroundColor: colors.border,
+    },
+    voteBarFill1: {
+      backgroundColor: colors.accent,
+    },
+    voteBarFill2: {
+      backgroundColor: colors.surfaceAlt,
+    },
+  });

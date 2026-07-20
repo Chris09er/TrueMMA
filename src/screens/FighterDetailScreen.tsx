@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
@@ -6,13 +6,14 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList, RootTabParamList } from '../navigation';
 import { getFighterById, getFighterFights, isEventUpcoming } from '../lib/queries';
 import type { Fighter, FightWithEvent } from '../lib/types';
-import { colors, commonStyles, pressedStyle, radius, spacing } from '../lib/theme';
+import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 
 type Props = NativeStackScreenProps<FightersStackParamList, 'FighterDetail'>;
+type Styles = ReturnType<typeof makeStyles>;
 
 function inchesToCm(inches: number): number {
   return Math.round(inches * 2.54);
@@ -28,6 +29,9 @@ function formatRecord(fighter: Fighter): string | null {
 export default function FighterDetailScreen({ route }: Props) {
   const { fighterId, fighterName } = route.params;
   const { t, locale } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const commonStyles = useCommonStyles();
   const [fighter, setFighter] = useState<Fighter | null>(null);
   const [fights, setFights] = useState<FightWithEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,13 +95,13 @@ export default function FighterDetailScreen({ route }: Props) {
         </View>
       </View>
 
-      {fighter && <TaleOfTheTape fighter={fighter} locale={locale} t={t} />}
+      {fighter && <TaleOfTheTape fighter={fighter} locale={locale} t={t} styles={styles} />}
 
       {upcomingFights.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t.fighterDetail.upcomingFight}</Text>
           {upcomingFights.map((fight) => (
-            <FightRow key={fight.id} fight={fight} fighterId={fighterId} locale={locale} t={t} />
+            <FightRow key={fight.id} fight={fight} fighterId={fighterId} locale={locale} t={t} styles={styles} />
           ))}
         </View>
       )}
@@ -107,7 +111,9 @@ export default function FighterDetailScreen({ route }: Props) {
         {pastFights.length === 0 ? (
           <Text style={commonStyles.empty}>{t.fighterDetail.noFightHistory}</Text>
         ) : (
-          pastFights.map((fight) => <FightRow key={fight.id} fight={fight} fighterId={fighterId} locale={locale} t={t} />)
+          pastFights.map((fight) => (
+            <FightRow key={fight.id} fight={fight} fighterId={fighterId} locale={locale} t={t} styles={styles} />
+          ))
         )}
       </View>
     </ScrollView>
@@ -118,10 +124,12 @@ function TaleOfTheTape({
   fighter,
   locale,
   t,
+  styles,
 }: {
   fighter: Fighter;
   locale: string;
   t: ReturnType<typeof useLocale>['t'];
+  styles: Styles;
 }) {
   const rows: { label: string; value: string }[] = [];
   if (fighter.weight_class) rows.push({ label: t.fighterDetail.weightClass, value: fighter.weight_class });
@@ -162,11 +170,13 @@ function FightRow({
   fighterId,
   locale,
   t,
+  styles,
 }: {
   fight: FightWithEvent;
   fighterId: string;
   locale: string;
   t: ReturnType<typeof useLocale>['t'];
+  styles: Styles;
 }) {
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const opponent = fight.fighter1?.id === fighterId ? fight.fighter2 : fight.fighter1;
@@ -215,125 +225,126 @@ function FightRow({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    padding: spacing.lg,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-    position: 'relative',
-  },
-  photo: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    marginBottom: spacing.md,
-    backgroundColor: colors.surface,
-  },
-  name: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  meta: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  record: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.accentGold,
-    marginTop: 6,
-  },
-  tapeCard: {
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  tapeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  tapeLabel: {
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-  tapeValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  linkRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.lg,
-  },
-  linkButton: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingVertical: 10,
-    paddingHorizontal: spacing.md,
-  },
-  linkButtonText: {
-    color: colors.textPrimary,
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  section: {
-    marginBottom: spacing.xl,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginBottom: spacing.sm,
-  },
-  fightRow: {
-    padding: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  fightOpponent: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  fightEventMeta: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  fightRowLink: {
-    textDecorationLine: 'underline',
-  },
-  fightResult: {
-    fontSize: 12,
-    marginTop: 6,
-    fontWeight: '700',
-  },
-  fightResultWin: {
-    color: colors.accentGold,
-  },
-  fightResultLoss: {
-    color: colors.textSecondary,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    content: {
+      padding: spacing.lg,
+    },
+    header: {
+      alignItems: 'center',
+      marginBottom: spacing.xl,
+      position: 'relative',
+    },
+    photo: {
+      width: 96,
+      height: 96,
+      borderRadius: 48,
+      marginBottom: spacing.md,
+      backgroundColor: colors.surface,
+    },
+    name: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      textAlign: 'center',
+    },
+    meta: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginTop: 4,
+      textAlign: 'center',
+    },
+    record: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.accent,
+      marginTop: 6,
+    },
+    tapeCard: {
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+    },
+    tapeRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    tapeLabel: {
+      fontSize: 13,
+      color: colors.textSecondary,
+    },
+    tapeValue: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.textPrimary,
+    },
+    linkRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginTop: spacing.lg,
+    },
+    linkButton: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingVertical: 10,
+      paddingHorizontal: spacing.md,
+    },
+    linkButtonText: {
+      color: colors.textPrimary,
+      fontWeight: '600',
+      fontSize: 13,
+    },
+    section: {
+      marginBottom: spacing.xl,
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      marginBottom: spacing.sm,
+    },
+    fightRow: {
+      padding: 14,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    fightOpponent: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    fightEventMeta: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    fightRowLink: {
+      textDecorationLine: 'underline',
+    },
+    fightResult: {
+      fontSize: 12,
+      marginTop: 6,
+      fontWeight: '700',
+    },
+    fightResultWin: {
+      color: colors.accent,
+    },
+    fightResultLoss: {
+      color: colors.textSecondary,
+    },
+  });

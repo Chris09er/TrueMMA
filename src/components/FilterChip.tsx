@@ -1,5 +1,6 @@
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
-import { colors, minTapTarget, pressedStyle, radius, spacing, typography } from '../lib/theme';
+import { minTapTarget, pressedStyle, radius, typography, useTheme, type ColorTokens } from '../lib/theme';
 
 type Props = {
   label: string;
@@ -10,6 +11,8 @@ type Props = {
 // Multi-value filtering (org, weight class, nationality...) — as opposed to
 // SegmentedControl, which is for switching an exclusive mode.
 export default function FilterChip({ label, active, onPress }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Pressable
       onPress={onPress}
@@ -22,32 +25,33 @@ export default function FilterChip({ label, active, onPress }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  chip: {
-    paddingHorizontal: 14,
-    minHeight: minTapTarget,
-    borderRadius: radius.lg,
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  chipInactive: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-  },
-  chipActive: {
-    backgroundColor: colors.accentGold,
-    borderColor: colors.accentGold,
-  },
-  text: {
-    ...typography.body,
-    fontFamily: typography.label.fontFamily,
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-  textActive: {
-    ...typography.body,
-    fontFamily: typography.label.fontFamily,
-    fontSize: 13,
-    color: colors.background,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    chip: {
+      paddingHorizontal: 14,
+      minHeight: minTapTarget,
+      borderRadius: radius.lg,
+      justifyContent: 'center',
+      borderWidth: 1,
+    },
+    chipInactive: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+    },
+    chipActive: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    text: {
+      ...typography.body,
+      fontFamily: typography.label.fontFamily,
+      fontSize: 13,
+      color: colors.textSecondary,
+    },
+    textActive: {
+      ...typography.body,
+      fontFamily: typography.label.fontFamily,
+      fontSize: 13,
+      color: colors.background,
+    },
+  });

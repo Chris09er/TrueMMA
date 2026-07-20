@@ -3,7 +3,7 @@ import { useColorScheme } from 'react-native';
 
 export type ThemeMode = 'dark' | 'light';
 
-type ColorTokens = {
+export type ColorTokens = {
   background: string;
   surface: string;
   surfaceAlt: string;
@@ -97,31 +97,10 @@ export const typography = {
   caption: { fontFamily: fontFamily.bodySemiBold, fontSize: 11, lineHeight: 14, letterSpacing: 0.5 },
 };
 
-// --- Legacy flat exports -----------------------------------------------
-// Fixed to the dark palette. Every screen/component still imports these
-// directly (see AGENTS.md redesign: Komponenten-System / Screen-für-Screen
-// stages migrate them to useTheme() one at a time). Remove once nothing
-// imports `colors` from here anymore.
-export const colors = {
-  ...darkColors,
-  // Old name for `accent`, still referenced by ~30 call sites across
-  // screens/components. Same value — keeps those call sites on the new
-  // Ember accent without a rewrite; drop once they're migrated to useTheme().
-  accentGold: darkColors.accent,
-};
-export const commonStyles = {
-  center: {
-    marginTop: 40,
-  },
-  error: {
-    padding: spacing.lg,
-    color: colors.danger,
-  },
-  empty: {
-    padding: spacing.lg,
-    color: colors.textSecondary,
-  },
-} as const;
+// Fixed to the dark palette — only for the brief window before `App.tsx`
+// has loaded fonts and mounted `ThemeProvider` (no context/useColorScheme
+// available yet). Every screen/component past that point uses useTheme().
+export const colors = darkColors;
 
 // --- Theme context (dark/light, system-driven) --------------------------
 type ThemeContextValue = {
@@ -140,4 +119,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
 export function useTheme() {
   return useContext(ThemeContext);
+}
+
+// Theme-aware replacement for the legacy `commonStyles` export — same
+// shape/usage (`commonStyles.center` / `.error` / `.empty`), so migrating a
+// screen is just swapping the import for this hook call.
+export function useCommonStyles() {
+  const { colors: themeColors } = useTheme();
+  return useMemo(
+    () => ({
+      center: { marginTop: 40 },
+      error: { padding: spacing.lg, color: themeColors.danger },
+      empty: { padding: spacing.lg, color: themeColors.textSecondary },
+    }),
+    [themeColors]
+  );
 }

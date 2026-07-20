@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import EventReminderBell from '../components/EventReminderBell';
@@ -17,7 +17,7 @@ import {
   getFollowedFighters,
   getFollowedOrganizations,
 } from '../lib/queries';
-import { colors, commonStyles, pressedStyle, radius, spacing } from '../lib/theme';
+import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import { TIMEZONE_OPTIONS } from '../lib/timezones';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
@@ -25,11 +25,14 @@ type LoggedOutMode = 'login' | 'signup' | 'forgot-request' | 'forgot-confirm';
 
 export default function ProfileScreen() {
   const { user, loading } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const commonStyles = useCommonStyles();
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator style={commonStyles.center} color={colors.accentGold} />
+        <ActivityIndicator style={commonStyles.center} color={colors.accent} />
       </View>
     );
   }
@@ -39,6 +42,8 @@ export default function ProfileScreen() {
 
 function LoggedOutView() {
   const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { signIn, signUp, requestPasswordReset, confirmPasswordReset } = useAuth();
   const [mode, setMode] = useState<LoggedOutMode>('login');
   const [email, setEmail] = useState('');
@@ -206,6 +211,8 @@ function LoggedOutView() {
 
 function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const { t, locale } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { signOut, updateEmail, updatePassword, timezoneOverride, setTimezoneOverride } = useAuth();
   const [nickname, setNickname] = useState('');
   const [nicknameLoading, setNicknameLoading] = useState(true);
@@ -298,7 +305,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
     <ScrollView contentContainerStyle={styles.form}>
       <Text style={styles.sectionTitle}>{t.profile.nicknameLabel}</Text>
       {nicknameLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : (
         <>
           <TextInput
@@ -364,14 +371,14 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
             onPress={() => setTimezoneOverride(option.value)}
           >
             <Text style={styles.timezoneLabel}>{option.label[locale]}</Text>
-            {active && <Ionicons name="checkmark" size={18} color={colors.accentGold} />}
+            {active && <Ionicons name="checkmark" size={18} color={colors.accent} />}
           </Pressable>
         );
       })}
 
       <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
       {followsLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : followedFighters.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFollowedFighters}</Text>
       ) : (
@@ -385,7 +392,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
       <Text style={styles.sectionTitle}>{t.profile.followedEventsTitle}</Text>
       {followsLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : followedEvents.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFollowedEvents}</Text>
       ) : (
@@ -400,7 +407,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
       <Text style={styles.sectionTitle}>{t.profile.followedOrganizationsTitle}</Text>
       {followsLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : followedOrganizations.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFollowedOrganizations}</Text>
       ) : (
@@ -414,7 +421,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
       <Text style={styles.sectionTitle}>{t.profile.favoritedFightersTitle}</Text>
       {favoritesLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : favoritedFighters.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFavoritedFighters}</Text>
       ) : (
@@ -428,7 +435,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
       <Text style={styles.sectionTitle}>{t.profile.favoritedEventsTitle}</Text>
       {favoritesLoading ? (
-        <ActivityIndicator color={colors.accentGold} />
+        <ActivityIndicator color={colors.accent} />
       ) : favoritedEvents.length === 0 ? (
         <Text style={styles.body}>{t.profile.noFavoritedEvents}</Text>
       ) : (
@@ -448,116 +455,117 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  form: {
-    padding: spacing.lg,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginTop: spacing.xl,
-    marginBottom: spacing.sm,
-  },
-  body: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: spacing.lg,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: 14,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  button: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.accentGold,
-    borderRadius: radius.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  buttonText: {
-    color: colors.textPrimary,
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  link: {
-    color: colors.link,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-  },
-  timezoneRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  timezoneRowActive: {
-    borderColor: colors.accentGold,
-  },
-  timezoneLabel: {
-    fontSize: 14,
-    color: colors.textPrimary,
-  },
-  listCard: {
-    padding: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    position: 'relative',
-  },
-  listCardTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    paddingRight: 56,
-  },
-  listCardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  listCardTitleInline: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  listCardMeta: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  logoutButton: {
-    marginTop: spacing.xl,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  logoutButtonText: {
-    color: colors.danger,
-    fontWeight: '700',
-    fontSize: 15,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    form: {
+      padding: spacing.lg,
+    },
+    title: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      marginBottom: spacing.md,
+    },
+    sectionTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      marginTop: spacing.xl,
+      marginBottom: spacing.sm,
+    },
+    body: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      marginBottom: spacing.lg,
+    },
+    input: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      padding: 14,
+      color: colors.textPrimary,
+      marginBottom: spacing.md,
+    },
+    button: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.accent,
+      borderRadius: radius.md,
+      paddingVertical: 14,
+      alignItems: 'center',
+      marginBottom: spacing.md,
+    },
+    buttonText: {
+      color: colors.textPrimary,
+      fontWeight: '700',
+      fontSize: 15,
+    },
+    link: {
+      color: colors.link,
+      textAlign: 'center',
+      marginTop: spacing.sm,
+    },
+    timezoneRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 14,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    timezoneRowActive: {
+      borderColor: colors.accent,
+    },
+    timezoneLabel: {
+      fontSize: 14,
+      color: colors.textPrimary,
+    },
+    listCard: {
+      padding: 14,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      position: 'relative',
+    },
+    listCardTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      paddingRight: 56,
+    },
+    listCardRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    listCardTitleInline: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    listCardMeta: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    logoutButton: {
+      marginTop: spacing.xl,
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+    logoutButtonText: {
+      color: colors.danger,
+      fontWeight: '700',
+      fontSize: 15,
+    },
+  });

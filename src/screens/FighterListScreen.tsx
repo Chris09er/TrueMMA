@@ -14,7 +14,7 @@ import type { FightersStackParamList } from '../navigation';
 import { getFighters, getOrganizations, sortWeightClasses } from '../lib/queries';
 import { getFighterFavoriteIds } from '../lib/favorites';
 import type { Fighter, Organization } from '../lib/types';
-import { colors, commonStyles, pressedStyle, radius, spacing, typography } from '../lib/theme';
+import { pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
@@ -25,6 +25,9 @@ type Props = NativeStackScreenProps<FightersStackParamList, 'FighterList'>;
 
 export default function FighterListScreen({ navigation }: Props) {
   const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const commonStyles = useCommonStyles();
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [search, setSearch] = useState('');
@@ -213,7 +216,7 @@ export default function FighterListScreen({ navigation }: Props) {
           refreshing={refreshing}
           onRefresh={handleRefresh}
           tintColor={colors.textPrimary}
-          colors={[colors.accentGold]}
+          colors={[colors.accent]}
         />
       }
       ListEmptyComponent={<Text style={commonStyles.empty}>{t.fighterList.empty}</Text>}
@@ -239,59 +242,60 @@ export default function FighterListScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  list: {
-    padding: spacing.md,
-  },
-  searchInput: {
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    color: colors.textPrimary,
-  },
-  filterOpenButton: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    minHeight: 44,
-    justifyContent: 'center',
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.md,
-  },
-  filterOpenButtonText: {
-    ...typography.body,
-    fontFamily: typography.label.fontFamily,
-    color: colors.textPrimary,
-  },
-  card: {
-    padding: 14,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    position: 'relative',
-  },
-  name: {
-    ...typography.cardTitle,
-    fontSize: 16,
-    lineHeight: 20,
-    color: colors.textPrimary,
-    marginBottom: 2,
-    paddingRight: 56,
-  },
-  meta: {
-    ...typography.meta,
-    color: colors.textSecondary,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    list: {
+      padding: spacing.md,
+    },
+    searchInput: {
+      marginBottom: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      color: colors.textPrimary,
+    },
+    filterOpenButton: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: 14,
+      minHeight: 44,
+      justifyContent: 'center',
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: spacing.md,
+    },
+    filterOpenButtonText: {
+      ...typography.body,
+      fontFamily: typography.label.fontFamily,
+      color: colors.textPrimary,
+    },
+    card: {
+      padding: 14,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      position: 'relative',
+    },
+    name: {
+      ...typography.cardTitle,
+      fontSize: 16,
+      lineHeight: 20,
+      color: colors.textPrimary,
+      marginBottom: 2,
+      paddingRight: 56,
+    },
+    meta: {
+      ...typography.meta,
+      color: colors.textSecondary,
+    },
+  });

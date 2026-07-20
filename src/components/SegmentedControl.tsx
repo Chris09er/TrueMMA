@@ -1,5 +1,6 @@
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, minTapTarget, pressedStyle, radius, spacing, typography } from '../lib/theme';
+import { minTapTarget, pressedStyle, radius, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
 
 type Segment<T extends string> = {
   value: T;
@@ -16,6 +17,8 @@ type Props<T extends string> = {
 // today/upcoming/past) — visually distinct from FilterChip on purpose, so
 // "this switches a mode" reads differently from "this filters a list".
 export default function SegmentedControl<T extends string>({ segments, value, onChange }: Props<T>) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.track}>
       {segments.map((segment) => {
@@ -36,33 +39,34 @@ export default function SegmentedControl<T extends string>({ segments, value, on
   );
 }
 
-const styles = StyleSheet.create({
-  track: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 3,
-    gap: 3,
-  },
-  segment: {
-    flex: 1,
-    minHeight: minTapTarget - 8,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  segmentActive: {
-    backgroundColor: colors.accentGold,
-  },
-  label: {
-    ...typography.meta,
-    fontFamily: typography.label.fontFamily,
-    color: colors.textSecondary,
-  },
-  labelActive: {
-    color: colors.background,
-  },
-});
+const makeStyles = (colors: ColorTokens) =>
+  StyleSheet.create({
+    track: {
+      flexDirection: 'row',
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 3,
+      gap: 3,
+    },
+    segment: {
+      flex: 1,
+      minHeight: minTapTarget - 8,
+      borderRadius: radius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing.sm,
+    },
+    segmentActive: {
+      backgroundColor: colors.accent,
+    },
+    label: {
+      ...typography.meta,
+      fontFamily: typography.label.fontFamily,
+      color: colors.textSecondary,
+    },
+    labelActive: {
+      color: colors.background,
+    },
+  });
