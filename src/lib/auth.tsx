@@ -6,15 +6,15 @@ import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { getQueryParams } from './oauthRedirect';
 import { supabase } from './supabase';
-
-// Required once at module load so the in-app browser used for
-// signInWithGoogle() correctly dismisses itself after the OAuth redirect.
-WebBrowser.maybeCompleteAuthSession();
 import { claimAnonymousFollows } from './pushSubscriptions';
 import { claimLocalFavorites } from './favorites';
 import { claimAnonymousOrganizationFollows } from './organizationFollows';
 import { getProfile, updateTimezoneOverride } from './profile';
 import type { Locale } from './translations';
+
+// Required once at module load so the in-app browser used for
+// signInWithGoogle() correctly dismisses itself after the OAuth redirect.
+WebBrowser.maybeCompleteAuthSession();
 
 export type AuthResult = { status: 'ok' } | { status: 'error'; code: string; message: string };
 
@@ -60,15 +60,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [timezoneOverride, setTimezoneOverrideState] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-      if (data.session?.user) {
-        getProfile(data.session.user.id)
-          .then((profile) => setTimezoneOverrideState(profile?.timezone_override ?? null))
-          .catch(() => {});
-      }
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        setSession(data.session);
+        if (data.session?.user) {
+          getProfile(data.session.user.id)
+            .then((profile) => setTimezoneOverrideState(profile?.timezone_override ?? null))
+            .catch(() => {});
+        }
+      })
+      // If reading the persisted session ever rejects (e.g. an AsyncStorage
+      // failure), still drop out of the loading state — otherwise ProfileScreen
+      // is stuck on its spinner forever with no way forward.
+      .finally(() => setLoading(false));
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);

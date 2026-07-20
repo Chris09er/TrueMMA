@@ -6,11 +6,11 @@
 // SMTP, not a transactional API; OTP-code-based signup confirmation).
 //
 // Deployed and enabled on both stage and production (2026-07-20). Confirmed
-// working end-to-end on stage. Still failing on production with a generic
-// 500 — see docs/ARCHITECTURE.md's "Auth emails" section for the full
-// debugging trail and what to check first (the console.log/console.error
-// calls below were added specifically to diagnose this and haven't been
-// reviewed in the Function logs yet).
+// working end-to-end on stage, and on production too once its stale
+// IONOS_SMTP_PASSWORD secret was re-set (see docs/ARCHITECTURE.md's "Auth
+// emails" section for the diagnosis). The `console.error` calls on the failure
+// paths are kept as ordinary operational logging; the earlier credential-length
+// `console.log` diagnostic has been removed now that the cause is known.
 //
 // Scope: `signup`, `recovery`, `magiclink` and `email_change` (plus its
 // `email_change_current`/`email_change_new` variants) — all OTP-code-based, see
@@ -141,7 +141,11 @@ Deno.serve(async (req) => {
 
   const smtpUser = Deno.env.get('IONOS_SMTP_USER') ?? '';
   const smtpPassword = Deno.env.get('IONOS_SMTP_PASSWORD') ?? '';
-  console.log(`SMTP config check: user=${smtpUser ? 'set (' + smtpUser.length + ' chars)' : 'MISSING'}, password=${smtpPassword ? 'set (' + smtpPassword.length + ' chars)' : 'MISSING'}`);
+  // Non-sensitive operational signal only — a missing secret is a config error
+  // worth surfacing, but the actual values (or their lengths) are never logged.
+  if (!smtpUser || !smtpPassword) {
+    console.error('SMTP credentials missing from environment (IONOS_SMTP_USER/IONOS_SMTP_PASSWORD)');
+  }
 
   const client = new SMTPClient({
     connection: {

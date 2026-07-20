@@ -1909,11 +1909,12 @@ brand assets.
     generic 500 was a stale `IONOS_SMTP_PASSWORD` secret; re-setting it made a
     real prod signup return `POST /auth/v1/signup` → 200. See the "Multilingual
     auth emails via Edge Function" note above (Auth emails section) for the
-    `execution_time_ms` diagnosis. **Still to do:** (1) redeploy the function to
-    stage+prod to ship the new `email_change` template (committed on `dev`, not
-    yet deployed); (2) remove the credential-length `console.log` diagnostic
-    now that the cause is known; (3) set "Secure email change" OFF on both
-    dashboards for the email-change flow (see [Login /
+    `execution_time_ms` diagnosis. The credential-length `console.log`
+    diagnostic has since been removed (replaced by a non-sensitive "creds
+    missing" `console.error` guard). **Still to do:** (1) redeploy the function
+    to stage+prod to ship the new `email_change` template *and* the log cleanup
+    (both committed on `dev`, not yet deployed); (2) set "Secure email change"
+    OFF on both dashboards for the email-change flow (see [Login /
     Profile](#login--profile)).
   - ~~Signup confirmation link-based~~ — **done 2026-07-20**: `confirmSignup()`
     + `resendSignupConfirmation()` (`src/lib/auth.tsx`) and a new
@@ -1940,6 +1941,12 @@ brand assets.
     preference is on; no-op for anonymous users or anyone who hasn't enabled
     it), and a toggle in `SettingsModal`/`ProfileScreen` (only shown when
     logged in **and** the device actually reports usable biometric hardware).
+    `BiometricGate` uses a three-state machine (`checking`/`locked`/`open`,
+    hardened 2026-07-20): while the async enabled-check runs it renders a blank
+    cover, never the app content, so a protected app can't flash its content on
+    cold start or foreground before the lock engages; and the lock screen has a
+    logout escape hatch (plus the device-PIN fallback) so a user who can't
+    authenticate is never trapped.
     This gates access to an *already-persisted* session — it is not a new
     sign-in method and never talks to Supabase.
   - ~~Google/Apple social login~~ — **code written 2026-07-20, untested and
