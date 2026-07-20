@@ -522,6 +522,11 @@ constraints:
    - **Expo Go cannot receive real push notifications since SDK 54** — a
      development build (EAS) is required to test this path. Local
      reminders are unaffected.
+   - **Also fires on fight start** (2026-07-20, `dev` only — see [Known open
+     items](#known-open-items)), piggybacked onto `send_league_start_pushes()`
+     below rather than its own trigger, since "did this event start" is
+     already that function's job and there's no per-fight start time to key
+     a separate trigger off anyway.
 3. **League-follow push** (`src/lib/organizationFollows.ts`, added
    2026-07-19) — same push-token/anonymous-follow shape as fighter-follow,
    but fires when a followed organization's event actually **starts**, not
@@ -1358,24 +1363,38 @@ after seeding data doesn't create duplicate organizations) →
   `SegmentedControl` and the org `FilterChip`s, no crash. Not yet done: a
   logo and app icon (must be store-review-distinguishable from
   UFC/OKTAGON, plus font/icon-license checks for commercial use).
-- **Fighter-follow push should fire on fight start, not just on booking —
-  flagged 2026-07-20, not built.** Current behavior (`FighterFollowBell`'s
-  explanation text is accurate to it): notifies when the followed fighter
-  is booked for a *new* fight, same as it's always done. User feedback
-  wants an additional/different trigger: notify when a fight the followed
-  fighter is in actually **starts** — parallel to the existing league-start
-  push (`send_league_start_pushes()`, see [Notifications](#notifications))
-  but filtered to followed fighters instead of followed leagues. Real
-  backend work (new pg_cron-driven function or an extension of the
-  existing one), not a text/UI fix — don't just reword the alert to promise
-  this before the trigger exists.
-- **Possible data gaps, not verified against the live DB — flagged
-  2026-07-20.** (1) No upcoming events show for Bellator, CW, Invicta, KSW,
-  LFA, ONE, Rizin. `sync-balldontlie.ts` pulls every league balldontlie
-  returns, no allowlist, so this isn't an obvious code bug — Bellator
-  folded into PFL in 2023, and balldontlie's free tier may simply lack
-  announced cards for the smaller regional promotions. (2) Fighter fight
-  history often shows only 1–2 fights. `getFighterFights()` has no
-  `.limit()`, so this isn't a query bug either — likely balldontlie's own
-  historical coverage is incomplete for many fighters. Both need a direct
-  DB/API check to confirm before anyone spends time "fixing" them.
+- **Fighter-follow push on fight start — built 2026-07-20, on `dev`, not
+  yet promoted to stage/main.** Migration
+  `009_fighter_fight_start_push.sql` extends `send_league_start_pushes()`
+  (name kept for continuity even though it now covers two audiences — see
+  [Notifications](#notifications)) to also message followers of any fighter
+  with a non-cancelled fight on an event, when that event's broadcast
+  starts. Granularity is per-**event**, not per-fight — balldontlie only
+  gives broadcast segment start times, never an individual fight's start
+  time, so there's nothing finer to key off; this reuses the exact same
+  30-minute "did this event just start" gate and
+  `league_start_push_sent_at`/`_request_ids` tracking the org-follow push
+  already had, just with a second `send_expo_push_chunked()` call tagged
+  `'fighter_follow'` (matching the tag `notify_fighter_added_to_fight()`
+  already uses for the "booked" push) instead of `'league_start'`. A user
+  following both the org and one of the card's fighters gets two separate
+  messages — accepted as a minor duplicate rather than adding dedup
+  complexity for a rare overlap. `FighterFollowBell`'s explanation text
+  updated to match. **Not yet applied to any real database** — migrations
+  only auto-deploy on push to `stage`/`main` (see
+  `deploy-migrations.yml`); this needs the normal `dev` → `stage` → `main`
+  promotion, and stage should be checked against a real upcoming event
+  before promoting further.
+- **Data gaps — checked directly against the live DB 2026-07-20, both
+  confirmed real, neither a code bug.** (1) Bellator, Invicta, KSW, and ONE
+  have **zero** event rows in the database at all (not just zero upcoming)
+  — balldontlie simply has no data for them. CW has 2 events/0 upcoming,
+  LFA 20/0, RIZIN 4/0 — all past, nothing announced. Confirms
+  `sync-balldontlie.ts` (no allowlist, pulls every league balldontlie
+  returns) was never the problem. (2) Fight-history coverage: of 1,000
+  active fighters checked, 417 (42%) have exactly 1 fight row, 371 (37%)
+  have 2, only 1 has 6+; 986 total fight rows across all of them. Confirms
+  `getFighterFights()` (no `.limit()`) isn't truncating anything —
+  balldontlie's historical coverage is just shallow for most fighters.
+  Both are upstream data-source limitations, not bugs to chase in this
+  codebase.
