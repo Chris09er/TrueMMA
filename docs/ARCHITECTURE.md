@@ -1060,18 +1060,34 @@ after seeding data doesn't create duplicate organizations) →
     deployment](#build--deployment)). This closes the gap where a native
     change pushed to `stage`/`main` used to publish a same-day OTA update
     that no installed build could actually use until someone manually
-    remembered to run a fresh `eas build`. **Must pass `--build-profile
-    "$EAS_BUILD_PROFILE"` to the `fingerprint:generate` call** (added after
-    the first live run failed) — without it, the CI-computed hash resolves
-    config (notably the `GOOGLE_SERVICES_JSON` file-type env var behind
-    `app.config.js`'s `googleServicesFile`) differently than the real `eas
-    build` does, so the two disagree on the hash and the auto-triggered
-    build fails at its `CONFIGURE_EXPO_UPDATES` phase with "Runtime version
-    calculated on local machine not equal to runtime version calculated
-    during build." Confirmed by inspecting the failed build's logs (`eas
-    build:view <id> --json` → `logFiles`, brotli-compressed — `zlib.
-    brotliDecompressSync` in Node reads it) on the first stage run after
-    this feature shipped.
+    remembered to run a fresh `eas build`.
+    - **Two rounds of fingerprint-mismatch failures on the first live
+      runs, both surfaced the same way:** `CONFIGURE_EXPO_UPDATES` fails
+      with "Runtime version calculated on local machine not equal to
+      runtime version calculated during build" — diagnosed both times by
+      pulling the failed build's logs (`eas build:view <id> --json` →
+      `logFiles`, brotli-compressed — `zlib.brotliDecompressSync` in Node
+      reads it) and finding the diff always contained
+      `../eas-environment-secrets/<hash>` (`expoConfigExternalFile`) and a
+      `bareNativeDir` entry for `android`. Root cause both times: a bare CI
+      checkout has no `google-services.json` (gitignored, see
+      `app.config.js`) and no `GOOGLE_SERVICES_JSON` env var resolved, so
+      any *locally*-run fingerprint computation omits it, while the EAS
+      build worker resolves the real file mid-build and includes it —
+      permanent disagreement until the file exists locally too.
+      1. First attempt: added `--build-profile "$EAS_BUILD_PROFILE"` to the
+         `fingerprint:generate` diagnostic step. Insufficient — that only
+         fixed the *decision* step's accuracy; `eas build`'s own internal
+         pre-flight fingerprint (used for the actual
+         local-vs-build-worker comparison) has the identical gap and isn't
+         affected by that flag.
+      2. Actual fix: `eas env:pull --environment "$EAS_ENVIRONMENT"
+         --non-interactive --path .env.local` runs first, downloading the
+         file-type secret to a local path (`.eas/.env/GOOGLE_SERVICES_JSON`)
+         and writing that path into `.env.local`; the workflow then exports
+         those lines into `$GITHUB_ENV` so every subsequent step (the
+         fingerprint check *and* `eas build` itself) resolves
+         `GOOGLE_SERVICES_JSON` to a real file, matching the build worker.
   - **Still manual either way:** installing the resulting build.
     EAS Build doesn't push anything to a device — `preview`/`development`
     builds are internal-distribution APKs that must be downloaded and
