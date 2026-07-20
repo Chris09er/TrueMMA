@@ -150,6 +150,11 @@ export const translations = {
       confirmButton: 'Bestätigen',
       resendCode: 'Code erneut senden',
       resendCodeIn: (seconds: number) => `Erneut senden in ${seconds}s`,
+      magicLinkButton: 'Ohne Passwort anmelden',
+      magicLinkRequestTitle: 'Ohne Passwort anmelden',
+      magicLinkRequestBody: 'Wir senden dir einen Code per E-Mail, mit dem du dich ohne Passwort anmelden kannst.',
+      magicLinkConfirmTitle: 'Code eingeben',
+      magicLinkConfirmBody: 'Gib den Code ein, den wir dir per E-Mail geschickt haben.',
     },
     profile: {
       title: 'Profil',
@@ -319,6 +324,11 @@ export const translations = {
       confirmButton: 'Confirm',
       resendCode: 'Resend code',
       resendCodeIn: (seconds: number) => `Resend in ${seconds}s`,
+      magicLinkButton: 'Log in without a password',
+      magicLinkRequestTitle: 'Log in without a password',
+      magicLinkRequestBody: "We'll send you a code by email that lets you log in without a password.",
+      magicLinkConfirmTitle: 'Enter code',
+      magicLinkConfirmBody: "Enter the code we've sent to your email.",
     },
     profile: {
       title: 'Profile',

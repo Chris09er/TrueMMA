@@ -37,7 +37,14 @@ import {
 import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
-type LoggedOutMode = 'login' | 'signup' | 'signup-confirm' | 'forgot-request' | 'forgot-confirm';
+type LoggedOutMode =
+  | 'login'
+  | 'signup'
+  | 'signup-confirm'
+  | 'forgot-request'
+  | 'forgot-confirm'
+  | 'magic-request'
+  | 'magic-confirm';
 
 // Must match the real resend cooldown configured in each Supabase project's
 // dashboard (Authentication → Rate Limits) — not introspectable client-side,
@@ -206,8 +213,16 @@ function LoggedOutView() {
   const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { signIn, signUp, confirmSignup, resendSignupConfirmation, requestPasswordReset, confirmPasswordReset } =
-    useAuth();
+  const {
+    signIn,
+    signUp,
+    confirmSignup,
+    resendSignupConfirmation,
+    requestMagicLink,
+    confirmMagicLink,
+    requestPasswordReset,
+    confirmPasswordReset,
+  } = useAuth();
   const [mode, setMode] = useState<LoggedOutMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -297,6 +312,49 @@ function LoggedOutView() {
     }
   };
 
+  const handleRequestMagicLink = async () => {
+    const normalizedEmail = normalizeEmail(email);
+    setBusy(true);
+    try {
+      const result = await requestMagicLink(normalizedEmail, locale);
+      if (result.status === 'error') {
+        showAuthError(t, result);
+        return;
+      }
+      setCode('');
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+      setMode('magic-confirm');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleConfirmMagicLink = async () => {
+    setBusy(true);
+    try {
+      const result = await confirmMagicLink(normalizeEmail(email), code);
+      // Success signs the user in directly, same as confirmSignup — see there.
+      showAuthError(t, result);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResendMagicLink = async () => {
+    if (resendCooldown > 0) return;
+    setBusy(true);
+    try {
+      const result = await requestMagicLink(normalizeEmail(email), locale);
+      if (result.status === 'error') {
+        showAuthError(t, result);
+        return;
+      }
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleRequestCode = async () => {
     setBusy(true);
     try {
@@ -360,6 +418,79 @@ function LoggedOutView() {
               {resendCooldown > 0 ? t.auth.resendCodeIn(resendCooldown) : t.auth.resendCode}
             </Text>
           </Pressable>
+          <Pressable onPress={() => setMode('login')} style={({ pressed }) => pressed && pressedStyle}>
+            <Text style={styles.link}>{t.auth.backToLogin}</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  if (mode === 'magic-request' || mode === 'magic-confirm') {
+    return (
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+          <Text style={styles.title}>
+            {mode === 'magic-request' ? t.auth.magicLinkRequestTitle : t.auth.magicLinkConfirmTitle}
+          </Text>
+          <Text style={styles.body}>
+            {mode === 'magic-request' ? t.auth.magicLinkRequestBody : t.auth.magicLinkConfirmBody}
+          </Text>
+          {mode === 'magic-request' ? (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder={t.auth.emailLabel}
+                placeholderTextColor={colors.textSecondary}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete="email"
+                returnKeyType="send"
+                onSubmitEditing={handleRequestMagicLink}
+                value={email}
+                onChangeText={setEmail}
+              />
+              <SubmitButton
+                label={t.auth.sendCodeButton}
+                busy={busy}
+                onPress={handleRequestMagicLink}
+                style={styles.button}
+                textStyle={styles.buttonText}
+                spinnerColor={colors.accent}
+              />
+            </>
+          ) : (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder={t.auth.codeLabel}
+                placeholderTextColor={colors.textSecondary}
+                keyboardType="number-pad"
+                returnKeyType="done"
+                onSubmitEditing={handleConfirmMagicLink}
+                value={code}
+                onChangeText={setCode}
+              />
+              <SubmitButton
+                label={t.auth.confirmButton}
+                busy={busy}
+                onPress={handleConfirmMagicLink}
+                style={styles.button}
+                textStyle={styles.buttonText}
+                spinnerColor={colors.accent}
+              />
+              <Pressable
+                onPress={handleResendMagicLink}
+                disabled={resendCooldown > 0 || busy}
+                style={({ pressed }) => pressed && pressedStyle}
+              >
+                <Text style={styles.link}>
+                  {resendCooldown > 0 ? t.auth.resendCodeIn(resendCooldown) : t.auth.resendCode}
+                </Text>
+              </Pressable>
+            </>
+          )}
           <Pressable onPress={() => setMode('login')} style={({ pressed }) => pressed && pressedStyle}>
             <Text style={styles.link}>{t.auth.backToLogin}</Text>
           </Pressable>
@@ -492,9 +623,14 @@ function LoggedOutView() {
           <Text style={styles.link}>{isSignup ? t.auth.switchToLogin : t.auth.switchToSignup}</Text>
         </Pressable>
         {!isSignup && (
-          <Pressable onPress={() => setMode('forgot-request')} style={({ pressed }) => pressed && pressedStyle}>
-            <Text style={styles.link}>{t.auth.forgotPassword}</Text>
-          </Pressable>
+          <>
+            <Pressable onPress={() => setMode('forgot-request')} style={({ pressed }) => pressed && pressedStyle}>
+              <Text style={styles.link}>{t.auth.forgotPassword}</Text>
+            </Pressable>
+            <Pressable onPress={() => setMode('magic-request')} style={({ pressed }) => pressed && pressedStyle}>
+              <Text style={styles.link}>{t.auth.magicLinkButton}</Text>
+            </Pressable>
+          </>
         )}
       </ScrollView>
     </KeyboardAvoidingView>

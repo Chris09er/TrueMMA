@@ -28,6 +28,8 @@ type AuthContextValue = {
   confirmSignup: (email: string, token: string) => Promise<AuthResult>;
   resendSignupConfirmation: (email: string) => Promise<AuthResult>;
   signIn: (email: string, password: string) => Promise<AuthResult>;
+  requestMagicLink: (email: string, locale: Locale) => Promise<AuthResult>;
+  confirmMagicLink: (email: string, token: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<AuthResult>;
   confirmPasswordReset: (email: string, token: string, newPassword: string) => Promise<AuthResult>;
@@ -104,6 +106,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       signIn: async (email, password) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
+        return toAuthResult(error);
+      },
+      requestMagicLink: async (email, locale) => {
+        // shouldCreateUser: false — this is a login method for existing
+        // accounts, not a second way to sign up (that stays through
+        // signUp()/confirmSignup() so the password-policy/OTP-confirm flow
+        // isn't bypassed).
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { shouldCreateUser: false, data: { locale } },
+        });
+        return toAuthResult(error);
+      },
+      confirmMagicLink: async (email, token) => {
+        const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
         return toAuthResult(error);
       },
       signOut: async () => {
