@@ -44,6 +44,22 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
+      # google-services.json is gitignored and normally only present on a
+      # developer's machine or fetched by EAS's own build worker mid-build
+      # (see app.config.js) — a bare CI checkout has neither, so both
+      # "eas fingerprint:generate" and "eas build" compute their local
+      # fingerprint without it, while the build worker computes its build-
+      # time fingerprint *with* it (after resolving the GOOGLE_SERVICES_JSON
+      # file env var). That mismatch is what failed the first two live runs
+      # of this workflow (see docs/ARCHITECTURE.md -> Build & deployment) —
+      # --build-profile on fingerprint:generate alone doesn't fix it, since
+      # eas build's own pre-flight fingerprint has the same gap. Pulling the
+      # file secret locally first makes every local computation see the same
+      # file the build worker will.
+      - name: Pull EAS environment (needed so local + build-worker fingerprints agree)
+        run: |
+          npx eas-cli env:pull --environment "$EAS_ENVIRONMENT" --non-interactive --path .env.local
+          grep -v '^#' .env.local | grep -v '^$' >> "$GITHUB_ENV"
       # runtimeVersion policy is "fingerprint" (app.config.js) — a native-
       # relevant change (new native module, app.json/eas.json config, etc.)
       # changes the fingerprint hash, so any OTA update built from this
@@ -55,10 +71,7 @@ jobs:
         id: fingerprint
         run: |
           # --build-profile must match the "eas build" call below — without it,
-          # this resolves config (e.g. GOOGLE_SERVICES_JSON) differently than a
-          # real build does, producing a hash the build server won't agree with
-          # (hit this exact mismatch the first time this step ran, see
-          # docs/ARCHITECTURE.md -> Build & deployment).
+          # this resolves config differently than a real build does.
           HASH=$(npx eas-cli fingerprint:generate --non-interactive --json --platform android --build-profile "$EAS_BUILD_PROFILE" | jq -r '.hash')
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
       - name: Check for an existing build with this fingerprint
