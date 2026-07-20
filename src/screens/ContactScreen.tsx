@@ -1,6 +1,6 @@
 import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocale } from '../lib/i18n';
-import { colors, radius, spacing } from '../lib/theme';
+import { colors, pressedStyle, radius, spacing } from '../lib/theme';
 
 const CONTACT_EMAIL = 'support@true-mma.com';
 
@@ -23,7 +23,10 @@ export default function ContactScreen() {
       <Text style={styles.email} selectable>
         {CONTACT_EMAIL}
       </Text>
-      <Pressable style={styles.button} onPress={handleEmailPress}>
+      <Pressable
+        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+        onPress={handleEmailPress}
+      >
         <Text style={styles.buttonText}>{t.contact.emailButton}</Text>
       </Pressable>
     </View>

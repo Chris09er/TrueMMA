@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text } from 'react-nat
 import { Ionicons } from '@expo/vector-icons';
 import { useLocale } from '../lib/i18n';
 import { followOrganization, isFollowingOrganization, unfollowOrganization } from '../lib/organizationFollows';
-import { colors } from '../lib/theme';
+import { colors, pressedStyle } from '../lib/theme';
 
 type Props = {
   organizationId: string;
@@ -47,7 +47,11 @@ export default function OrganizationFollowBell({ organizationId }: Props) {
   };
 
   return (
-    <Pressable onPress={handlePress} hitSlop={8} style={styles.button}>
+    <Pressable
+      onPress={handlePress}
+      hitSlop={8}
+      style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+    >
       {busy ? (
         <ActivityIndicator size="small" color={colors.textSecondary} />
       ) : (

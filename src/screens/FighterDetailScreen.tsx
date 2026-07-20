@@ -6,7 +6,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList, RootTabParamList } from '../navigation';
 import { getFighterById, getFighterFights, isEventUpcoming } from '../lib/queries';
 import type { Fighter, FightWithEvent } from '../lib/types';
-import { colors, commonStyles, radius, spacing } from '../lib/theme';
+import { colors, commonStyles, pressedStyle, radius, spacing } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import FighterFollowBell from '../components/FighterFollowBell';
@@ -73,12 +73,18 @@ export default function FighterDetailScreen({ route }: Props) {
         {fighter && formatRecord(fighter) && <Text style={styles.record}>{formatRecord(fighter)}</Text>}
         <View style={styles.linkRow}>
           {fighter?.tapology_url && (
-            <Pressable style={styles.linkButton} onPress={() => Linking.openURL(fighter.tapology_url!)}>
+            <Pressable
+              style={({ pressed }) => [styles.linkButton, pressed && pressedStyle]}
+              onPress={() => Linking.openURL(fighter.tapology_url!)}
+            >
               <Text style={styles.linkButtonText}>{t.fighterDetail.tapologyButton}</Text>
             </Pressable>
           )}
           {fighter?.sherdog_url && (
-            <Pressable style={styles.linkButton} onPress={() => Linking.openURL(fighter.sherdog_url!)}>
+            <Pressable
+              style={({ pressed }) => [styles.linkButton, pressed && pressedStyle]}
+              onPress={() => Linking.openURL(fighter.sherdog_url!)}
+            >
               <Text style={styles.linkButtonText}>{t.fighterDetail.sherdogButton}</Text>
             </Pressable>
           )}

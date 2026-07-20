@@ -1,7 +1,7 @@
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SUPPORTED_LOCALES, useLocale } from '../lib/i18n';
-import { colors, radius, spacing } from '../lib/theme';
+import { colors, pressedStyle, radius, spacing } from '../lib/theme';
 
 export default function LanguageScreen() {
   const { locale, setLocale, t } = useLocale();
@@ -16,7 +16,7 @@ export default function LanguageScreen() {
           const active = item.code === locale;
           return (
             <Pressable
-              style={[styles.row, active && styles.rowActive]}
+              style={({ pressed }) => [styles.row, active && styles.rowActive, pressed && pressedStyle]}
               onPress={() => setLocale(item.code)}
             >
               <View style={styles.labelRow}>

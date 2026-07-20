@@ -1,6 +1,6 @@
 import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../lib/theme';
+import { colors, pressedStyle } from '../lib/theme';
 
 type Props = {
   active: boolean;
@@ -18,7 +18,11 @@ export default function BellIconButton({
   offsetRight = 10,
 }: Props) {
   return (
-    <Pressable onPress={onPress} hitSlop={10} style={[styles.button, { right: offsetRight }]}>
+    <Pressable
+      onPress={onPress}
+      hitSlop={10}
+      style={({ pressed }) => [styles.button, { right: offsetRight }, pressed && pressedStyle]}
+    >
       {busy ? (
         <ActivityIndicator size="small" color={colors.textSecondary} />
       ) : (

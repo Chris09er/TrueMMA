@@ -14,7 +14,7 @@ import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import { getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
 import { castVote, getEventVotes, type FightVoteSummary } from '../lib/voting';
 import type { EventDetail, Fight, Fighter } from '../lib/types';
-import { colors, commonStyles, radius, spacing } from '../lib/theme';
+import { colors, commonStyles, pressedStyle, radius, spacing } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
@@ -109,12 +109,18 @@ function FightVoteRow({
   if (!summary.myVote) {
     return (
       <View style={styles.voteRow}>
-        <Pressable style={styles.voteButton} onPress={() => onVote(fight.id, fighter1.id)}>
+        <Pressable
+          style={({ pressed }) => [styles.voteButton, pressed && pressedStyle]}
+          onPress={() => onVote(fight.id, fighter1.id)}
+        >
           <Text style={styles.voteButtonText} numberOfLines={1}>
             {t.eventDetail.votePick} {fighter1.name}
           </Text>
         </Pressable>
-        <Pressable style={styles.voteButton} onPress={() => onVote(fight.id, fighter2.id)}>
+        <Pressable
+          style={({ pressed }) => [styles.voteButton, pressed && pressedStyle]}
+          onPress={() => onVote(fight.id, fighter2.id)}
+        >
           <Text style={styles.voteButtonText} numberOfLines={1}>
             {t.eventDetail.votePick} {fighter2.name}
           </Text>

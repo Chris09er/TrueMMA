@@ -1257,14 +1257,15 @@ after seeding data doesn't create duplicate organizations) →
   structure](#app-structure)) covering both list screens, with press
   feedback, 44pt tap targets, no more silent DE-label truncation, and a
   real weight-class ordering; tab bar icons switched to
-  MaterialCommunityIcons. Explicitly deferred/decided: no
+  MaterialCommunityIcons; every remaining `Pressable` across all screens and
+  `BellIconButton`/`OrganizationFollowBell` now renders `pressedStyle` from
+  `theme.tsx` on press, so no interactive element in the app is silently
+  unresponsive-looking anymore. Explicitly deferred/decided: no
   per-organization branding accent (UFC/OKTAGON/... stay visually neutral,
   text-only distinction) — a decision made specifically to avoid
   trade-dress proximity to real orgs' brand colors. Not yet done: migrating
   the ~30 `colors.accentGold`/flat `colors` call sites across
   screens/components to `useTheme()` (so light mode actually reaches screen
-  content, not just the nav chrome); press feedback on the remaining
-  `Pressable`s outside the filter system and the two list-item cards
-  (Profile/Contact/Language buttons, bell/heart icon buttons); a logo and
+  content, not just the nav chrome); a logo and
   app icon (must be store-review-distinguishable from UFC/OKTAGON, plus
   font/icon-license checks for commercial use).

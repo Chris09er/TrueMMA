@@ -17,7 +17,7 @@ import {
   getFollowedFighters,
   getFollowedOrganizations,
 } from '../lib/queries';
-import { colors, commonStyles, radius, spacing } from '../lib/theme';
+import { colors, commonStyles, pressedStyle, radius, spacing } from '../lib/theme';
 import { TIMEZONE_OPTIONS } from '../lib/timezones';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
@@ -119,7 +119,11 @@ function LoggedOutView() {
           editable={mode === 'forgot-request'}
         />
         {mode === 'forgot-request' ? (
-          <Pressable style={styles.button} onPress={handleRequestCode} disabled={busy}>
+          <Pressable
+            style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+            onPress={handleRequestCode}
+            disabled={busy}
+          >
             <Text style={styles.buttonText}>{t.auth.sendCodeButton}</Text>
           </Pressable>
         ) : (
@@ -140,12 +144,16 @@ function LoggedOutView() {
               value={newPassword}
               onChangeText={setNewPassword}
             />
-            <Pressable style={styles.button} onPress={handleConfirmReset} disabled={busy}>
+            <Pressable
+              style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+              onPress={handleConfirmReset}
+              disabled={busy}
+            >
               <Text style={styles.buttonText}>{t.auth.resetPasswordButton}</Text>
             </Pressable>
           </>
         )}
-        <Pressable onPress={() => setMode('login')}>
+        <Pressable onPress={() => setMode('login')} style={({ pressed }) => pressed && pressedStyle}>
           <Text style={styles.link}>{t.auth.backToLogin}</Text>
         </Pressable>
       </ScrollView>
@@ -174,14 +182,21 @@ function LoggedOutView() {
         value={password}
         onChangeText={setPassword}
       />
-      <Pressable style={styles.button} onPress={isSignup ? handleSignup : handleLogin} disabled={busy}>
+      <Pressable
+        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+        onPress={isSignup ? handleSignup : handleLogin}
+        disabled={busy}
+      >
         <Text style={styles.buttonText}>{isSignup ? t.auth.signupButton : t.auth.loginButton}</Text>
       </Pressable>
-      <Pressable onPress={() => setMode(isSignup ? 'login' : 'signup')}>
+      <Pressable
+        onPress={() => setMode(isSignup ? 'login' : 'signup')}
+        style={({ pressed }) => pressed && pressedStyle}
+      >
         <Text style={styles.link}>{isSignup ? t.auth.switchToLogin : t.auth.switchToSignup}</Text>
       </Pressable>
       {!isSignup && (
-        <Pressable onPress={() => setMode('forgot-request')}>
+        <Pressable onPress={() => setMode('forgot-request')} style={({ pressed }) => pressed && pressedStyle}>
           <Text style={styles.link}>{t.auth.forgotPassword}</Text>
         </Pressable>
       )}
@@ -294,7 +309,11 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
             value={nickname}
             onChangeText={setNickname}
           />
-          <Pressable style={styles.button} onPress={handleSaveNickname} disabled={busy}>
+          <Pressable
+            style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+            onPress={handleSaveNickname}
+            disabled={busy}
+          >
             <Text style={styles.buttonText}>{t.profile.nicknameSave}</Text>
           </Pressable>
         </>
@@ -310,7 +329,11 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         value={newEmail}
         onChangeText={setNewEmail}
       />
-      <Pressable style={styles.button} onPress={handleSaveEmail} disabled={busy}>
+      <Pressable
+        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+        onPress={handleSaveEmail}
+        disabled={busy}
+      >
         <Text style={styles.buttonText}>{t.profile.changeEmailButton}</Text>
       </Pressable>
 
@@ -323,7 +346,11 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         value={newPassword}
         onChangeText={setNewPassword}
       />
-      <Pressable style={styles.button} onPress={handleSavePassword} disabled={busy}>
+      <Pressable
+        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+        onPress={handleSavePassword}
+        disabled={busy}
+      >
         <Text style={styles.buttonText}>{t.profile.changePasswordButton}</Text>
       </Pressable>
 
@@ -333,7 +360,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         return (
           <Pressable
             key={option.value ?? 'device'}
-            style={[styles.timezoneRow, active && styles.timezoneRowActive]}
+            style={({ pressed }) => [styles.timezoneRow, active && styles.timezoneRowActive, pressed && pressedStyle]}
             onPress={() => setTimezoneOverride(option.value)}
           >
             <Text style={styles.timezoneLabel}>{option.label[locale]}</Text>
@@ -414,7 +441,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         ))
       )}
 
-      <Pressable style={styles.logoutButton} onPress={signOut}>
+      <Pressable style={({ pressed }) => [styles.logoutButton, pressed && pressedStyle]} onPress={signOut}>
         <Text style={styles.logoutButtonText}>{t.profile.logoutButton}</Text>
       </Pressable>
     </ScrollView>
