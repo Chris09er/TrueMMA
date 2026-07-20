@@ -1,7 +1,15 @@
 import type { Session, User } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import { getQueryParams } from './oauthRedirect';
 import { supabase } from './supabase';
+
+// Required once at module load so the in-app browser used for
+// signInWithGoogle() correctly dismisses itself after the OAuth redirect.
+WebBrowser.maybeCompleteAuthSession();
 import { claimAnonymousFollows } from './pushSubscriptions';
 import { claimLocalFavorites } from './favorites';
 import { claimAnonymousOrganizationFollows } from './organizationFollows';
@@ -30,6 +38,8 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<AuthResult>;
   requestMagicLink: (email: string, locale: Locale) => Promise<AuthResult>;
   confirmMagicLink: (email: string, token: string) => Promise<AuthResult>;
+  signInWithGoogle: () => Promise<AuthResult>;
+  signInWithApple: () => Promise<AuthResult>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<AuthResult>;
   confirmPasswordReset: (email: string, token: string, newPassword: string) => Promise<AuthResult>;
@@ -121,6 +131,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       confirmMagicLink: async (email, token) => {
         const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
+        return toAuthResult(error);
+      },
+      signInWithGoogle: async () => {
+        // Needs a real Google Cloud Console OAuth client (external, user-only
+        // setup — see docs/ARCHITECTURE.md) and [auth.external.google] set up
+        // on both Supabase projects before this can succeed; the code path
+        // itself works without either.
+        const redirectTo = Linking.createURL('auth-callback');
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: { redirectTo, skipBrowserRedirect: true },
+        });
+        if (error) return toAuthResult(error);
+        if (!data.url) return { status: 'error', code: 'unknown', message: 'No OAuth URL returned' };
+
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+        if (result.type !== 'success') {
+          return { status: 'error', code: 'oauth_cancelled', message: 'Login cancelled' };
+        }
+
+        const { params, errorCode } = getQueryParams(result.url);
+        if (errorCode) return { status: 'error', code: errorCode, message: errorCode };
+        if (!params.access_token || !params.refresh_token) {
+          return { status: 'error', code: 'unknown', message: 'No session tokens in redirect URL' };
+        }
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        });
+        return toAuthResult(sessionError);
+      },
+      signInWithApple: async () => {
+        // Native Sign in with Apple — iOS only (no-op button on Android, see
+        // ProfileScreen.tsx's AppleAuthentication.isAvailableAsync() check).
+        // Needs a real Apple Developer Services ID/key and
+        // [auth.external.apple] set up on both Supabase projects before this
+        // can succeed; this project has no iOS build yet either way.
+        let credential;
+        try {
+          credential = await AppleAuthentication.signInAsync({
+            requestedScopes: [
+              AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+              AppleAuthentication.AppleAuthenticationScope.EMAIL,
+            ],
+          });
+        } catch (error) {
+          const code = (error as { code?: string }).code;
+          if (code === 'ERR_REQUEST_CANCELED') {
+            return { status: 'error', code: 'oauth_cancelled', message: 'Login cancelled' };
+          }
+          return { status: 'error', code: 'unknown', message: (error as Error).message };
+        }
+        if (!credential.identityToken) {
+          return { status: 'error', code: 'unknown', message: 'No identity token returned' };
+        }
+        const { error } = await supabase.auth.signInWithIdToken({
+          provider: 'apple',
+          token: credential.identityToken,
+        });
         return toAuthResult(error);
       },
       signOut: async () => {

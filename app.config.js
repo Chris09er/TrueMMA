@@ -16,4 +16,8 @@ module.exports = {
   runtimeVersion: {
     policy: 'fingerprint',
   },
+  // expo-web-browser needs its plugin registered for the OAuth redirect
+  // (Google) flow; expo-apple-authentication needs its plugin for the Sign
+  // In with Apple capability/entitlement on iOS (no-op on Android).
+  plugins: ['expo-web-browser', 'expo-apple-authentication'],
 };

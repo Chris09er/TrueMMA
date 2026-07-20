@@ -3,6 +3,7 @@
     "name": "True MMA",
     "slug": "true-mma",
     "version": "1.0.0",
+    "scheme": "truemma",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
