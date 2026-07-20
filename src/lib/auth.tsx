@@ -9,9 +9,14 @@ import { getProfile, updateTimezoneOverride } from './profile';
 
 export type AuthResult = { status: 'ok' } | { status: 'error'; code: string; message: string };
 
-function toAuthResult(error: { message: string; code?: string } | null): AuthResult {
+function toAuthResult(error: { message: string; code?: string; name?: string } | null): AuthResult {
   if (!error) return { status: 'ok' };
-  return { status: 'error', code: error.code ?? 'unknown', message: error.message };
+  // Network-level failures (no connection, request timed out) come back as
+  // AuthRetryableFetchError with no `code` — give them their own code so the
+  // UI can tell "offline" apart from "wrong credentials" instead of showing
+  // the same generic message for both.
+  const code = error.name === 'AuthRetryableFetchError' ? 'network_error' : (error.code ?? 'unknown');
+  return { status: 'error', code, message: error.message };
 }
 
 type AuthContextValue = {

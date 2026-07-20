@@ -10,6 +10,7 @@ const ERROR_CODE_KEYS: Record<string, keyof Translations['auth']> = {
   over_request_rate_limit: 'errorRateLimit',
   user_already_exists: 'errorUserAlreadyExists',
   weak_password: 'errorWeakPassword',
+  network_error: 'errorNetwork',
 };
 
 export function authErrorMessage(t: Translations, code: string): string {

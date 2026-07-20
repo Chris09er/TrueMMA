@@ -741,18 +741,43 @@ treating as a standing pattern, not a one-off patch:
   recursively — `satisfies Record<Locale, unknown>` alone does not catch a
   key present in one locale and missing in the other, and this doc previously
   had no check for that at all.
-- **`keyboardShouldPersistTaps="handled"`** added to every form `ScrollView`
-  in `ProfileScreen.tsx` — first use of this prop in the repo. Without it, RN
+- **`keyboardShouldPersistTaps`** added to every form `ScrollView` in
+  `ProfileScreen.tsx` — first use of this prop in the repo. Without it, RN
   defaults to `'never'`, so tapping a submit button while the keyboard is open
   only dismisses the keyboard on the first tap and requires a second tap to
-  actually fire `onPress`. Apply this to any future screen with a form inside
-  a `ScrollView`.
+  actually fire `onPress`. Started as `"handled"`; still reproduced on-device
+  with manually-typed input (not just autofill), so changed to `"always"` —
+  the stronger guarantee that taps always pass through regardless of whether
+  RN recognizes the target as "handling" its own touch, at the cost of a tap
+  on empty form space no longer auto-dismissing the keyboard (an acceptable
+  trade for a short form). Apply `"always"` to any future screen with a form
+  inside a `ScrollView`, not `"handled"` — this project has already seen
+  `"handled"` fail to fully solve this.
 - **`PasswordField`** (local to `ProfileScreen.tsx`) adds a show/hide eye-icon
   toggle shared by the login/signup password field and both change/reset
   password fields, plus `textContentType`/`autoComplete` autofill hints and
   `returnKeyType`/`onSubmitEditing` field-to-field chaining (email → password
   → submit) so the OS keyboard's "next"/"done" key behaves correctly — none
-  of this existed before.
+  of this existed before. The toggle icon has an `accessibilityLabel`
+  (show/hide password) for screen readers.
+- **`SubmitButton`** (local to `ProfileScreen.tsx`) replaces every form's
+  submit `Pressable` — shows an `ActivityIndicator` instead of its label
+  while `busy`, so a slow request doesn't look like the tap did nothing (the
+  button was already `disabled` while busy, but gave no visual feedback).
+- **Network vs. auth errors distinguished:** `toAuthResult()` (`auth.tsx`)
+  checks for Supabase's `AuthRetryableFetchError` (thrown for a fetch-level
+  failure — no connection, timeout — rather than a real auth rejection, and
+  carries no `code`) and maps it to a dedicated `network_error` code/message
+  instead of falling through to the generic "check your input" text.
+- **Email normalized before every auth call** (`normalizeEmail()` in
+  `ProfileScreen.tsx`: trim + lowercase) — an autofill-inserted trailing space
+  previously caused a confusing "wrong password" on login even when both
+  signup and login used the visually-identical address.
+- **Last-used email remembered** (`AsyncStorage`, key
+  `true-mma:last-email`), prefilled on `LoggedOutView` mount, saved after a
+  successful login or signup — saves retyping it after a logout. Plain local
+  storage, no account linkage; a **why-should-I-log-in nudge for anonymous
+  users was explicitly deferred**, not part of this pass.
 
 **Timezone override (added 2026-07-19):** device-local time was already
 the default everywhere — `formatEventDate()`/`BroadcastTimes`'s
@@ -1116,7 +1141,15 @@ after seeding data doesn't create duplicate organizations) →
     channel ends up with both a matching build and a matching update rather
     than an update nobody can consume yet. Android-only for now (no iOS
     build has ever been made for this project, see [Build &
-    deployment](#build--deployment)). This closes the gap where a native
+    deployment](#build--deployment)).
+    - **`--status finished` only matches completed builds, not queued/running
+      ones — observed 2026-07-20.** Two pushes to `stage` close together
+      (before the first fingerprint-triggered build had finished) each kicked
+      off their own build for the identical fingerprint, so two redundant
+      builds queued back to back. Harmless (just wasted build minutes, both
+      eventually produce the same artifact), but worth knowing before reading
+      too much into "why are there two builds in the queue."
+    This closes the gap where a native
     change pushed to `stage`/`main` used to publish a same-day OTA update
     that no installed build could actually use until someone manually
     remembered to run a fresh `eas build`.

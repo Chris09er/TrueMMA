@@ -140,6 +140,9 @@ export const translations = {
       errorRateLimit: 'Zu viele Versuche. Bitte warte kurz, bevor du es erneut versuchst.',
       errorUserAlreadyExists: 'Für diese E-Mail-Adresse existiert bereits ein Konto.',
       errorWeakPassword: 'Das Passwort erfüllt die Anforderungen nicht.',
+      errorNetwork: 'Keine Internetverbindung. Bitte prüfe deine Verbindung und versuche es erneut.',
+      showPassword: 'Passwort anzeigen',
+      hidePassword: 'Passwort verbergen',
     },
     profile: {
       title: 'Profil',
@@ -299,6 +302,9 @@ export const translations = {
       errorRateLimit: 'Too many attempts. Please wait a moment before trying again.',
       errorUserAlreadyExists: 'An account with this email address already exists.',
       errorWeakPassword: "That password doesn't meet the requirements.",
+      errorNetwork: 'No internet connection. Please check your connection and try again.',
+      showPassword: 'Show password',
+      hidePassword: 'Hide password',
     },
     profile: {
       title: 'Profile',
