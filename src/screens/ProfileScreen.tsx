@@ -37,7 +37,14 @@ import {
 import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
-type LoggedOutMode = 'login' | 'signup' | 'forgot-request' | 'forgot-confirm';
+type LoggedOutMode = 'login' | 'signup' | 'signup-confirm' | 'forgot-request' | 'forgot-confirm';
+
+// Must match the real resend cooldown configured in each Supabase project's
+// dashboard (Authentication → Rate Limits) — not introspectable client-side,
+// so this is a best-effort UI countdown, not the source of truth. If it
+// drifts from the real value, the worst case is the button re-enables a
+// little early and the user sees an over_email_send_rate_limit error once.
+const RESEND_COOLDOWN_SECONDS = 60;
 
 const LAST_EMAIL_STORAGE_KEY = 'true-mma:last-email';
 
@@ -199,17 +206,27 @@ function LoggedOutView() {
   const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { signIn, signUp, requestPasswordReset, confirmPasswordReset } = useAuth();
+  const { signIn, signUp, confirmSignup, resendSignupConfirmation, requestPasswordReset, confirmPasswordReset } =
+    useAuth();
   const [mode, setMode] = useState<LoggedOutMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const passwordRef = useRef<TextInput>(null);
   const codeRef = useRef<TextInput>(null);
   const newPasswordRef = useRef<TextInput>(null);
+  const signupCodeRef = useRef<TextInput>(null);
+
+  // Ticks the resend cooldown down once a second while it's active.
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   // Prefill the email field with whatever was last used on this device, so a
   // returning user doesn't have to retype it after logging out.
@@ -244,8 +261,37 @@ function LoggedOutView() {
         return;
       }
       AsyncStorage.setItem(LAST_EMAIL_STORAGE_KEY, normalizedEmail).catch(() => {});
-      Alert.alert(t.auth.signupTitle, t.auth.signupSuccess);
-      setMode('login');
+      setCode('');
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+      setMode('signup-confirm');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleConfirmSignup = async () => {
+    setBusy(true);
+    try {
+      const result = await confirmSignup(normalizeEmail(email), code);
+      // On success this signs the user in directly (verifyOtp returns a
+      // session) — AuthProvider's onAuthStateChange picks it up and
+      // ProfileScreen swaps to LoggedInView on its own, nothing else to do.
+      showAuthError(t, result);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResendSignupCode = async () => {
+    if (resendCooldown > 0) return;
+    setBusy(true);
+    try {
+      const result = await resendSignupConfirmation(normalizeEmail(email));
+      if (result.status === 'error') {
+        showAuthError(t, result);
+        return;
+      }
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
     } finally {
       setBusy(false);
     }
@@ -279,6 +325,48 @@ function LoggedOutView() {
       setBusy(false);
     }
   };
+
+  if (mode === 'signup-confirm') {
+    return (
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+          <Text style={styles.title}>{t.auth.signupConfirmTitle}</Text>
+          <Text style={styles.body}>{t.auth.signupConfirmBody}</Text>
+          <TextInput
+            ref={signupCodeRef}
+            style={styles.input}
+            placeholder={t.auth.codeLabel}
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="number-pad"
+            returnKeyType="done"
+            onSubmitEditing={handleConfirmSignup}
+            value={code}
+            onChangeText={setCode}
+          />
+          <SubmitButton
+            label={t.auth.confirmButton}
+            busy={busy}
+            onPress={handleConfirmSignup}
+            style={styles.button}
+            textStyle={styles.buttonText}
+            spinnerColor={colors.accent}
+          />
+          <Pressable
+            onPress={handleResendSignupCode}
+            disabled={resendCooldown > 0 || busy}
+            style={({ pressed }) => pressed && pressedStyle}
+          >
+            <Text style={styles.link}>
+              {resendCooldown > 0 ? t.auth.resendCodeIn(resendCooldown) : t.auth.resendCode}
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => setMode('login')} style={({ pressed }) => pressed && pressedStyle}>
+            <Text style={styles.link}>{t.auth.backToLogin}</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
 
   if (mode === 'forgot-request' || mode === 'forgot-confirm') {
     return (

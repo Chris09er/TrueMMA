@@ -25,6 +25,8 @@ type AuthContextValue = {
   user: User | null;
   loading: boolean;
   signUp: (email: string, password: string, locale: Locale) => Promise<AuthResult>;
+  confirmSignup: (email: string, token: string) => Promise<AuthResult>;
+  resendSignupConfirmation: (email: string) => Promise<AuthResult>;
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<AuthResult>;
@@ -90,6 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // send the very first confirmation email in the right language —
         // there's no profile row yet at signup time to read it from.
         const { error } = await supabase.auth.signUp({ email, password, options: { data: { locale } } });
+        return toAuthResult(error);
+      },
+      confirmSignup: async (email, token) => {
+        const { error } = await supabase.auth.verifyOtp({ email, token, type: 'signup' });
+        return toAuthResult(error);
+      },
+      resendSignupConfirmation: async (email) => {
+        const { error } = await supabase.auth.resend({ type: 'signup', email });
         return toAuthResult(error);
       },
       signIn: async (email, password) => {

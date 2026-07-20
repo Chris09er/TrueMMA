@@ -1,5 +1,3 @@
-import type { Translations } from './i18n';
-
 // Single source of truth for the password rules — must match
 // supabase/config.toml's `minimum_password_length` / `password_requirements`
 // (currently 8 / "letters_digits") so the client-side checklist and
@@ -10,7 +8,7 @@ export const MIN_PASSWORD_LENGTH = 8;
 
 type PasswordRequirement = {
   key: 'minLength' | 'hasLetter' | 'hasDigit';
-  labelKey: keyof Translations['auth'];
+  labelKey: 'passwordReqMinLength' | 'passwordReqLetter' | 'passwordReqDigit';
   test: (password: string) => boolean;
 };
 

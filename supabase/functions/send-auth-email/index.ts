@@ -5,14 +5,12 @@
 // the full architecture writeup and the decisions behind it (direct IONOS
 // SMTP, not a transactional API; OTP-code-based signup confirmation).
 //
-// NOT YET ENABLED on either Supabase project — this is scaffolding. Turning
-// it on requires, on each project separately:
-//   1. `supabase secrets set IONOS_SMTP_USER=... IONOS_SMTP_PASSWORD=...`
-//   2. Deploying this function: `supabase functions deploy send-auth-email`
-//   3. Enabling the hook in the dashboard (Authentication → Hooks → Send
-//      Email), pointing it at this function, and copying the generated
-//      webhook secret into `SEND_AUTH_EMAIL_HOOK_SECRET` (via `secrets set`)
-// None of this has been done yet — see Known open items.
+// Deployed and enabled on both stage and production (2026-07-20). Confirmed
+// working end-to-end on stage. Still failing on production with a generic
+// 500 — see docs/ARCHITECTURE.md's "Auth emails" section for the full
+// debugging trail and what to check first (the console.log/console.error
+// calls below were added specifically to diagnose this and haven't been
+// reviewed in the Function logs yet).
 //
 // Scope, deliberately narrow for this first pass: only `signup` and
 // `recovery` email_action_types are handled (both OTP-code-based — see
@@ -85,6 +83,7 @@ Deno.serve(async (req) => {
   try {
     data = wh.verify(payload, headers) as HookPayload;
   } catch (error) {
+    console.error('Webhook signature verification failed:', (error as Error).message);
     return new Response(JSON.stringify({ error: { message: (error as Error).message } }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
@@ -96,6 +95,7 @@ Deno.serve(async (req) => {
   const templateFn = templates[locale][email_data.email_action_type];
 
   if (!templateFn) {
+    console.error(`No template for email_action_type "${email_data.email_action_type}"`);
     return new Response(
       JSON.stringify({ error: { message: `No template for email_action_type "${email_data.email_action_type}"` } }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -104,14 +104,18 @@ Deno.serve(async (req) => {
 
   const { subject, text } = templateFn(email_data.token);
 
+  const smtpUser = Deno.env.get('IONOS_SMTP_USER') ?? '';
+  const smtpPassword = Deno.env.get('IONOS_SMTP_PASSWORD') ?? '';
+  console.log(`SMTP config check: user=${smtpUser ? 'set (' + smtpUser.length + ' chars)' : 'MISSING'}, password=${smtpPassword ? 'set (' + smtpPassword.length + ' chars)' : 'MISSING'}`);
+
   const client = new SMTPClient({
     connection: {
       hostname: 'smtp.ionos.de',
       port: 465,
       tls: true,
       auth: {
-        username: Deno.env.get('IONOS_SMTP_USER') ?? '',
-        password: Deno.env.get('IONOS_SMTP_PASSWORD') ?? '',
+        username: smtpUser,
+        password: smtpPassword,
       },
     },
   });
@@ -124,6 +128,7 @@ Deno.serve(async (req) => {
       content: text,
     });
   } catch (error) {
+    console.error('SMTP send failed:', (error as Error).message, (error as Error).stack);
     return new Response(JSON.stringify({ error: { message: `SMTP send failed: ${(error as Error).message}` } }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
