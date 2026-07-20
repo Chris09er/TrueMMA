@@ -1,7 +1,11 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useColorScheme } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeMode = 'dark' | 'light';
+export type ThemeOverride = ThemeMode | 'system';
+
+const THEME_STORAGE_KEY = 'true-mma:themeOverride';
 
 export type ColorTokens = {
   background: string;
@@ -10,9 +14,9 @@ export type ColorTokens = {
   border: string;
   textPrimary: string;
   textSecondary: string;
-  /** Primary brand accent ("Ember") — active/interactive state, replaces the old ad hoc gold/white split. */
+  /** Primary brand accent ("Chrome & Indigo") — active/interactive state. */
   accent: string;
-  /** Secondary accent ("Steel") — links, lower-emphasis highlights. */
+  /** Secondary accent — links, lower-emphasis highlights. */
   accentSecondary: string;
   /** Deliberately a different hue from `accent` so an active filter never reads as an error state. */
   danger: string;
@@ -22,31 +26,31 @@ export type ColorTokens = {
 };
 
 const darkColors: ColorTokens = {
-  background: '#0e1013',
-  surface: '#171a1e',
-  surfaceAlt: '#20242a',
-  border: '#2c3138',
-  textPrimary: '#f4f5f6',
-  textSecondary: '#9aa3ad',
-  accent: '#ff5a36',
-  accentSecondary: '#5b8ba8',
-  danger: '#ff4468',
-  live: '#ff2d2d',
-  link: '#5b8ba8',
+  background: '#0b0d14',
+  surface: '#14171f',
+  surfaceAlt: '#1c202b',
+  border: '#2a2f3d',
+  textPrimary: '#f3f4f7',
+  textSecondary: '#99a0b3',
+  accent: '#4f8cff',
+  accentSecondary: '#9aa5b8',
+  danger: '#ff4d6d',
+  live: '#ff3b3b',
+  link: '#9aa5b8',
 };
 
 const lightColors: ColorTokens = {
-  background: '#f6f5f3',
+  background: '#f5f6fa',
   surface: '#ffffff',
-  surfaceAlt: '#eceae7',
-  border: '#ddd9d4',
-  textPrimary: '#16181a',
-  textSecondary: '#5c6169',
-  accent: '#e64a26',
-  accentSecondary: '#3f7691',
+  surfaceAlt: '#eceef4',
+  border: '#dde1ea',
+  textPrimary: '#12141c',
+  textSecondary: '#5b6272',
+  accent: '#3a5bff',
+  accentSecondary: '#5c6b85',
   danger: '#e0335a',
   live: '#e02020',
-  link: '#3f7691',
+  link: '#5c6b85',
 };
 
 export const palettes: Record<ThemeMode, ColorTokens> = { dark: darkColors, light: lightColors };
@@ -102,18 +106,43 @@ export const typography = {
 // available yet). Every screen/component past that point uses useTheme().
 export const colors = darkColors;
 
-// --- Theme context (dark/light, system-driven) --------------------------
+// --- Theme context (dark/light, system-driven by default, overridable) --
 type ThemeContextValue = {
   mode: ThemeMode;
   colors: ColorTokens;
+  themeOverride: ThemeOverride;
+  setThemeOverride: (next: ThemeOverride) => void;
 };
 
-const ThemeContext = createContext<ThemeContextValue>({ mode: 'dark', colors: darkColors });
+const ThemeContext = createContext<ThemeContextValue>({
+  mode: 'dark',
+  colors: darkColors,
+  themeOverride: 'system',
+  setThemeOverride: () => {},
+});
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const scheme = useColorScheme();
-  const mode: ThemeMode = scheme === 'light' ? 'light' : 'dark';
-  const value = useMemo(() => ({ mode, colors: palettes[mode] }), [mode]);
+  const [themeOverride, setThemeOverrideState] = useState<ThemeOverride>('system');
+
+  useEffect(() => {
+    AsyncStorage.getItem(THEME_STORAGE_KEY).then((stored) => {
+      if (stored === 'dark' || stored === 'light' || stored === 'system') {
+        setThemeOverrideState(stored);
+      }
+    });
+  }, []);
+
+  const setThemeOverride = (next: ThemeOverride) => {
+    setThemeOverrideState(next);
+    AsyncStorage.setItem(THEME_STORAGE_KEY, next).catch(() => {});
+  };
+
+  const mode: ThemeMode = themeOverride === 'system' ? (scheme === 'light' ? 'light' : 'dark') : themeOverride;
+  const value = useMemo(
+    () => ({ mode, colors: palettes[mode], themeOverride, setThemeOverride }),
+    [mode, themeOverride]
+  );
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

@@ -6,6 +6,7 @@ import FighterFollowBell from '../components/FighterFollowBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 import OrganizationFollowBell from '../components/OrganizationFollowBell';
+import SettingsModal from '../components/SettingsModal';
 import { useAuth } from '../lib/auth';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
@@ -18,26 +19,49 @@ import {
   getFollowedOrganizations,
 } from '../lib/queries';
 import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
-import { TIMEZONE_OPTIONS } from '../lib/timezones';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
 type LoggedOutMode = 'login' | 'signup' | 'forgot-request' | 'forgot-confirm';
 
 export default function ProfileScreen() {
-  const { user, loading } = useAuth();
+  const { user, loading, timezoneOverride, setTimezoneOverride } = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const commonStyles = useCommonStyles();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const settingsButton = (
+    <Pressable
+      style={({ pressed }) => [styles.settingsButton, pressed && pressedStyle]}
+      onPress={() => setSettingsOpen(true)}
+      hitSlop={8}
+    >
+      <Ionicons name="settings-outline" size={22} color={colors.textPrimary} />
+    </Pressable>
+  );
 
   if (loading) {
     return (
       <View style={styles.container}>
+        {settingsButton}
         <ActivityIndicator style={commonStyles.center} color={colors.accent} />
+        <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </View>
     );
   }
 
-  return <View style={styles.container}>{user ? <LoggedInView userId={user.id} email={user.email ?? ''} /> : <LoggedOutView />}</View>;
+  return (
+    <View style={styles.container}>
+      {settingsButton}
+      {user ? <LoggedInView userId={user.id} email={user.email ?? ''} /> : <LoggedOutView />}
+      <SettingsModal
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        timezoneOverride={user ? timezoneOverride : undefined}
+        onTimezoneChange={user ? (tz) => setTimezoneOverride(tz) : undefined}
+      />
+    </View>
+  );
 }
 
 function LoggedOutView() {
@@ -213,7 +237,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { signOut, updateEmail, updatePassword, timezoneOverride, setTimezoneOverride } = useAuth();
+  const { signOut, updateEmail, updatePassword, timezoneOverride } = useAuth();
   const [nickname, setNickname] = useState('');
   const [nicknameLoading, setNicknameLoading] = useState(true);
   const [newEmail, setNewEmail] = useState(email);
@@ -361,21 +385,6 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         <Text style={styles.buttonText}>{t.profile.changePasswordButton}</Text>
       </Pressable>
 
-      <Text style={styles.sectionTitle}>{t.profile.timezoneTitle}</Text>
-      {TIMEZONE_OPTIONS.map((option) => {
-        const active = (timezoneOverride ?? null) === option.value;
-        return (
-          <Pressable
-            key={option.value ?? 'device'}
-            style={({ pressed }) => [styles.timezoneRow, active && styles.timezoneRowActive, pressed && pressedStyle]}
-            onPress={() => setTimezoneOverride(option.value)}
-          >
-            <Text style={styles.timezoneLabel}>{option.label[locale]}</Text>
-            {active && <Ionicons name="checkmark" size={18} color={colors.accent} />}
-          </Pressable>
-        );
-      })}
-
       <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
       {followsLoading ? (
         <ActivityIndicator color={colors.accent} />
@@ -510,23 +519,12 @@ const makeStyles = (colors: ColorTokens) =>
       textAlign: 'center',
       marginTop: spacing.sm,
     },
-    timezoneRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: 14,
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      marginBottom: 8,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    timezoneRowActive: {
-      borderColor: colors.accent,
-    },
-    timezoneLabel: {
-      fontSize: 14,
-      color: colors.textPrimary,
+    settingsButton: {
+      position: 'absolute',
+      top: spacing.md,
+      right: spacing.lg,
+      zIndex: 1,
+      padding: 4,
     },
     listCard: {
       padding: 14,

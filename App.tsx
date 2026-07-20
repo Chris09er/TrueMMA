@@ -15,7 +15,6 @@ import EventListScreen from './src/screens/EventListScreen';
 import FighterListScreen from './src/screens/FighterListScreen';
 import FighterDetailScreen from './src/screens/FighterDetailScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
-import LanguageScreen from './src/screens/LanguageScreen';
 import ContactScreen from './src/screens/ContactScreen';
 
 const EventsStack = createNativeStackNavigator<EventsStackParamList>();
@@ -86,7 +85,6 @@ function RootTabs() {
             EventsTab: 'calendar-star',
             FightersTab: 'boxing-glove',
             ProfileTab: 'account-circle-outline',
-            LanguageTab: 'translate',
             ContactTab: 'email-outline',
           };
           return (
@@ -105,11 +103,6 @@ function RootTabs() {
         name="ProfileTab"
         component={ProfileScreen}
         options={{ title: t.tabs.profile, headerShown: true, headerTitle: t.profile.title }}
-      />
-      <Tab.Screen
-        name="LanguageTab"
-        component={LanguageScreen}
-        options={{ title: t.tabs.language, headerShown: true, headerTitle: t.language.title }}
       />
       <Tab.Screen
         name="ContactTab"

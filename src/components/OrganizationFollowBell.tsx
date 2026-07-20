@@ -36,6 +36,11 @@ export default function OrganizationFollowBell({ organizationId }: Props) {
         Alert.alert(t.notifications.genericErrorTitle, t.notifications.genericErrorBody);
         return;
       }
+      if (active) {
+        Alert.alert(t.notifications.organizationFollowOffTitle, t.notifications.organizationFollowOffBody);
+      } else {
+        Alert.alert(t.notifications.organizationFollowOnTitle, t.notifications.organizationFollowOnBody);
+      }
       setActive(!active);
     } catch (err) {
       console.error('OrganizationFollowBell press failed:', err);

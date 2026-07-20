@@ -81,10 +81,18 @@ export default function FighterListScreen({ navigation }: Props) {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [fighters]);
 
-  const weightClasses = useMemo(() => {
+  const weightClassesMen = useMemo(() => {
     const set = new Set<string>();
     for (const fighter of fighters) {
-      if (fighter.weight_class) set.add(fighter.weight_class);
+      if (fighter.weight_class && !fighter.weight_class.startsWith("Women's")) set.add(fighter.weight_class);
+    }
+    return sortWeightClasses([...set]);
+  }, [fighters]);
+
+  const weightClassesWomen = useMemo(() => {
+    const set = new Set<string>();
+    for (const fighter of fighters) {
+      if (fighter.weight_class?.startsWith("Women's")) set.add(fighter.weight_class);
     }
     return sortWeightClasses([...set]);
   }, [fighters]);
@@ -173,17 +181,35 @@ export default function FighterListScreen({ navigation }: Props) {
               </FilterSection>
             )}
 
-            {weightClasses.length > 0 && (
+            {(weightClassesMen.length > 0 || weightClassesWomen.length > 0) && (
               <FilterSection title={t.fighterList.filterWeightClass}>
                 <FilterChip
                   label={t.fighterList.filterAll}
                   active={selectedWeightClass === undefined}
                   onPress={() => setSelectedWeightClass(undefined)}
                 />
-                {weightClasses.map((weightClass) => (
+              </FilterSection>
+            )}
+
+            {weightClassesMen.length > 0 && (
+              <FilterSection title={t.fighterList.filterWeightClassMen}>
+                {weightClassesMen.map((weightClass) => (
                   <FilterChip
                     key={weightClass}
                     label={weightClass}
+                    active={selectedWeightClass === weightClass}
+                    onPress={() => setSelectedWeightClass(weightClass)}
+                  />
+                ))}
+              </FilterSection>
+            )}
+
+            {weightClassesWomen.length > 0 && (
+              <FilterSection title={t.fighterList.filterWeightClassWomen}>
+                {weightClassesWomen.map((weightClass) => (
+                  <FilterChip
+                    key={weightClass}
+                    label={weightClass.replace(/^Women's /, '')}
                     active={selectedWeightClass === weightClass}
                     onPress={() => setSelectedWeightClass(weightClass)}
                   />

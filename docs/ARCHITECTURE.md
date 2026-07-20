@@ -252,10 +252,13 @@ else (UFC + 9 other leagues) is populated by
 
 ## App structure
 
-- `App.tsx` — root: `LocaleProvider` → `NavigationContainer` (dark theme) →
-  bottom tabs.
+- `App.tsx` — root: `ThemeProvider` → `LocaleProvider` → `AuthProvider` →
+  `NavigationContainer` (theme-aware, see [theme.tsx](#shared-lib)) → bottom
+  tabs.
 - **Navigation** (`src/navigation.ts`): `RootTabParamList` (EventsTab,
-  FightersTab, ProfileTab, LanguageTab, ContactTab) +
+  FightersTab, ProfileTab, ContactTab — `LanguageTab` removed 2026-07-20,
+  folded into a settings gear icon on `ProfileScreen`, see [Login /
+  Profile](#login--profile)) +
   `EventsStackParamList` (EventList → EventDetail) and
   `FightersStackParamList` (FighterList → FighterDetail), both native
   stacks nested inside their tab. Both `RootTabParamList.EventsTab` and
@@ -316,17 +319,20 @@ else (UFC + 9 other leagues) is populated by
     `OrganizationFollowBell` next to the org name (added 2026-07-19, see
     [Notifications](#notifications)); and, for any fight with no result
     yet, a vote UI (see [Voting](#voting)).
-  - `FighterListScreen` — search, a single "Filter" button (added
-    2026-07-19, replacing what used to be a lone horizontal-scroll
-    nationality row) opening a bottom-sheet `Modal` (RN built-in, no new
-    dependency) with three independently-combinable (AND) sections —
-    Organisation (`primary_organization_id`, see [Data
-    model](#data-model)), Gewichtsklasse (`weight_class`), Nationalität —
-    each a wrapped chip row rather than horizontal-scroll, since a modal
-    has the vertical room a header row doesn't. All three still derive
-    their options client-side from the already-loaded fighter list, same
-    as the original nationality-only filter. Pull-to-refresh, per-fighter
-    follow bell. Tapping a fighter opens `FighterDetailScreen`
+  - `FighterListScreen` — search, a single "Filter" button opening the
+    shared `FilterModal` (see [App structure → Components](#app-structure))
+    with independently-combinable (AND) sections — Organisation
+    (`primary_organization_id`, see [Data model](#data-model)),
+    Gewichtsklasse, Nationalität. Gewichtsklasse is itself split into two
+    `FilterSection`s, Männer/Frauen (added 2026-07-20, feedback: the flat
+    alphabetical/weight-ordered list mixed both) — split purely by whether
+    `weight_class` starts with `"Women's "` (confirmed against the live DB:
+    balldontlie already prefixes every women's division that way, e.g.
+    `"Women's Bantamweight"` vs `"Bantamweight"` — no schema change needed,
+    the women's-section chip label strips the prefix for display, the
+    stored/matched value keeps it). All three still derive their options
+    client-side from the already-loaded fighter list. Pull-to-refresh,
+    per-fighter follow bell. Tapping a fighter opens `FighterDetailScreen`
     (used to jump straight to Tapology/Sherdog — now shows an in-app
     profile first, external links are explicit buttons there).
   - `FighterDetailScreen` — photo/name/nickname/nationality, W-L-D record
@@ -344,29 +350,36 @@ else (UFC + 9 other leagues) is populated by
     Navigation above). Within each upcoming/history row, the opponent name
     and event name are themselves tappable, navigating on to that
     opponent's `FighterDetail` or the event's `EventDetail` respectively.
-  - `LanguageScreen`, `ContactScreen` — simple settings-style screens.
-    `LanguageScreen` shows a flag emoji per entry (`SUPPORTED_LOCALES` in
-    `i18n.tsx` now carries a `flag` field alongside `code`/`label`).
-    `ContactScreen` (updated 2026-07-19) shows the support email as
-    selectable `Text` (RN's built-in `selectable` prop — native
+  - `ContactScreen` — simple settings-style screen. Shows the support email
+    as selectable `Text` (RN's built-in `selectable` prop — native
     long-press-copy, no new dependency) above the mailto button, and
     guards `Linking.openURL` with `Linking.canOpenURL` first, falling back
     to an alert instead of failing silently if no mail client is
     configured.
   - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
-    flow. Logged-in: nickname, change email/password, a timezone-override
-    picker (added 2026-07-19, see [Login / Profile](#login--profile)),
+    flow. Logged-in: nickname, change email/password,
     followed fighters/events/**organizations** (added 2026-07-19) and
     favorited fighters/events (reusing the same bell/heart components to
-    unfollow/unfavorite directly from the list), logout. See
-    [Login / Profile](#login--profile) and [Favorites](#favorites).
+    unfollow/unfavorite directly from the list), logout. **Settings gear
+    icon (2026-07-20, replaces the old standalone `LanguageScreen` tab)** —
+    top-right on `ProfileScreen`, shown in both logged-in and logged-out
+    states, opens `SettingsModal` (built on the shared `FilterModal` shell):
+    language picker (`SUPPORTED_LOCALES`, flag emoji per entry), a
+    System/Light/Dark appearance picker (`useTheme().themeOverride` +
+    `setThemeOverride()`, persisted to AsyncStorage — see `theme.tsx`
+    below), and — only when logged in, since it's stored server-side on the
+    user's profile — the timezone-override picker (moved out of the main
+    scroll view into the modal). See [Login / Profile](#login--profile) and
+    [Favorites](#favorites).
 - **Shared lib** (`src/lib/`):
   - `theme.tsx` (renamed from `theme.ts` 2026-07-20 — see [Known open
     items](#known-open-items) for the visual redesign this is part of) —
-    dual dark/light color palettes ("Steel & Ember": ember-orange primary
-    accent, steel-blue secondary, danger deliberately a different hue from
-    the accent so an active filter never reads as an error, `live` kept
-    separate from `danger` for the same reason), a `typography` scale
+    dual dark/light color palettes ("Chrome & Indigo" — replaced the
+    original "Steel & Ember" orange palette 2026-07-20, feedback: orange
+    read as "unsexy"; electric-blue primary accent, cool silver secondary,
+    danger deliberately a different hue from the accent so an active filter
+    never reads as an error, `live` kept separate from `danger` for the same
+    reason), a `typography` scale
     (Barlow Condensed for display/headings, Inter for body — both loaded via
     `useFonts` in `App.tsx`, each `require()`d as an individual `.ttf` file
     rather than importing the named exports from `@expo-google-fonts/*` —
@@ -374,8 +387,12 @@ else (UFC + 9 other leagues) is populated by
     unconditionally, so importing even one named export pulled all ~34 font
     files, most unused, into the bundle), spacing/radius tokens,
     `minTapTarget` (44 — iOS HIG/Material minimum). Exports a
-    `ThemeProvider`/`useTheme()` (system-driven via `useColorScheme()`, no
-    manual override yet) — as of 2026-07-20 wired through the **entire**
+    `ThemeProvider`/`useTheme()` — defaults to system-driven via
+    `useColorScheme()`, now overridable (2026-07-20, see [Login /
+    Profile](#login--profile)'s settings gear) via
+    `themeOverride`/`setThemeOverride()`, a `'system' | 'light' | 'dark'`
+    persisted to AsyncStorage the same way `i18n.tsx`'s `LocaleProvider`
+    persists the locale. Wired through the **entire**
     app: `App.tsx`'s navigator chrome and every screen/component call
     `useTheme()` for `colors` and build their `StyleSheet` via a
     `makeStyles(colors)` factory wrapped in `useMemo(() => makeStyles(colors),
@@ -449,6 +466,19 @@ else (UFC + 9 other leagues) is populated by
     (2026-07-20, same bundled `@expo/vector-icons` font set, no new
     dependency) for a less generic-utility-app feel — e.g. `boxing-glove`
     for Fighters instead of `people`.
+  - `SettingsModal` (2026-07-20) — built on the shared `FilterModal` shell,
+    see [Login / Profile](#login--profile) for what it contains and why
+    `LanguageScreen` was removed in favor of it.
+  - `OrganizationFollowBell` (2026-07-20) — now shows a success `Alert` on
+    toggle explaining the effect ("you'll be notified when an event from
+    this league starts"), matching the pattern `EventReminderBell` and
+    `FighterFollowBell` already had; it was the one bell missing this
+    explanation. Note the fighter-follow bell's explanation is accurate to
+    its *current* behavior (notifies when the fighter is booked for a new
+    fight) — notifying when that fighter's fight actually **starts** is a
+    distinct, not-yet-built feature (see [Known open
+    items](#known-open-items)), don't reword the alert to promise it before
+    the trigger exists.
 
 ## Notifications
 
@@ -1257,21 +1287,54 @@ after seeding data doesn't create duplicate organizations) →
   process: critical analysis → mood/color → typography → component system →
   screen-by-screen, nothing final without discussion (see [App
   structure](#app-structure) for what's landed). Done: critical analysis of
-  the pre-redesign UI; a new "Steel & Ember" dark+light palette and a
-  Barlow Condensed/Inter type scale in `src/lib/theme.tsx`; a filter-system
-  overhaul (`SegmentedControl`, `FilterChip`, `FilterModal`/`FilterSection`)
-  covering both list screens, with 44pt tap targets and no more silent
-  DE-label truncation; a real weight-class ordering; tab bar icons switched
-  to MaterialCommunityIcons; press feedback (`pressedStyle`) on every
-  `Pressable` app-wide; the full `useTheme()` migration — every
-  screen/component builds its styles from the current theme's colors via a
-  `makeStyles(colors)` factory, so light mode now reaches screen content,
-  not just the nav chrome (still system-driven only, no manual in-app
-  toggle). Explicitly deferred/decided: no per-organization branding accent
-  (UFC/OKTAGON/... stay visually neutral, text-only distinction) — a
-  decision made specifically to avoid trade-dress proximity to real orgs'
-  brand colors. Not yet done: a logo and app icon (must be
+  the pre-redesign UI; a "Chrome & Indigo" dark+light palette (replaced an
+  initial "Steel & Ember" orange direction after user feedback that it read
+  as "unsexy") and a Barlow Condensed/Inter type scale in
+  `src/lib/theme.tsx`; a filter-system overhaul (`SegmentedControl`,
+  `FilterChip`, `FilterModal`/`FilterSection`) covering both list screens,
+  including a Männer/Frauen split on the fighter weight-class filter; a
+  real weight-class ordering; tab bar icons switched to
+  MaterialCommunityIcons; press feedback (`pressedStyle`) on every
+  `Pressable` app-wide; the full `useTheme()` migration (every
+  screen/component builds styles from the current theme via
+  `makeStyles(colors)`); a manual System/Light/Dark appearance toggle
+  (`themeOverride`, persisted) plus a consolidated settings area (gear icon
+  on `ProfileScreen`, works logged-in or out) that folded the standalone
+  Language tab into it; the previously-missing explanation `Alert` on
+  `OrganizationFollowBell`. Verified hands-on 2026-07-20 on a real Android
+  emulator via Expo Go (had to match the Expo Go APK version to the
+  project's exact SDK — 54.0.8 — since the generic download 404s/crashes
+  with "Incompatible SDK version" against a mismatched build): palette,
+  typography, `SegmentedControl`, `FilterModal`, calendar mode, and live
+  data all render correctly with no crashes. Didn't get to visually verify
+  `FighterListScreen` in that session — an emulator/adb touch-input quirk
+  unrelated to the app code, not a known issue. Explicitly deferred/decided:
+  no per-organization branding accent (UFC/OKTAGON/... stay visually
+  neutral, text-only distinction) — avoids trade-dress proximity to real
+  orgs' brand colors. Not yet done: a logo and app icon (must be
   store-review-distinguishable from UFC/OKTAGON, plus font/icon-license
-  checks for commercial use); a manual light/dark toggle (currently
-  system-only); actually testing the light palette on a real device rather
-  than by code review alone.
+  checks for commercial use); the UI still reads as visually flat/"cheap"
+  per user feedback (no gradients or depth on cards/headers yet — the next
+  planned refinement pass, deliberately not done earlier since only token
+  application was in scope until now).
+- **Fighter-follow push should fire on fight start, not just on booking —
+  flagged 2026-07-20, not built.** Current behavior (`FighterFollowBell`'s
+  explanation text is accurate to it): notifies when the followed fighter
+  is booked for a *new* fight, same as it's always done. User feedback
+  wants an additional/different trigger: notify when a fight the followed
+  fighter is in actually **starts** — parallel to the existing league-start
+  push (`send_league_start_pushes()`, see [Notifications](#notifications))
+  but filtered to followed fighters instead of followed leagues. Real
+  backend work (new pg_cron-driven function or an extension of the
+  existing one), not a text/UI fix — don't just reword the alert to promise
+  this before the trigger exists.
+- **Possible data gaps, not verified against the live DB — flagged
+  2026-07-20.** (1) No upcoming events show for Bellator, CW, Invicta, KSW,
+  LFA, ONE, Rizin. `sync-balldontlie.ts` pulls every league balldontlie
+  returns, no allowlist, so this isn't an obvious code bug — Bellator
+  folded into PFL in 2023, and balldontlie's free tier may simply lack
+  announced cards for the smaller regional promotions. (2) Fighter fight
+  history often shows only 1–2 fights. `getFighterFights()` has no
+  `.limit()`, so this isn't a query bug either — likely balldontlie's own
+  historical coverage is incomplete for many fighters. Both need a direct
+  DB/API check to confirm before anyone spends time "fixing" them.
