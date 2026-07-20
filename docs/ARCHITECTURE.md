@@ -779,6 +779,21 @@ treating as a standing pattern, not a one-off patch:
   storage, no account linkage; a **why-should-I-log-in nudge for anonymous
   users was explicitly deferred**, not part of this pass.
 
+**Password policy (added 2026-07-20):** minimum 8 characters, at least one
+letter and one number — `supabase/config.toml`'s `minimum_password_length`
+(was 6) and `password_requirements = "letters_digits"` (was unset). **Local
+config only** — the same values must also be set manually in both stage and
+prod dashboards (Authentication settings), same manual-sync caveat already
+documented for SMTP/the OTP template above. `src/lib/passwordPolicy.ts` is
+the single source of truth for the rule set on the client — both the live
+`PasswordRequirementsChecklist` (shown under any *new*-password field:
+signup, password reset, change password — never the login password field,
+since existing users may predate this policy and Supabase still allows them
+to log in with it, per Supabase's own documented behavior) and each screen's
+pre-submit check (disables the submit button until met) import from it, so
+they can't silently drift apart. Server-side `weak_password` rejections still
+funnel through the structured `AuthResult`/`authErrors.ts` mapping above.
+
 **Timezone override (added 2026-07-19):** device-local time was already
 the default everywhere — `formatEventDate()`/`BroadcastTimes`'s
 `formatTime()` call `toLocaleDateString`/`toLocaleTimeString` with no

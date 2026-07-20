@@ -26,6 +26,7 @@ import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import type { Translations } from '../lib/i18n';
 import { getProfile, updateNickname } from '../lib/profile';
+import { PASSWORD_REQUIREMENTS, isPasswordValid } from '../lib/passwordPolicy';
 import {
   getFavoritedEvents,
   getFavoritedFighters,
@@ -128,6 +129,7 @@ function PasswordField({
 function SubmitButton({
   label,
   busy,
+  disabled,
   onPress,
   style,
   textStyle,
@@ -135,13 +137,14 @@ function SubmitButton({
 }: {
   label: string;
   busy: boolean;
+  disabled?: boolean;
   onPress: () => void;
   style: object;
   textStyle: object;
   spinnerColor: string;
 }) {
   return (
-    <Pressable style={({ pressed }) => [style, pressed && pressedStyle]} onPress={onPress} disabled={busy}>
+    <Pressable style={({ pressed }) => [style, pressed && pressedStyle]} onPress={onPress} disabled={busy || disabled}>
       {busy ? <ActivityIndicator color={spinnerColor} /> : <Text style={textStyle}>{label}</Text>}
     </Pressable>
   );
@@ -151,6 +154,39 @@ const passwordFieldStyles = StyleSheet.create({
   wrapper: { position: 'relative', justifyContent: 'center' },
   input: { paddingRight: 44 },
   toggle: { position: 'absolute', right: 14 },
+});
+
+// Live checklist shown under a *new*-password field (signup, reset, change
+// password) — never under the login password field, since existing users
+// may have a password that predates this policy and are still allowed to
+// use it (Supabase's own documented behavior).
+function PasswordRequirementsChecklist({ password, colors }: { password: string; colors: ColorTokens }) {
+  const { t } = useLocale();
+  return (
+    <View style={checklistStyles.container}>
+      {PASSWORD_REQUIREMENTS.map((req) => {
+        const met = req.test(password);
+        return (
+          <View key={req.key} style={checklistStyles.row}>
+            <Ionicons
+              name={met ? 'checkmark-circle' : 'ellipse-outline'}
+              size={16}
+              color={met ? colors.accent : colors.textSecondary}
+            />
+            <Text style={[checklistStyles.label, { color: met ? colors.textPrimary : colors.textSecondary }]}>
+              {t.auth[req.labelKey]}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+const checklistStyles = StyleSheet.create({
+  container: { marginTop: -spacing.sm, marginBottom: spacing.md, gap: 4 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  label: { fontSize: 13 },
 });
 
 function showAuthError(t: Translations, result: AuthResult) {
@@ -299,9 +335,11 @@ function LoggedOutView() {
                 value={newPassword}
                 onChangeText={setNewPassword}
               />
+              <PasswordRequirementsChecklist password={newPassword} colors={colors} />
               <SubmitButton
                 label={t.auth.resetPasswordButton}
                 busy={busy}
+                disabled={!isPasswordValid(newPassword)}
                 onPress={handleConfirmReset}
                 style={styles.button}
                 textStyle={styles.buttonText}
@@ -349,9 +387,11 @@ function LoggedOutView() {
           value={password}
           onChangeText={setPassword}
         />
+        {isSignup && <PasswordRequirementsChecklist password={password} colors={colors} />}
         <SubmitButton
           label={isSignup ? t.auth.signupButton : t.auth.loginButton}
           busy={busy}
+          disabled={isSignup && !isPasswordValid(password)}
           onPress={isSignup ? handleSignup : handleLogin}
           style={styles.button}
           textStyle={styles.buttonText}
@@ -523,9 +563,11 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         value={newPassword}
         onChangeText={setNewPassword}
       />
+      <PasswordRequirementsChecklist password={newPassword} colors={colors} />
       <SubmitButton
         label={t.profile.changePasswordButton}
         busy={busy}
+        disabled={!isPasswordValid(newPassword)}
         onPress={handleSavePassword}
         style={styles.button}
         textStyle={styles.buttonText}
