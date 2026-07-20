@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import EventReminderBell from '../components/EventReminderBell';
@@ -36,6 +37,12 @@ import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTok
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
 type LoggedOutMode = 'login' | 'signup' | 'forgot-request' | 'forgot-confirm';
+
+const LAST_EMAIL_STORAGE_KEY = 'true-mma:last-email';
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
 
 export default function ProfileScreen() {
   const { user, loading, timezoneOverride, setTimezoneOverride } = useAuth();
@@ -98,6 +105,7 @@ function PasswordField({
   style: object;
   iconColor: string;
 } & Omit<React.ComponentProps<typeof TextInput>, 'secureTextEntry' | 'style'>) {
+  const { t } = useLocale();
   const [visible, setVisible] = useState(false);
   return (
     <View style={passwordFieldStyles.wrapper}>
@@ -106,10 +114,36 @@ function PasswordField({
         onPress={() => setVisible((v) => !v)}
         style={passwordFieldStyles.toggle}
         hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={visible ? t.auth.hidePassword : t.auth.showPassword}
       >
         <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={20} color={iconColor} />
       </Pressable>
     </View>
+  );
+}
+
+// Shared submit button — shows a spinner instead of its label while `busy`,
+// so a slow request doesn't look like the tap did nothing.
+function SubmitButton({
+  label,
+  busy,
+  onPress,
+  style,
+  textStyle,
+  spinnerColor,
+}: {
+  label: string;
+  busy: boolean;
+  onPress: () => void;
+  style: object;
+  textStyle: object;
+  spinnerColor: string;
+}) {
+  return (
+    <Pressable style={({ pressed }) => [style, pressed && pressedStyle]} onPress={onPress} disabled={busy}>
+      {busy ? <ActivityIndicator color={spinnerColor} /> : <Text style={textStyle}>{label}</Text>}
+    </Pressable>
   );
 }
 
@@ -141,24 +175,39 @@ function LoggedOutView() {
   const codeRef = useRef<TextInput>(null);
   const newPasswordRef = useRef<TextInput>(null);
 
+  // Prefill the email field with whatever was last used on this device, so a
+  // returning user doesn't have to retype it after logging out.
+  useEffect(() => {
+    AsyncStorage.getItem(LAST_EMAIL_STORAGE_KEY).then((stored) => {
+      if (stored) setEmail(stored);
+    });
+  }, []);
+
   const handleLogin = async () => {
+    const normalizedEmail = normalizeEmail(email);
     setBusy(true);
     try {
-      const result = await signIn(email, password);
-      showAuthError(t, result);
+      const result = await signIn(normalizedEmail, password);
+      if (result.status === 'error') {
+        showAuthError(t, result);
+        return;
+      }
+      AsyncStorage.setItem(LAST_EMAIL_STORAGE_KEY, normalizedEmail).catch(() => {});
     } finally {
       setBusy(false);
     }
   };
 
   const handleSignup = async () => {
+    const normalizedEmail = normalizeEmail(email);
     setBusy(true);
     try {
-      const result = await signUp(email, password);
+      const result = await signUp(normalizedEmail, password);
       if (result.status === 'error') {
         showAuthError(t, result);
         return;
       }
+      AsyncStorage.setItem(LAST_EMAIL_STORAGE_KEY, normalizedEmail).catch(() => {});
       Alert.alert(t.auth.signupTitle, t.auth.signupSuccess);
       setMode('login');
     } finally {
@@ -169,7 +218,7 @@ function LoggedOutView() {
   const handleRequestCode = async () => {
     setBusy(true);
     try {
-      const result = await requestPasswordReset(email);
+      const result = await requestPasswordReset(normalizeEmail(email));
       if (result.status === 'error') {
         showAuthError(t, result);
         return;
@@ -184,7 +233,7 @@ function LoggedOutView() {
   const handleConfirmReset = async () => {
     setBusy(true);
     try {
-      const result = await confirmPasswordReset(email, code, newPassword);
+      const result = await confirmPasswordReset(normalizeEmail(email), code, newPassword);
       if (result.status === 'error') {
         showAuthError(t, result);
         return;
@@ -216,13 +265,14 @@ function LoggedOutView() {
             editable={mode === 'forgot-request'}
           />
           {mode === 'forgot-request' ? (
-            <Pressable
-              style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+            <SubmitButton
+              label={t.auth.sendCodeButton}
+              busy={busy}
               onPress={handleRequestCode}
-              disabled={busy}
-            >
-              <Text style={styles.buttonText}>{t.auth.sendCodeButton}</Text>
-            </Pressable>
+              style={styles.button}
+              textStyle={styles.buttonText}
+              spinnerColor={colors.accent}
+            />
           ) : (
             <>
               <TextInput
@@ -249,13 +299,14 @@ function LoggedOutView() {
                 value={newPassword}
                 onChangeText={setNewPassword}
               />
-              <Pressable
-                style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+              <SubmitButton
+                label={t.auth.resetPasswordButton}
+                busy={busy}
                 onPress={handleConfirmReset}
-                disabled={busy}
-              >
-                <Text style={styles.buttonText}>{t.auth.resetPasswordButton}</Text>
-              </Pressable>
+                style={styles.button}
+                textStyle={styles.buttonText}
+                spinnerColor={colors.accent}
+              />
             </>
           )}
           <Pressable onPress={() => setMode('login')} style={({ pressed }) => pressed && pressedStyle}>
@@ -298,13 +349,14 @@ function LoggedOutView() {
           value={password}
           onChangeText={setPassword}
         />
-        <Pressable
-          style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+        <SubmitButton
+          label={isSignup ? t.auth.signupButton : t.auth.loginButton}
+          busy={busy}
           onPress={isSignup ? handleSignup : handleLogin}
-          disabled={busy}
-        >
-          <Text style={styles.buttonText}>{isSignup ? t.auth.signupButton : t.auth.loginButton}</Text>
-        </Pressable>
+          style={styles.button}
+          textStyle={styles.buttonText}
+          spinnerColor={colors.accent}
+        />
         <Pressable
           onPress={() => setMode(isSignup ? 'login' : 'signup')}
           style={({ pressed }) => pressed && pressedStyle}
@@ -387,7 +439,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const handleSaveEmail = async () => {
     setBusy(true);
     try {
-      const result = await updateEmail(newEmail);
+      const result = await updateEmail(normalizeEmail(newEmail));
       if (result.status === 'error') {
         showAuthError(t, result);
         return;
@@ -428,13 +480,14 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
             value={nickname}
             onChangeText={setNickname}
           />
-          <Pressable
-            style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+          <SubmitButton
+            label={t.profile.nicknameSave}
+            busy={busy}
             onPress={handleSaveNickname}
-            disabled={busy}
-          >
-            <Text style={styles.buttonText}>{t.profile.nicknameSave}</Text>
-          </Pressable>
+            style={styles.button}
+            textStyle={styles.buttonText}
+            spinnerColor={colors.accent}
+          />
         </>
       )}
 
@@ -450,13 +503,14 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         value={newEmail}
         onChangeText={setNewEmail}
       />
-      <Pressable
-        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+      <SubmitButton
+        label={t.profile.changeEmailButton}
+        busy={busy}
         onPress={handleSaveEmail}
-        disabled={busy}
-      >
-        <Text style={styles.buttonText}>{t.profile.changeEmailButton}</Text>
-      </Pressable>
+        style={styles.button}
+        textStyle={styles.buttonText}
+        spinnerColor={colors.accent}
+      />
 
       <Text style={styles.sectionTitle}>{t.profile.changePasswordTitle}</Text>
       <PasswordField
@@ -469,13 +523,14 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         value={newPassword}
         onChangeText={setNewPassword}
       />
-      <Pressable
-        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
+      <SubmitButton
+        label={t.profile.changePasswordButton}
+        busy={busy}
         onPress={handleSavePassword}
-        disabled={busy}
-      >
-        <Text style={styles.buttonText}>{t.profile.changePasswordButton}</Text>
-      </Pressable>
+        style={styles.button}
+        textStyle={styles.buttonText}
+        spinnerColor={colors.accent}
+      />
 
       <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
       {followsLoading ? (
