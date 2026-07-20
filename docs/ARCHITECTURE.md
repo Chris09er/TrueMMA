@@ -361,8 +361,29 @@ else (UFC + 9 other leagues) is populated by
     unfollow/unfavorite directly from the list), logout. See
     [Login / Profile](#login--profile) and [Favorites](#favorites).
 - **Shared lib** (`src/lib/`):
-  - `theme.ts` — dark palette, spacing/radius tokens, `commonStyles`
-    (loading/error/empty — reused by every list/detail screen).
+  - `theme.tsx` (renamed from `theme.ts` 2026-07-20 — see [Known open
+    items](#known-open-items) for the visual redesign this is part of) —
+    dual dark/light color palettes ("Steel & Ember": ember-orange primary
+    accent, steel-blue secondary, danger deliberately a different hue from
+    the accent so an active filter never reads as an error, `live` kept
+    separate from `danger` for the same reason), a `typography` scale
+    (Barlow Condensed for display/headings, Inter for body — both loaded via
+    `useFonts` in `App.tsx`, each `require()`d as an individual `.ttf` file
+    rather than importing the named exports from `@expo-google-fonts/*` —
+    those packages' index modules `require()` every weight of the family
+    unconditionally, so importing even one named export pulled all ~34 font
+    files, most unused, into the bundle), spacing/radius tokens,
+    `minTapTarget` (44 — iOS HIG/Material minimum, `FilterButton` doesn't
+    honor this yet), and `commonStyles` (loading/error/empty — reused by
+    every list/detail screen). Also exports a `ThemeProvider`/`useTheme()`
+    (system-driven via `useColorScheme()`, no manual override yet) now
+    wired into `App.tsx`'s navigator chrome (headers, tab bar, status bar) —
+    but **not yet** into individual screens/components, which still import
+    the flat legacy `colors` export (fixed to the dark palette, includes an
+    `accentGold` alias for ~30 existing call sites so they inherit the new
+    Ember accent without a rewrite). Migrating those call sites to
+    `useTheme()` is the remaining redesign work (component system, then
+    screen-by-screen).
   - `i18n.tsx` — hand-rolled DE/EN dictionary + React context
     (`LocaleProvider`/`useLocale`), persisted via AsyncStorage. Add a
     language by adding its code to `Locale`, an entry in
@@ -1204,3 +1225,25 @@ after seeding data doesn't create duplicate organizations) →
   need this considered), and how it interacts with `FighterDetailScreen`'s
   fight history (which shows W/L for every past fight) versus
   `EventDetailScreen`'s per-fight result line.
+- **Full visual/UX redesign — in progress, started 2026-07-20.** Agreed
+  process: critical analysis → mood/color → typography → component system →
+  screen-by-screen, nothing final without discussion (see [App
+  structure](#app-structure) for what's landed). Done so far: critical
+  analysis of the pre-redesign UI (no visual identity, gold accent used
+  inconsistently, no type scale, no press feedback on `Pressable`s, org
+  filter row undiscoverable, generic Ionicons, silent DE-text truncation via
+  `numberOfLines`, default-RN header/tab chrome); a new "Steel & Ember"
+  dark+light palette and a Barlow Condensed/Inter type scale, both landed in
+  `src/lib/theme.tsx`; `App.tsx`'s navigator chrome (headers, tab bar,
+  status bar) is theme-aware, system-driven light/dark (no manual toggle
+  yet). Explicitly deferred/decided: no per-organization branding accent
+  (UFC/OKTAGON/... stay visually neutral, text-only distinction) — a
+  decision made specifically to avoid trade-dress proximity to real orgs'
+  brand colors. Not yet done: migrating the ~30 `colors.accentGold`/flat
+  `colors` call sites across screens/components to `useTheme()`; a
+  dedicated filter-usability pass (flagged by the user as unsatisfying
+  as-is: long unsorted org list, inconsistent interaction logic); fixing
+  `FilterButton`'s sub-44pt tap target and missing pressed-state feedback;
+  replacing default Ionicons with something less generic; a logo and app
+  icon (must be store-review-distinguishable from UFC/OKTAGON, plus
+  font/icon-license checks for commercial use).

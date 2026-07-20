@@ -1,12 +1,15 @@
-import { DarkTheme, NavigationContainer } from '@react-navigation/native';
+import { useMemo } from 'react';
+import { View } from 'react-native';
+import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
 import type { EventsStackParamList, FightersStackParamList, RootTabParamList } from './src/navigation';
 import { LocaleProvider, useLocale } from './src/lib/i18n';
 import { AuthProvider } from './src/lib/auth';
-import { colors } from './src/lib/theme';
+import { colors, ThemeProvider, useTheme } from './src/lib/theme';
 import EventDetailScreen from './src/screens/EventDetailScreen';
 import EventListScreen from './src/screens/EventListScreen';
 import FighterListScreen from './src/screens/FighterListScreen';
@@ -19,26 +22,18 @@ const EventsStack = createNativeStackNavigator<EventsStackParamList>();
 const FightersStack = createNativeStackNavigator<FightersStackParamList>();
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
-const navTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: colors.background,
-    card: colors.surface,
-    border: colors.border,
-    text: colors.textPrimary,
-    primary: colors.accentGold,
-  },
-};
-
-const screenOptions = {
-  headerStyle: { backgroundColor: colors.surface },
-  headerTitleStyle: { color: colors.textPrimary },
-  headerTintColor: colors.textPrimary,
-};
+function useHeaderScreenOptions() {
+  const { colors: themeColors } = useTheme();
+  return {
+    headerStyle: { backgroundColor: themeColors.surface },
+    headerTitleStyle: { color: themeColors.textPrimary },
+    headerTintColor: themeColors.textPrimary,
+  };
+}
 
 function EventsStackNavigator() {
   const { t } = useLocale();
+  const screenOptions = useHeaderScreenOptions();
   return (
     <EventsStack.Navigator screenOptions={screenOptions}>
       <EventsStack.Screen
@@ -57,6 +52,7 @@ function EventsStackNavigator() {
 
 function FightersStackNavigator() {
   const { t } = useLocale();
+  const screenOptions = useHeaderScreenOptions();
   return (
     <FightersStack.Navigator screenOptions={screenOptions}>
       <FightersStack.Screen
@@ -75,14 +71,16 @@ function FightersStackNavigator() {
 
 function RootTabs() {
   const { t } = useLocale();
+  const { colors: themeColors } = useTheme();
+  const screenOptions = useHeaderScreenOptions();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         ...screenOptions,
         headerShown: false,
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
-        tabBarActiveTintColor: colors.accentGold,
-        tabBarInactiveTintColor: colors.textSecondary,
+        tabBarStyle: { backgroundColor: themeColors.surface, borderTopColor: themeColors.border },
+        tabBarActiveTintColor: themeColors.accent,
+        tabBarInactiveTintColor: themeColors.textSecondary,
         tabBarIcon: ({ color, size }) => {
           const icons: Record<keyof RootTabParamList, keyof typeof Ionicons.glyphMap> = {
             EventsTab: 'calendar',
@@ -116,15 +114,56 @@ function RootTabs() {
   );
 }
 
-export default function App() {
+function Navigation() {
+  const { mode, colors: themeColors } = useTheme();
+  const navTheme = useMemo(() => {
+    const base = mode === 'dark' ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        background: themeColors.background,
+        card: themeColors.surface,
+        border: themeColors.border,
+        text: themeColors.textPrimary,
+        primary: themeColors.accent,
+      },
+    };
+  }, [mode, themeColors]);
+
   return (
-    <LocaleProvider>
-      <AuthProvider>
-        <NavigationContainer theme={navTheme}>
-          <StatusBar style="light" />
-          <RootTabs />
-        </NavigationContainer>
-      </AuthProvider>
-    </LocaleProvider>
+    <NavigationContainer theme={navTheme}>
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <RootTabs />
+    </NavigationContainer>
+  );
+}
+
+export default function App() {
+  // Explicit per-file requires, not the package-level named exports — those
+  // pull every weight (~34 ttf files) into the bundle since Metro can't
+  // tree-shake requires evaluated inside @expo-google-fonts's index module.
+  const [fontsLoaded] = useFonts({
+    BarlowCondensed_600SemiBold: require('@expo-google-fonts/barlow-condensed/600SemiBold/BarlowCondensed_600SemiBold.ttf'),
+    BarlowCondensed_700Bold: require('@expo-google-fonts/barlow-condensed/700Bold/BarlowCondensed_700Bold.ttf'),
+    Inter_400Regular: require('@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf'),
+    Inter_500Medium: require('@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf'),
+    Inter_600SemiBold: require('@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf'),
+  });
+
+  if (!fontsLoaded) {
+    // Plain placeholder instead of a native splash screen dependency —
+    // fonts load in well under a second, and this keeps the change JS-only.
+    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  }
+
+  return (
+    <ThemeProvider>
+      <LocaleProvider>
+        <AuthProvider>
+          <Navigation />
+        </AuthProvider>
+      </LocaleProvider>
+    </ThemeProvider>
   );
 }
