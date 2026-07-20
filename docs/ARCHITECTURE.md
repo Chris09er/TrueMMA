@@ -139,6 +139,20 @@ and diverge only through new files in `supabase/migrations/`.
   On Windows/Git Bash, prefix `docker cp`/`docker exec` calls that take
   container paths with `MSYS_NO_PATHCONV=1`, or the path gets rewritten
   into a Windows path and the command fails confusingly.
+  - **`config.toml` is declarative-only, NOT pushed by the pipeline** —
+    `deploy-migrations.yml` runs `supabase db push` (migrations) but never
+    `supabase config push`. So the `[auth.*]` blocks (rate limits, email
+    settings, etc.) do **not** reach remote; the live auth config is whatever
+    the dashboard holds. This is a footgun: several `config.toml` values had
+    drifted from the deliberate live state (`email_sent = 2` vs live 100,
+    `double_confirm_changes = true` vs live off, email `max_frequency = "1s"`
+    vs live 60s) — harmless while nobody runs `config push`, but a single such
+    run would silently revert those production decisions. Reconciled 2026-07-21
+    so the file mirrors live. **If you ever add `config push` to the pipeline,
+    re-audit every `[auth.*]` value against the dashboard first.** Reading live
+    auth config: `GET https://api.supabase.com/v1/projects/{ref}/config/auth`
+    with a `supabase login` PAT (Bearer) — there is no MCP tool and it is not in
+    Postgres, so this is the only way to audit rate limits.
 - `supabase db pull`/`db diff` need a local Docker-backed shadow
   database (Postgres running in a container) — Docker Desktop is now a
   project prerequisite for anyone doing schema work with the CLI. Plain
