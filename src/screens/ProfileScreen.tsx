@@ -27,6 +27,7 @@ import { useLocale } from '../lib/i18n';
 import type { Translations } from '../lib/i18n';
 import { getProfile, updateNickname } from '../lib/profile';
 import { PASSWORD_REQUIREMENTS, isPasswordValid } from '../lib/passwordPolicy';
+import { isBiometricLockAvailable, isBiometricLockEnabled, setBiometricLockEnabled } from '../lib/biometrics';
 import {
   getFavoritedEvents,
   getFavoritedFighters,
@@ -66,6 +67,18 @@ export default function ProfileScreen() {
   const commonStyles = useCommonStyles();
   const navigation = useNavigation();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+
+  useEffect(() => {
+    isBiometricLockAvailable().then(setBiometricAvailable);
+    isBiometricLockEnabled().then(setBiometricEnabled);
+  }, []);
+
+  const handleBiometricLockChange = async (enabled: boolean) => {
+    await setBiometricLockEnabled(enabled);
+    setBiometricEnabled(enabled);
+  };
 
   // Rendered in the native header (top-right, level with the "Profil"
   // title) via headerRight, not absolutely positioned inside the screen
@@ -102,6 +115,8 @@ export default function ProfileScreen() {
         onClose={() => setSettingsOpen(false)}
         timezoneOverride={user ? timezoneOverride : undefined}
         onTimezoneChange={user ? (tz) => setTimezoneOverride(tz) : undefined}
+        biometricLockEnabled={user && biometricAvailable ? biometricEnabled : undefined}
+        onBiometricLockChange={user && biometricAvailable ? handleBiometricLockChange : undefined}
       />
     </View>
   );

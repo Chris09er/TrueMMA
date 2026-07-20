@@ -1839,12 +1839,23 @@ brand assets.
     gate intact). Verified against stage — hook fires successfully for the
     `magiclink` email type. Entry point is a "Log in without a password" link
     on the login screen.
-  - **Still open:** biometric re-auth (`expo-local-authentication`, needs a
-    new EAS native build), and Google/Apple social login
-    (`expo-auth-session` + Google Cloud Console/Apple Developer setup, needs a
-    new EAS native build, likely makes Sign In with Apple close to mandatory
-    on iOS per App Store guideline 4.8 once Google login exists) — sequenced
-    last since they're the highest-risk/most-external items.
+  - ~~Biometric re-auth~~ — **code written 2026-07-20, untested** (needs a new
+    EAS native build before any device can use it — `expo-local-authentication`
+    is a native module addition). `src/lib/biometrics.ts` (availability check,
+    the AsyncStorage-backed on/off preference, the actual
+    `authenticateAsync()` call), `src/components/BiometricGate.tsx` (wraps
+    `Navigation` in `App.tsx`, inside `AuthProvider` — locks the whole app
+    behind a prompt whenever it's foregrounded while logged in and the
+    preference is on; no-op for anonymous users or anyone who hasn't enabled
+    it), and a toggle in `SettingsModal`/`ProfileScreen` (only shown when
+    logged in **and** the device actually reports usable biometric hardware).
+    This gates access to an *already-persisted* session — it is not a new
+    sign-in method and never talks to Supabase.
+  - **Still open:** Google/Apple social login (`expo-auth-session` + Google
+    Cloud Console/Apple Developer setup, needs a new EAS native build, likely
+    makes Sign In with Apple close to mandatory on iOS per App Store
+    guideline 4.8 once Google login exists) — sequenced last since it's the
+    highest-risk/most-external item.
 - **Production's email-send rate limit was found silently set to 2/hour,
   2026-07-20** (an auth log line surfaced it mid-debugging:
   `"env GOTRUE_RATE_LIMIT_EMAIL_SENT changed, updating Email limiter from 30

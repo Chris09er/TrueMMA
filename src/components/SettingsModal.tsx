@@ -21,9 +21,21 @@ type Props = {
   // profile, see auth.tsx) — omit both props to hide the section entirely.
   timezoneOverride?: string | null;
   onTimezoneChange?: (timezone: string | null) => void;
+  // Biometric lock: only shown when logged in AND the device actually has
+  // usable biometric hardware enrolled (src/lib/biometrics.ts) — omit both
+  // to hide the section entirely.
+  biometricLockEnabled?: boolean;
+  onBiometricLockChange?: (enabled: boolean) => void;
 };
 
-export default function SettingsModal({ visible, onClose, timezoneOverride, onTimezoneChange }: Props) {
+export default function SettingsModal({
+  visible,
+  onClose,
+  timezoneOverride,
+  onTimezoneChange,
+  biometricLockEnabled,
+  onBiometricLockChange,
+}: Props) {
   const { locale, setLocale, t } = useLocale();
   const { colors, themeOverride, setThemeOverride } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -85,6 +97,18 @@ export default function SettingsModal({ visible, onClose, timezoneOverride, onTi
               </Pressable>
             );
           })}
+        </>
+      )}
+      {biometricLockEnabled !== undefined && onBiometricLockChange && (
+        <>
+          <Text style={styles.sectionTitle}>{t.profile.biometricLockTitle}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.row, biometricLockEnabled && styles.rowActive, pressed && pressedStyle]}
+            onPress={() => onBiometricLockChange(!biometricLockEnabled)}
+          >
+            <Text style={styles.rowText}>{t.profile.biometricLockTitle}</Text>
+            {biometricLockEnabled && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+          </Pressable>
         </>
       )}
     </FilterModal>
