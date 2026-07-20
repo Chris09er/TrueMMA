@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import type { ReactNode } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { minTapTarget, pressedStyle, radius, typography, useTheme, type ColorTokens } from '../lib/theme';
 
@@ -7,11 +8,15 @@ type Props = {
   label: string;
   active: boolean;
   onPress: () => void;
+  // Optional element rendered before the label (e.g. a country Flag on the
+  // nationality chips), so the chips match the flags shown on the rows they
+  // filter. Generic on purpose — no filter-type-specific prop here.
+  leading?: ReactNode;
 };
 
 // Multi-value filtering (org, weight class, nationality...) — as opposed to
 // SegmentedControl, which is for switching an exclusive mode.
-export default function FilterChip({ label, active, onPress }: Props) {
+export default function FilterChip({ label, active, onPress, leading }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
@@ -29,7 +34,10 @@ export default function FilterChip({ label, active, onPress }: Props) {
       )}
       {/* No numberOfLines cap — a long German label grows the chip instead
           of being silently cut off. */}
-      <Text style={active ? styles.textActive : styles.text}>{label}</Text>
+      <View style={styles.content}>
+        {leading}
+        <Text style={active ? styles.textActive : styles.text}>{label}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -48,6 +56,11 @@ const makeStyles = (colors: ColorTokens) =>
     chipInactive: {
       backgroundColor: colors.surface,
       borderColor: colors.border,
+    },
+    content: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
     },
     text: {
       ...typography.body,

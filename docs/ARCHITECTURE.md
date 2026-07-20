@@ -1813,9 +1813,12 @@ brand assets.
     per-country-imports trade-off (SVG strings compress well, and this keeps
     the feature self-healing as the roster grows). Shown on: fighter-list rows,
     fighter-detail header, `EventDetailScreen`'s fight-card matchup (next to
-    each fighter name), and the event location line (list + detail). Not shown
-    (deliberately, to avoid clutter): fight-history opponent rows and filter
-    chips.
+    each fighter name), the event location line (list + detail), and the
+    nationality **filter chips** (via `FilterChip`'s generic optional `leading`
+    prop, so the chips match the flags on the rows they filter). Not shown
+    (deliberately, to avoid clutter): the fighter-detail fight-history opponent
+    rows — the opponent name is already a tap-link to their detail, which
+    carries the flag in its header.
   - **Library choice:** `country-flag-icons` (mainstream, MIT, ~weekly
     releases) as a pure SVG-string data source + Expo's first-party
     `react-native-svg` for rendering — chosen over the dedicated RN flag

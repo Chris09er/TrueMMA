@@ -272,6 +272,7 @@ export default function FighterListScreen({ navigation }: Props) {
                   <FilterChip
                     key={nationality}
                     label={nationality}
+                    leading={<Flag country={nationality} height={12} />}
                     active={selectedNationality === nationality}
                     onPress={() => setSelectedNationality(nationality)}
                   />
