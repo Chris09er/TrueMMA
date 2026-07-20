@@ -1389,6 +1389,26 @@ after seeding data doesn't create duplicate organizations) →
   data all render correctly with no crashes. Didn't get to visually verify
   `FighterListScreen` in that session — an emulator/adb touch-input quirk
   unrelated to the app code, not a known issue.
+  **Second bad transitive/direct dependency found 2026-07-20, same failure
+  shape as the `@expo/vector-icons`/`expo-font` one already documented
+  under [Build & deployment](#build--deployment):** `expo-linear-gradient`
+  was pinned to `^57.0.1` (a version for a much later Expo SDK) instead of
+  the SDK 54-compatible `~15.0.8`. Silent on Expo Go / the emulator
+  hands-on pass above — only surfaced as an immediate crash on the first
+  real **standalone** build (`preview` profile, see [Build &
+  deployment](#build--deployment)'s fingerprint auto-build section),
+  because that was the first time this project produced a real release
+  APK instead of a dev-client build or Expo Go session. `adb logcat` (paired
+  wirelessly, no cable, via `adb pair`/`adb connect` — Android's Wireless
+  debugging under Developer options) showed `NoClassDefFoundError: Failed
+  resolution of: Lexpo/modules/kotlin/types/descriptors/TypeDescriptor`
+  inside `LinearGradientModule.definition`, the same
+  `expo-modules-core` API-shape mismatch as the vector-icons incident.
+  Fixed by `npx expo install expo-linear-gradient@~15.0.8` (confirmed via
+  `npx expo install --check`). **Lesson: `npx expo install --check`
+  catches this immediately — run it after adding any native dependency,
+  not just after routine updates, and don't assume an emulator/Expo Go
+  pass proves a native dependency is correctly versioned.**
   **Bugs found from that same hands-on pass, fixed 2026-07-20:**
   `FilterModal`'s `ScrollView` had no `flexShrink` — RN defaults that to 0,
   so content taller than the sheet's `maxHeight: '80%'` was clipped instead
