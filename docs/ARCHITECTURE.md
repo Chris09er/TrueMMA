@@ -271,22 +271,39 @@ else (UFC + 9 other leagues) is populated by
   ('EventsTab', { screen: 'EventDetail', params: {...} })`. Standard React
   Navigation pattern, not a workaround.
 - **Screens** (`src/screens/`):
-  - `EventListScreen` — list/calendar view toggle (top row); list mode:
-    today/upcoming/past toggle (added 2026-07-19 — "today" =
-    `getTodayEvents()` in `queries.ts`, events on today's local calendar
-    date **or** still `isEventLive()` — covers a card that started before
-    midnight and hasn't rolled into "past" yet), org filter (UFC/OKTAGON pinned first via
-    `PINNED_ORG_ORDER` in `queries.ts`, rest alphabetical; horizontally
-    scrollable — the org list is longer than one screen width, e.g. PFL
-    only shows up if you scroll), text search (client-side substring
-    match), pull-to-refresh; calendar mode: month grid
+  - `EventListScreen` — list/calendar view toggle (top `SegmentedControl`);
+    list mode: **Vergangene / Heute / Kommende** `SegmentedControl`, in that
+    order (reordered 2026-07-20; "Kommende" stays the default-selected
+    segment). `getEvents()` in `queries.ts` (backing `getUpcomingEvents`/
+    `getPastEvents`) compares against local start-of-today, not the current
+    instant (changed 2026-07-20) — so "Kommende" always includes all of
+    today's events too, intentionally overlapping with the "Heute" tab
+    (feedback: a user expects today's card under "upcoming", not just a
+    separate bucket), and "Vergangene" never includes an event from today
+    even one that already concluded. "Heute" itself is `getTodayEvents()` —
+    events on today's local calendar date **or** still `isEventLive()`
+    (covers a card that started before midnight and hasn't rolled into
+    "past" yet). Org filter (via the shared `FilterModal`, see the Components list below)
+    is scoped to
+    whichever timeframe/orgs actually have events — `listOrganizations` is
+    derived client-side from the currently-loaded (unfiltered-by-org)
+    `events` array, filtering the full `organizations` list down to only
+    the org ids present (changed 2026-07-20: org filtering itself moved
+    client-side too, so switching the org filter no longer refetches —
+    only switching timeframe does). If the selected org has no events in a
+    newly-active timeframe, the selection resets automatically instead of
+    silently filtering the list to empty. Text search (client-side
+    substring match), pull-to-refresh; calendar mode: month grid
     (`react-native-calendars`, pure JS — no native module, no EAS rebuild)
     with a dot on days that have events, fed per-month by
-    `getEventsInRange()` (independent of the upcoming/past split), tapping
-    a day filters the list below to that day; org filter applies in both
-    modes. Per-event reminder bell + favorite heart (only bell rendered
-    for events where `isEventUpcoming()` is true, heart always). A pulsing
-    red `LiveBadge` (`src/components/`, added 2026-07-19, RN's built-in
+    `getEventsInRange()` (independent of the upcoming/past split, still
+    filtered server-side by org — calendar mode's org list is the full,
+    unfiltered `organizations`, not `listOrganizations`, since "does this
+    league have an event this month" isn't the same question), tapping
+    a day filters the list below to that day. Per-event reminder bell +
+    favorite heart (only bell rendered for events where `isEventUpcoming()`
+    is true, heart always). A pulsing
+    red `LiveBadge` (`src/components/`, RN's built-in
     `Animated` API — no new dependency) renders on any card where
     `isEventLive()` is true (also used in `EventDetailScreen`'s header);
     see `isEventLive()` in `queries.ts` — same ~6h post-start buffer
@@ -1308,15 +1325,33 @@ after seeding data doesn't create duplicate organizations) →
   typography, `SegmentedControl`, `FilterModal`, calendar mode, and live
   data all render correctly with no crashes. Didn't get to visually verify
   `FighterListScreen` in that session — an emulator/adb touch-input quirk
-  unrelated to the app code, not a known issue. Explicitly deferred/decided:
-  no per-organization branding accent (UFC/OKTAGON/... stay visually
-  neutral, text-only distinction) — avoids trade-dress proximity to real
-  orgs' brand colors. Not yet done: a logo and app icon (must be
-  store-review-distinguishable from UFC/OKTAGON, plus font/icon-license
-  checks for commercial use); the UI still reads as visually flat/"cheap"
-  per user feedback (no gradients or depth on cards/headers yet — the next
-  planned refinement pass, deliberately not done earlier since only token
-  application was in scope until now).
+  unrelated to the app code, not a known issue.
+  **Bugs found from that same hands-on pass, fixed 2026-07-20:**
+  `FilterModal`'s `ScrollView` had no `flexShrink` — RN defaults that to 0,
+  so content taller than the sheet's `maxHeight: '80%'` was clipped instead
+  of scrollable (this is why the Settings modal's "Dunkel" option was hard
+  to tap and the timezone section wasn't visible at all — both were just
+  past the clipped edge, not actually broken); fixed by giving the
+  `ScrollView` `flexShrink: 1`. The settings gear icon was absolutely
+  positioned inside `ProfileScreen`'s body, landing it level with the
+  screen's own content (e.g. the "Anmelden" heading) instead of the native
+  header bar; moved to `headerRight` via `navigation.setOptions()` in a
+  `useLayoutEffect`, so it now sits at the "Profil" header's height like a
+  standard gear icon. Also this round: the Vergangene/Heute/Kommende
+  timeframe reorder and the "Kommende includes today" / org-filter-hides-
+  empty-leagues changes described in [App structure](#app-structure).
+  Explicitly deferred/decided: no per-organization branding accent
+  (UFC/OKTAGON/... stay visually neutral, text-only distinction) — avoids
+  trade-dress proximity to real orgs' brand colors. Not yet done: a logo
+  and app icon (must be store-review-distinguishable from UFC/OKTAGON, plus
+  font/icon-license checks for commercial use); the UI still reads as
+  visually flat per user feedback — latest ask is specifically a subtle
+  gradient/metallic treatment on the accent blue (referencing UFC's own use
+  of gradients/transparency), not done yet. Likely needs
+  `expo-linear-gradient`, which has native code — **would need a fresh EAS
+  dev-client build** before it's usable in a dev build (unlike the JS/asset
+  additions so far in this redesign), flag this to the user before adding
+  it as a dependency.
 - **Fighter-follow push should fire on fight start, not just on booking —
   flagged 2026-07-20, not built.** Current behavior (`FighterFollowBell`'s
   explanation text is accurate to it): notifies when the followed fighter

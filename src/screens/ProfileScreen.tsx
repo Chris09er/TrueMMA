@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import EventReminderBell from '../components/EventReminderBell';
 import FighterFollowBell from '../components/FighterFollowBell';
@@ -28,22 +29,30 @@ export default function ProfileScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const commonStyles = useCommonStyles();
+  const navigation = useNavigation();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const settingsButton = (
-    <Pressable
-      style={({ pressed }) => [styles.settingsButton, pressed && pressedStyle]}
-      onPress={() => setSettingsOpen(true)}
-      hitSlop={8}
-    >
-      <Ionicons name="settings-outline" size={22} color={colors.textPrimary} />
-    </Pressable>
-  );
+  // Rendered in the native header (top-right, level with the "Profil"
+  // title) via headerRight, not absolutely positioned inside the screen
+  // body — the latter put it level with the screen's own content instead
+  // (e.g. the "Anmelden" heading), not the header bar.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable
+          style={({ pressed }) => [styles.settingsButton, pressed && pressedStyle]}
+          onPress={() => setSettingsOpen(true)}
+          hitSlop={8}
+        >
+          <Ionicons name="settings-outline" size={22} color={colors.textPrimary} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, styles, colors]);
 
   if (loading) {
     return (
       <View style={styles.container}>
-        {settingsButton}
         <ActivityIndicator style={commonStyles.center} color={colors.accent} />
         <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </View>
@@ -52,7 +61,6 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
-      {settingsButton}
       {user ? <LoggedInView userId={user.id} email={user.email ?? ''} /> : <LoggedOutView />}
       <SettingsModal
         visible={settingsOpen}
@@ -520,11 +528,8 @@ const makeStyles = (colors: ColorTokens) =>
       marginTop: spacing.sm,
     },
     settingsButton: {
-      position: 'absolute',
-      top: spacing.md,
-      right: spacing.lg,
-      zIndex: 1,
-      padding: 4,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: 4,
     },
     listCard: {
       padding: 14,

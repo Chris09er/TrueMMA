@@ -5,16 +5,11 @@ import type { EventDetail, EventListItem, Fight, FightWithEvent, Fighter, Organi
 // balldontlie) still shows up, just after, alphabetically.
 const PINNED_ORG_ORDER = ['UFC', 'OKTAGON'];
 
-export async function getOrganizations(): Promise<Organization[]> {
-  const { data, error } = await supabase
-    .from('organizations')
-    .select('id, name, short_name, logo_url')
-    .order('short_name', { ascending: true });
-
-  if (error) throw error;
-  const organizations = (data ?? []) as Organization[];
-
-  return organizations.sort((a, b) => {
+// Pinned orgs first, rest alphabetical — shared by getOrganizations() and
+// EventListScreen's client-side "which orgs actually have events in the
+// current timeframe" derivation, so both sort identically.
+export function sortOrganizations(organizations: Organization[]): Organization[] {
+  return [...organizations].sort((a, b) => {
     const aPin = PINNED_ORG_ORDER.indexOf(a.short_name);
     const bPin = PINNED_ORG_ORDER.indexOf(b.short_name);
     if (aPin !== -1 || bPin !== -1) {
@@ -24,6 +19,16 @@ export async function getOrganizations(): Promise<Organization[]> {
     }
     return a.short_name.localeCompare(b.short_name);
   });
+}
+
+export async function getOrganizations(): Promise<Organization[]> {
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('id, name, short_name, logo_url')
+    .order('short_name', { ascending: true });
+
+  if (error) throw error;
+  return sortOrganizations((data ?? []) as Organization[]);
 }
 
 const EVENT_LIST_COLUMNS =
@@ -57,17 +62,25 @@ export function isEventLive(event: Pick<EventListItem, 'event_date' | 'early_pre
   return now >= earliestStart && now <= estimatedEnd;
 }
 
+// Local (device) start-of-day, matching the boundary getTodayEvents()
+// already uses — so "upcoming" always includes all of today (intentional
+// overlap with the "today" tab, see EventListScreen) and "past" never
+// includes an event from today, even one that already concluded.
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
 async function getEvents(
   direction: 'upcoming' | 'past',
   organizationId?: string
 ): Promise<EventListItem[]> {
-  const now = new Date().toISOString();
+  const todayStart = startOfLocalDay(new Date()).toISOString();
   let query = supabase.from('events').select(EVENT_LIST_COLUMNS);
 
   query =
     direction === 'upcoming'
-      ? query.gte('event_date', now).order('event_date', { ascending: true })
-      : query.lt('event_date', now).order('event_date', { ascending: false });
+      ? query.gte('event_date', todayStart).order('event_date', { ascending: true })
+      : query.lt('event_date', todayStart).order('event_date', { ascending: false });
 
   if (organizationId) {
     query = query.eq('organization_id', organizationId);

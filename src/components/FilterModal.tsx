@@ -39,7 +39,13 @@ export default function FilterModal({
             </Pressable>
           </View>
 
-          <ScrollView>{children}</ScrollView>
+          {/* flexShrink: 1 — RN's default flexShrink is 0, so without this
+              the ScrollView takes its full content height regardless of the
+              sheet's maxHeight, and the overflow is clipped instead of
+              scrollable (bottom content becomes unreachable/untappable). */}
+          <ScrollView style={styles.scrollArea} contentContainerStyle={styles.scrollContent}>
+            {children}
+          </ScrollView>
 
           {showReset && (
             <Pressable
@@ -79,6 +85,12 @@ const makeStyles = (colors: ColorTokens) =>
       borderTopRightRadius: radius.lg,
       padding: spacing.lg,
       maxHeight: '80%',
+    },
+    scrollArea: {
+      flexShrink: 1,
+    },
+    scrollContent: {
+      paddingBottom: spacing.md,
     },
     headerRow: {
       flexDirection: 'row',

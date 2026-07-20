@@ -74,11 +74,15 @@ export default function EventListScreen({ navigation }: Props) {
     setError(null);
     try {
       const fetcher = timeframe === 'today' ? getTodayEvents : timeframe === 'upcoming' ? getUpcomingEvents : getPastEvents;
-      setEvents(await fetcher(selectedOrgId));
+      // Unfiltered by org — the org filter is applied client-side (see
+      // visibleEvents) so the filter chips can show/hide per timeframe
+      // without a refetch, and so a league with no events in this
+      // timeframe simply doesn't appear as an option.
+      setEvents(await fetcher());
     } catch {
       setError(t.common.error);
     }
-  }, [selectedOrgId, timeframe, t]);
+  }, [timeframe, t]);
 
   useEffect(() => {
     setLoading(true);
@@ -142,14 +146,33 @@ export default function EventListScreen({ navigation }: Props) {
     return monthEvents.filter((event) => event.event_date.slice(0, 10) === selectedDate);
   }, [monthEvents, selectedDate]);
 
+  // Only orgs that actually have an event in the current timeframe — an
+  // empty filter option is just a disappointment waiting to happen.
+  const listOrganizations = useMemo(() => {
+    const idsWithEvents = new Set(events.map((event) => event.organization_id));
+    return organizations.filter((org) => idsWithEvents.has(org.id));
+  }, [organizations, events]);
+
+  // If the selected org has no events in the newly-active timeframe (e.g.
+  // switching from "Kommende" to "Heute"), drop the now-invisible filter
+  // instead of silently filtering everything out.
+  useEffect(() => {
+    if (viewMode !== 'list' || !selectedOrgId) return;
+    if (!listOrganizations.some((org) => org.id === selectedOrgId)) {
+      setSelectedOrgId(undefined);
+    }
+  }, [viewMode, listOrganizations, selectedOrgId]);
+
   const visibleEvents = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const filtered = query ? events.filter((event) => event.name.toLowerCase().includes(query)) : events;
+    let filtered = selectedOrgId ? events.filter((event) => event.organization_id === selectedOrgId) : events;
+    if (query) filtered = filtered.filter((event) => event.name.toLowerCase().includes(query));
     // Stable sort — favorited events first, existing (date) order preserved within each group.
     return [...filtered].sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)));
-  }, [events, search, favoriteIds]);
+  }, [events, search, selectedOrgId, favoriteIds]);
 
   const activeFilterCount = selectedOrgId === undefined ? 0 : 1;
+  const filterOrganizations = viewMode === 'calendar' ? organizations : listOrganizations;
 
   const renderEventCard = (item: EventListItem) => {
     const upcoming = isEventUpcoming(item.event_date);
@@ -193,9 +216,9 @@ export default function EventListScreen({ navigation }: Props) {
           <View style={styles.controlsRow}>
             <SegmentedControl
               segments={[
+                { value: 'past', label: t.eventList.past },
                 { value: 'today', label: t.eventList.today },
                 { value: 'upcoming', label: t.eventList.upcoming },
-                { value: 'past', label: t.eventList.past },
               ]}
               value={timeframe}
               onChange={setTimeframe}
@@ -238,7 +261,7 @@ export default function EventListScreen({ navigation }: Props) {
             active={selectedOrgId === undefined}
             onPress={() => setSelectedOrgId(undefined)}
           />
-          {organizations.map((org) => (
+          {filterOrganizations.map((org) => (
             <FilterChip
               key={org.id}
               label={org.short_name}
