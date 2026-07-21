@@ -1302,6 +1302,25 @@ after seeding data doesn't create duplicate organizations) →
   rebuild needed.
 - Run `npx expo install --check` (or `--fix`) after any dependency change
   to catch drift from the SDK's expected versions before it causes this.
+- **Stale `android/` after an identity/config change — the "flags don't
+  render" trap (2026-07-21, cost hours):** `android/` is gitignored, so it can
+  silently drift from `app.json`. After the mma-pocket → true-mma rename it kept
+  the OLD dev-client scheme `exp+mma-pocket` (the app actually registers
+  `exp+true-mma`, from the slug) and an old identity in its `AndroidManifest.xml`,
+  which broke `expo run:android`'s auto-launch and skewed the fingerprint. A
+  local dev build also **embeds a JS bundle** (the expo-updates fallback) and
+  expo-updates checks its channel on every launch, so a device can run **stale
+  embedded/OTA code while you edit local files that never appear** — the country
+  flags were fine all along; the device was just on an old bundle.
+  **Rules:** (1) after ANY change to app.json/app.config.js identity or native
+  config, run `npx expo prebuild --clean` and rebuild — never trust a long-lived
+  `android/`. (2) When verifying a *local* JS change on the device, first prove
+  fresh code is running with an unmissable sentinel (e.g. a temp placeholder
+  string) and confirm Metro logged a fresh `Android Bundled (N modules)` request
+  from the device — before diagnosing anything render-level. (3) Device↔Metro:
+  use `adb reverse tcp:8081 tcp:8081` + a `localhost` URL; the host LAN IP:8081
+  is firewall-blocked here (`okhttp Callback failure`). The full playbook lives
+  in the auto-memory `reference_local_dev_build_on_device`.
 - **EAS Update (OTA), set up 2026-07-19:** `expo-updates` installed (a
   native module — requires a fresh `eas build --profile development` once,
   same as any native module addition, see the rebuild-triggers note
