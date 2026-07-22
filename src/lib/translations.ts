@@ -180,6 +180,9 @@ export const translations = {
     },
     profile: {
       title: 'Profil',
+      guestMode: 'Gastmodus',
+      guestTitle: 'Gast',
+      guestSubtitle: 'Erlebe True MMA im Gastmodus',
       logoutButton: 'Abmelden',
       nicknameLabel: 'Nickname',
       nicknameSave: 'Speichern',
@@ -383,6 +386,9 @@ export const translations = {
     },
     profile: {
       title: 'Profile',
+      guestMode: 'Guest mode',
+      guestTitle: 'Guest',
+      guestSubtitle: 'Experience True MMA in guest mode',
       logoutButton: 'Log out',
       nicknameLabel: 'Nickname',
       nicknameSave: 'Save',

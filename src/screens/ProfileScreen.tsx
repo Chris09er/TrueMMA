@@ -19,6 +19,8 @@ import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 import OrganizationFollowBell from '../components/OrganizationFollowBell';
 import Flag from '../components/Flag';
+import FilterModal from '../components/FilterModal';
+import { LinearGradient } from 'expo-linear-gradient';
 import { TIMEZONE_OPTIONS } from '../lib/timezones';
 import { LogoPlaceholder, Screen, ScreenHeader } from '../components/ui';
 import { useAuth, type AuthResult } from '../lib/auth';
@@ -90,9 +92,27 @@ export default function ProfileScreen() {
   );
 }
 
-// Theme / language / timezone / biometric settings, rendered inline on the
-// Profile screen (handoff: these live here, not in a separate modal). Timezone
-// and biometric only appear when their props are supplied (logged-in only).
+// Metallic "guest mode" card at the top of the logged-out profile — the
+// brushed-navy look from the design references.
+function GuestCard() {
+  const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <LinearGradient colors={['#3B4658', '#232D3C', '#151C28']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.guestCard}>
+      <View style={styles.guestBadge}>
+        <Text style={styles.guestBadgeText}>{t.profile.guestMode.toUpperCase()}</Text>
+      </View>
+      <Ionicons name="person-circle-outline" size={72} color={colors.alloy} style={styles.guestAvatar} />
+      <Text style={styles.guestTitle}>{t.profile.guestTitle.toUpperCase()}</Text>
+      <Text style={styles.guestSubtitle}>{t.profile.guestSubtitle}</Text>
+    </LinearGradient>
+  );
+}
+
+// Theme / language / timezone / biometric settings, inline on the Profile
+// screen. Theme is a card row; language and timezone are dropdowns that open a
+// picker. Timezone/biometric only appear when their props are supplied.
 function SettingsSection({
   timezoneOverride,
   onTimezoneChange,
@@ -105,64 +125,126 @@ function SettingsSection({
   const { locale, setLocale, t } = useLocale();
   const { colors, themeOverride, setThemeOverride } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [picker, setPicker] = useState<null | 'language' | 'timezone'>(null);
   const localeCountry: Record<string, string> = { de: 'DE', en: 'GB' };
-  const themeOptions: { value: ThemeOverride; label: string }[] = [
-    { value: 'system', label: t.settings.themeSystem },
-    { value: 'light', label: t.settings.themeLight },
-    { value: 'dark', label: t.settings.themeDark },
+  const themeOptions: { value: ThemeOverride; label: string; preview: string }[] = [
+    { value: 'system', label: t.settings.themeSystem, preview: colors.surfaceAlt },
+    { value: 'light', label: t.settings.themeLight, preview: '#F4F7FC' },
+    { value: 'dark', label: t.settings.themeDark, preview: '#050C1C' },
   ];
-
-  const Row = ({ active, onPress, children }: { active: boolean; onPress: () => void; children: React.ReactNode }) => (
-    <Pressable
-      style={({ pressed }) => [styles.settingRow, active && styles.settingRowActive, pressed && pressedStyle]}
-      onPress={onPress}
-    >
-      {children}
-      {active && <Ionicons name="checkmark" size={18} color={colors.accent} />}
-    </Pressable>
-  );
+  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
+  const currentTz =
+    timezoneOverride !== undefined ? TIMEZONE_OPTIONS.find((o) => (timezoneOverride ?? null) === o.value) : undefined;
 
   return (
     <>
       <Text style={styles.sectionTitle}>{t.settings.themeTitle}</Text>
-      {themeOptions.map((option) => (
-        <Row key={option.value} active={option.value === themeOverride} onPress={() => setThemeOverride(option.value)}>
-          <Text style={styles.settingRowText}>{option.label}</Text>
-        </Row>
-      ))}
+      <View style={styles.themeCards}>
+        {themeOptions.map((option) => {
+          const active = option.value === themeOverride;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => setThemeOverride(option.value)}
+              style={({ pressed }) => [styles.themeCard, active && styles.themeCardActive, pressed && pressedStyle]}
+            >
+              <View style={[styles.themePreview, { backgroundColor: option.preview }]}>
+                <View style={[styles.themePreviewDot, { backgroundColor: colors.accent }]} />
+              </View>
+              <Text style={styles.themeCardLabel}>{option.label}</Text>
+              {active && (
+                <View style={styles.themeCheck}>
+                  <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                </View>
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
 
       <Text style={styles.sectionTitle}>{t.settings.languageTitle}</Text>
-      {SUPPORTED_LOCALES.map((option) => (
-        <Row key={option.code} active={option.code === locale} onPress={() => setLocale(option.code)}>
-          <View style={styles.settingRowLabel}>
-            <Flag country={localeCountry[option.code]} height={14} />
-            <Text style={styles.settingRowText}>{option.label}</Text>
-          </View>
-        </Row>
-      ))}
+      <Pressable onPress={() => setPicker('language')} style={({ pressed }) => [styles.dropdown, pressed && pressedStyle]}>
+        <View style={styles.settingRowLabel}>
+          <Flag country={localeCountry[locale]} height={14} />
+          <Text style={styles.settingRowText}>{currentLocale?.label ?? ''}</Text>
+        </View>
+        <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+      </Pressable>
 
       {timezoneOverride !== undefined && onTimezoneChange && (
         <>
           <Text style={styles.sectionTitle}>{t.profile.timezoneTitle}</Text>
-          {TIMEZONE_OPTIONS.map((option) => (
-            <Row
-              key={option.value ?? 'device'}
-              active={(timezoneOverride ?? null) === option.value}
-              onPress={() => onTimezoneChange(option.value)}
-            >
-              <Text style={styles.settingRowText}>{option.label[locale]}</Text>
-            </Row>
-          ))}
+          <Pressable onPress={() => setPicker('timezone')} style={({ pressed }) => [styles.dropdown, pressed && pressedStyle]}>
+            <Text style={styles.settingRowText} numberOfLines={1}>
+              {currentTz?.label[locale] ?? ''}
+            </Text>
+            <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+          </Pressable>
         </>
       )}
 
       {biometric && (
         <>
           <Text style={styles.sectionTitle}>{t.profile.biometricLockTitle}</Text>
-          <Row active={biometric.enabled} onPress={() => biometric.onChange(!biometric.enabled)}>
+          <Pressable
+            onPress={() => biometric.onChange(!biometric.enabled)}
+            style={({ pressed }) => [styles.settingRow, biometric.enabled && styles.settingRowActive, pressed && pressedStyle]}
+          >
             <Text style={styles.settingRowText}>{t.profile.biometricLockTitle}</Text>
-          </Row>
+            {biometric.enabled && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+          </Pressable>
         </>
+      )}
+
+      <FilterModal
+        visible={picker === 'language'}
+        title={t.settings.languageTitle}
+        doneLabel={t.eventList.filterDone}
+        onClose={() => setPicker(null)}
+      >
+        {SUPPORTED_LOCALES.map((option) => (
+          <Pressable
+            key={option.code}
+            onPress={() => {
+              setLocale(option.code);
+              setPicker(null);
+            }}
+            style={({ pressed }) => [styles.settingRow, option.code === locale && styles.settingRowActive, pressed && pressedStyle]}
+          >
+            <View style={styles.settingRowLabel}>
+              <Flag country={localeCountry[option.code]} height={14} />
+              <Text style={styles.settingRowText}>{option.label}</Text>
+            </View>
+            {option.code === locale && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+          </Pressable>
+        ))}
+      </FilterModal>
+
+      {timezoneOverride !== undefined && onTimezoneChange && (
+        <FilterModal
+          visible={picker === 'timezone'}
+          title={t.profile.timezoneTitle}
+          doneLabel={t.eventList.filterDone}
+          onClose={() => setPicker(null)}
+        >
+          {TIMEZONE_OPTIONS.map((option) => (
+            <Pressable
+              key={option.value ?? 'device'}
+              onPress={() => {
+                onTimezoneChange(option.value);
+                setPicker(null);
+              }}
+              style={({ pressed }) => [
+                styles.settingRow,
+                (timezoneOverride ?? null) === option.value && styles.settingRowActive,
+                pressed && pressedStyle,
+              ]}
+            >
+              <Text style={styles.settingRowText}>{option.label[locale]}</Text>
+              {(timezoneOverride ?? null) === option.value && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+            </Pressable>
+          ))}
+        </FilterModal>
       )}
     </>
   );
@@ -671,6 +753,7 @@ function LoggedOutView() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+        <GuestCard />
         <Text style={styles.title}>{isSignup ? t.auth.signupTitle : t.auth.loginTitle}</Text>
         <TextInput
           style={styles.input}
@@ -1145,4 +1228,71 @@ const makeStyles = (colors: ColorTokens) =>
     listCardMeta: { ...typography.meta, color: colors.textSecondary, marginTop: 2 },
     logoutButton: { marginTop: spacing.xl, minHeight: minTapTarget, alignItems: 'center', justifyContent: 'center' },
     logoutButtonText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.danger },
+
+    guestCard: {
+      borderRadius: radius.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.alloyMuted,
+      padding: spacing.lg,
+      alignItems: 'center',
+      marginBottom: spacing.lg,
+    },
+    guestBadge: {
+      backgroundColor: 'rgba(0,0,0,0.25)',
+      borderRadius: radius.control,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      marginBottom: spacing.md,
+    },
+    guestBadgeText: { ...typography.caption, color: colors.alloy },
+    guestAvatar: { marginBottom: spacing.sm },
+    guestTitle: { ...typography.display, color: colors.alloy },
+    guestSubtitle: { ...typography.meta, color: colors.alloyMuted, textAlign: 'center', marginTop: spacing.xs },
+
+    themeCards: { flexDirection: 'row', gap: spacing.sm },
+    themeCard: {
+      flex: 1,
+      borderRadius: radius.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: spacing.md,
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    themeCardActive: { borderColor: colors.accent },
+    themePreview: {
+      width: '100%',
+      height: 44,
+      borderRadius: radius.control,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    themePreviewDot: { width: 14, height: 14, borderRadius: 7 },
+    themeCardLabel: { ...typography.meta, color: colors.textPrimary },
+    themeCheck: {
+      position: 'absolute',
+      top: spacing.xs,
+      right: spacing.xs,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    dropdown: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      minHeight: minTapTarget,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      marginBottom: spacing.sm,
+    },
   });
