@@ -5,9 +5,10 @@ import BellIconButton from './BellIconButton';
 type Props = {
   eventId: string;
   onToggle?: (active: boolean) => void;
+  inline?: boolean;
 };
 
-export default function EventFavoriteHeart({ eventId, onToggle }: Props) {
+export default function EventFavoriteHeart({ eventId, onToggle, inline }: Props) {
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -35,6 +36,7 @@ export default function EventFavoriteHeart({ eventId, onToggle }: Props) {
       onPress={handlePress}
       icon={active ? 'heart' : 'heart-outline'}
       offsetRight={38}
+      inline={inline}
     />
   );
 }

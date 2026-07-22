@@ -1,21 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import { abbreviateWeightClass, getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
-import { castVote, getEventVotes, type FightVoteSummary } from '../lib/voting';
-import type { EventDetail, Fight, Fighter } from '../lib/types';
-import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
+import type { CardSegment, EventDetail, Fight, Fighter } from '../lib/types';
+import { pressedStyle, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
@@ -24,172 +16,122 @@ import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import LiveBadge from '../components/LiveBadge';
 import OrganizationFollowBell from '../components/OrganizationFollowBell';
+import { Card, EmptyState, ErrorState, LogoPlaceholder, Screen, ScreenHeader } from '../components/ui';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventDetail'>;
 type Styles = ReturnType<typeof makeStyles>;
+type Loc = ReturnType<typeof useLocale>['t'];
 
-function FighterLink({
+const SEGMENT_ORDER: CardSegment[] = ['main_card', 'prelims', 'early_prelims'];
+
+function formatRecord(fighter: Fighter | null): string | null {
+  if (!fighter) return null;
+  const { record_wins: w, record_losses: l, record_draws: d, record_no_contests: nc } = fighter;
+  if (w == null && l == null && d == null) return null;
+  const base = `${w ?? 0}-${l ?? 0}-${d ?? 0}`;
+  return nc ? `${base} (${nc} NC)` : base;
+}
+
+function FighterCell({
   fighter,
+  align,
   isWinner,
   styles,
 }: {
   fighter: Fighter | null;
+  align: 'left' | 'right';
   isWinner: boolean;
   styles: Styles;
 }) {
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
+  const right = align === 'right';
+  const record = formatRecord(fighter);
   const name = fighter?.name ?? 'TBA';
-  const style = [styles.fighterName, fighter && styles.fighterLink, isWinner && styles.fighterNameWinner];
-
   return (
-    <View style={styles.fighterCell}>
-      <Flag country={fighter?.nationality} height={12} />
-      {fighter ? (
-        <Text
-          style={style}
-          onPress={() =>
-            navigation.navigate('FightersTab', {
-              screen: 'FighterDetail',
-              params: { fighterId: fighter.id, fighterName: fighter.name },
-            })
-          }
-        >
-          {name}
+    <View style={[styles.fighterCell, right ? styles.alignEnd : styles.alignStart]}>
+      <View style={[styles.fighterHead, right && styles.rowReverse]}>
+        <Flag country={fighter?.nationality} height={12} />
+        <View style={styles.fighterNameWrap}>
+          <Text
+            style={[styles.fighterName, right && styles.textRight, isWinner && styles.fighterNameWinner]}
+            numberOfLines={2}
+            onPress={
+              fighter
+                ? () =>
+                    navigation.navigate('FightersTab', {
+                      screen: 'FighterDetail',
+                      params: { fighterId: fighter.id, fighterName: fighter.name },
+                    })
+                : undefined
+            }
+          >
+            {name}
+          </Text>
+        </View>
+      </View>
+      {record && <Text style={[styles.record, right && styles.textRight]}>{record}</Text>}
+    </View>
+  );
+}
+
+function FightRow({ fight, t, styles }: { fight: Fight; t: Loc; styles: Styles }) {
+  const cancelled = fight.status === 'cancelled';
+  const winnerId = fight.result_winner_id;
+  const hasBanner = fight.is_main_event || fight.is_title_fight || cancelled;
+  const rounds = fight.scheduled_rounds ? `${fight.scheduled_rounds} ${t.eventDetail.rounds}` : null;
+  const weight = abbreviateWeightClass(fight.weight_class);
+  return (
+    <View style={[styles.fightRow, cancelled && styles.cancelled]}>
+      {hasBanner && (
+        <View style={styles.bannerRow}>
+          {cancelled && (
+            <View style={[styles.tag, styles.tagCancelled]}>
+              <Text style={styles.tagCancelledText}>{t.eventDetail.cancelled}</Text>
+            </View>
+          )}
+          {fight.is_main_event && (
+            <View style={[styles.tag, styles.tagMain]}>
+              <Text style={styles.tagMainText}>{t.eventDetail.mainEvent}</Text>
+            </View>
+          )}
+          {fight.is_title_fight && (
+            <View style={[styles.tag, styles.tagTitle]}>
+              <Text style={styles.tagTitleText}>{t.eventDetail.titleFight}</Text>
+            </View>
+          )}
+        </View>
+      )}
+      <View style={styles.matchup}>
+        <FighterCell fighter={fight.fighter1} align="left" isWinner={fight.fighter1?.id === winnerId} styles={styles} />
+        <View style={styles.centerMeta}>
+          {weight && <Text style={styles.weightClass}>{weight}</Text>}
+          {rounds && <Text style={styles.roundsText}>{rounds}</Text>}
+        </View>
+        <FighterCell fighter={fight.fighter2} align="right" isWinner={fight.fighter2?.id === winnerId} styles={styles} />
+      </View>
+      {(fight.result_method_detail || fight.result_method) && (
+        <Text style={styles.result}>
+          {t.eventDetail.resultVia} {fight.result_method_detail ?? fight.result_method}
+          {fight.result_round ? ` · ${t.eventDetail.round} ${fight.result_round}` : ''}
+          {fight.result_time ? ` (${fight.result_time})` : ''}
         </Text>
-      ) : (
-        <Text style={style}>{name}</Text>
       )}
     </View>
   );
 }
 
-function BroadcastTimes({
-  event,
-  locale,
-  t,
-  timeZone,
-  styles,
-}: {
-  event: EventDetail;
-  locale: string;
-  t: ReturnType<typeof useLocale>['t'];
-  timeZone?: string;
-  styles: Styles;
-}) {
-  const segments: { label: string; time: string }[] = [];
-  const formatTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString(locale === 'de' ? 'de-DE' : 'en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      ...(timeZone ? { timeZone } : {}),
-    });
-
-  if (event.early_prelims_start_time) {
-    segments.push({ label: t.eventDetail.earlyPrelims, time: formatTime(event.early_prelims_start_time) });
-  }
-  if (event.prelims_start_time) {
-    segments.push({ label: t.eventDetail.prelims, time: formatTime(event.prelims_start_time) });
-  }
-  if (event.main_card_start_time) {
-    segments.push({ label: t.eventDetail.mainCard, time: formatTime(event.main_card_start_time) });
-  }
-
-  if (segments.length === 0) return null;
-
-  return (
-    <View style={styles.broadcastTimes}>
-      {segments.map((segment) => (
-        <Text key={segment.label} style={styles.eventMeta}>
-          {segment.label}: {segment.time}
-        </Text>
-      ))}
-    </View>
-  );
-}
-
-function FightVoteRow({
-  fight,
-  summary,
-  onVote,
-  t,
-  styles,
-  colors,
-}: {
-  fight: Fight;
-  summary: FightVoteSummary;
-  onVote: (fightId: string, fighterId: string) => void;
-  t: ReturnType<typeof useLocale>['t'];
-  styles: Styles;
-  colors: ColorTokens;
-}) {
-  if (!fight.fighter1 || !fight.fighter2) return null;
-  const fighter1 = fight.fighter1;
-  const fighter2 = fight.fighter2;
-
-  if (!summary.myVote) {
-    return (
-      <View style={styles.voteRow}>
-        <Pressable
-          style={({ pressed }) => [styles.voteButton, pressed && pressedStyle]}
-          onPress={() => onVote(fight.id, fighter1.id)}
-        >
-          <Text style={styles.voteButtonText} numberOfLines={1}>
-            {t.eventDetail.votePick} {fighter1.name}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.voteButton, pressed && pressedStyle]}
-          onPress={() => onVote(fight.id, fighter2.id)}
-        >
-          <Text style={styles.voteButtonText} numberOfLines={1}>
-            {t.eventDetail.votePick} {fighter2.name}
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  const total = summary.fighter1Votes + summary.fighter2Votes;
-  const pct1 = total > 0 ? Math.round((summary.fighter1Votes / total) * 100) : 50;
-  const pct2 = 100 - pct1;
-
-  return (
-    <View style={styles.voteBarContainer}>
-      <View style={styles.voteBarLabelsRow}>
-        <Text style={[styles.voteBarLabel, summary.myVote === fighter1.id && styles.voteBarLabelActive]} numberOfLines={1}>
-          {fighter1.name} · {pct1}%
-        </Text>
-        <Text style={[styles.voteBarLabel, summary.myVote === fighter2.id && styles.voteBarLabelActive]} numberOfLines={1}>
-          {pct2}% · {fighter2.name}
-        </Text>
-      </View>
-      <View style={styles.voteBarTrack}>
-        <LinearGradient
-          colors={colors.accentGradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[styles.voteBarFill1, { flex: Math.max(pct1, 1) }]}
-        />
-        <View style={[styles.voteBarFill2, { flex: Math.max(pct2, 1) }]} />
-      </View>
-    </View>
-  );
-}
-
-export default function EventDetailScreen({ route }: Props) {
+export default function EventDetailScreen({ route, navigation }: Props) {
   const { eventId, eventName } = route.params;
   const { t, locale } = useLocale();
   const { timezoneOverride } = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const commonStyles = useCommonStyles();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [fights, setFights] = useState<Fight[]>([]);
-  const [votes, setVotes] = useState<Map<string, FightVoteSummary>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = () => {
     setLoading(true);
     setError(null);
     Promise.all([getEventDetail(eventId), getFightsForEvent(eventId)])
@@ -199,75 +141,96 @@ export default function EventDetailScreen({ route }: Props) {
       })
       .catch(() => setError(t.common.error))
       .finally(() => setLoading(false));
-  }, [eventId, t]);
-
-  // Separate from the main load — a vote-fetch failure shouldn't block the
-  // rest of the event/fight-card from rendering.
-  useEffect(() => {
-    const votable = fights.filter((f) => f.fighter1 && f.fighter2);
-    if (votable.length === 0) return;
-    getEventVotes(votable.map((f) => ({ id: f.id, fighter1_id: f.fighter1!.id, fighter2_id: f.fighter2!.id })))
-      .then(setVotes)
-      .catch(() => {});
-  }, [fights]);
-
-  const handleVote = (fightId: string, fighterId: string) => {
-    const fight = fights.find((f) => f.id === fightId);
-    if (!fight?.fighter1 || !fight.fighter2) return;
-
-    setVotes((prev) => {
-      const next = new Map(prev);
-      const current = next.get(fightId) ?? { fighter1Votes: 0, fighter2Votes: 0, myVote: null };
-      let { fighter1Votes, fighter2Votes } = current;
-      if (current.myVote === fight.fighter1!.id) fighter1Votes -= 1;
-      if (current.myVote === fight.fighter2!.id) fighter2Votes -= 1;
-      if (fighterId === fight.fighter1!.id) fighter1Votes += 1;
-      if (fighterId === fight.fighter2!.id) fighter2Votes += 1;
-      next.set(fightId, { fighter1Votes, fighter2Votes, myVote: fighterId });
-      return next;
-    });
-
-    castVote(fightId, fighterId).catch(() => {});
   };
 
+  useEffect(load, [eventId, t]);
+
+  const formatTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString(locale === 'de' ? 'de-DE' : 'en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      ...(timezoneOverride ? { timeZone: timezoneOverride } : {}),
+    });
+
+  const segmentStart: Record<CardSegment, string | null> = {
+    main_card: event?.main_card_start_time ?? null,
+    prelims: event?.prelims_start_time ?? null,
+    early_prelims: event?.early_prelims_start_time ?? null,
+  };
+  const segmentLabel: Record<CardSegment, string> = {
+    main_card: t.eventDetail.mainCard,
+    prelims: t.eventDetail.prelims,
+    early_prelims: t.eventDetail.earlyPrelims,
+  };
+
+  const groups = useMemo(() => {
+    const out: { key: string; title: string | null; startTime: string | null; fights: Fight[] }[] = [];
+    for (const seg of SEGMENT_ORDER) {
+      const segFights = fights.filter((f) => f.card_segment === seg);
+      if (segFights.length) out.push({ key: seg, title: segmentLabel[seg], startTime: segmentStart[seg], fights: segFights });
+    }
+    const rest = fights.filter((f) => !f.card_segment || !SEGMENT_ORDER.some((s) => s === f.card_segment));
+    if (rest.length) out.push({ key: 'other', title: null, startTime: null, fights: rest });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fights, event]);
+
+  const header = (
+    <ScreenHeader
+      left={
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={8}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.iconButton, pressed && pressedStyle]}
+        >
+          <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
+        </Pressable>
+      }
+      center={<LogoPlaceholder size={30} />}
+      right={
+        <>
+          {event && isEventUpcoming(event.event_date) && (
+            <EventReminderBell inline eventId={eventId} eventName={event.name} eventDateIso={event.event_date} />
+          )}
+          <EventFavoriteHeart inline eventId={eventId} />
+        </>
+      }
+    />
+  );
+
   if (loading) {
-    return <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />;
+    return (
+      <Screen>
+        {header}
+        <ActivityIndicator style={styles.centered} color={colors.textPrimary} />
+      </Screen>
+    );
   }
 
   if (error) {
-    return <Text style={commonStyles.error}>{error}</Text>;
+    return (
+      <Screen>
+        {header}
+        <ErrorState message={error} retryLabel={t.common.retry} onRetry={load} />
+      </Screen>
+    );
   }
 
-  // The prelims segment has its own headliner (lowest card_position within
-  // card_segment === 'prelims') — worth calling out visually, separate
-  // from sorting (see getFightsForEvent / CARD_SEGMENT_ORDER).
-  const prelimFights = fights.filter((fight) => fight.card_segment === 'prelims');
-  const prelimMainEventId =
-    prelimFights.length > 0
-      ? prelimFights.reduce((min, fight) =>
-          (fight.card_position ?? Infinity) < (min.card_position ?? Infinity) ? fight : min
-        ).id
-      : undefined;
-
   return (
-    <FlatList
-      style={styles.container}
-      contentContainerStyle={styles.list}
-      data={fights}
-      keyExtractor={(item) => item.id}
-      ListHeaderComponent={
-        <View style={styles.header}>
-          {event && isEventUpcoming(event.event_date) && (
-            <EventReminderBell eventId={eventId} eventName={event.name} eventDateIso={event.event_date} />
-          )}
-          <EventFavoriteHeart eventId={eventId} />
+    <Screen>
+      {header}
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <View style={styles.eventInfo}>
           {event && isEventLive(event) && (
             <View style={styles.liveBadgeSlot}>
               <LiveBadge />
             </View>
           )}
           {event?.status === 'cancelled' && (
-            <Text style={styles.eventCancelledBanner}>{t.eventDetail.eventCancelled}</Text>
+            <View style={[styles.tag, styles.tagCancelled, styles.cancelledBanner]}>
+              <Text style={styles.tagCancelledText}>{t.eventDetail.eventCancelled}</Text>
+            </View>
           )}
           {event?.organizations?.short_name && (
             <View style={styles.orgRow}>
@@ -277,8 +240,8 @@ export default function EventDetailScreen({ route }: Props) {
           )}
           <Text style={styles.eventName}>{event?.name ?? eventName}</Text>
           {event && (
-            <Text style={styles.eventMeta}>
-              {formatEventDate(event.event_date, locale, 'long', timezoneOverride ?? undefined)}
+            <Text style={styles.eventDate}>
+              {formatEventDate(event.event_date, locale, 'long', timezoneOverride ?? undefined).toUpperCase()}
             </Text>
           )}
           {event && (event.venue || event.city || event.venue_state || event.country) && (
@@ -289,273 +252,104 @@ export default function EventDetailScreen({ route }: Props) {
               </Text>
             </View>
           )}
-          {event && (
-            <BroadcastTimes event={event} locale={locale} t={t} timeZone={timezoneOverride ?? undefined} styles={styles} />
-          )}
         </View>
-      }
-      ListEmptyComponent={<Text style={commonStyles.empty}>{t.eventDetail.emptyFightCard}</Text>}
-      renderItem={({ item }) => {
-        const cancelled = item.status === 'cancelled';
-        return (
-          <View style={[styles.fightCard, cancelled && styles.fightCardCancelled]}>
-            <View style={styles.fightTags}>
-              {cancelled && <Text style={styles.tagCancelled}>{t.eventDetail.cancelled}</Text>}
-              {item.is_main_event && <Text style={styles.tagMain}>{t.eventDetail.mainEvent}</Text>}
-              {item.id === prelimMainEventId && (
-                <Text style={styles.tagPrelimMain}>{t.eventDetail.prelimMainEvent}</Text>
+
+        {groups.length === 0 ? (
+          <EmptyState title={t.eventDetail.emptyFightCard} />
+        ) : (
+          groups.map((group) => (
+            <Card key={group.key} style={styles.groupCard}>
+              {group.title && (
+                <View style={styles.groupHeader}>
+                  <Text style={styles.groupTitle}>{group.title}</Text>
+                  {group.startTime && (
+                    <Text style={styles.groupStarts}>
+                      {t.eventDetail.starts} {formatTime(group.startTime)}
+                    </Text>
+                  )}
+                </View>
               )}
-              {item.is_title_fight && (
-                <LinearGradient
-                  colors={colors.accentGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.tagTitleGradient}
-                >
-                  <Text style={styles.tagTitle}>{t.eventDetail.titleFight}</Text>
-                </LinearGradient>
-              )}
-            </View>
-            <View style={styles.matchupRow}>
-              <FighterLink fighter={item.fighter1} isWinner={item.fighter1?.id === item.result_winner_id} styles={styles} />
-              <Text style={styles.vs}>vs</Text>
-              <FighterLink fighter={item.fighter2} isWinner={item.fighter2?.id === item.result_winner_id} styles={styles} />
-            </View>
-            {(item.weight_class || item.scheduled_rounds) && (
-              <Text style={styles.weightClass}>
-                {[
-                  abbreviateWeightClass(item.weight_class),
-                  item.scheduled_rounds ? `${item.scheduled_rounds} ${t.eventDetail.rounds}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </Text>
-            )}
-            {(item.result_method_detail || item.result_method) && (
-              <Text style={styles.result}>
-                {t.eventDetail.resultVia} {item.result_method_detail ?? item.result_method}
-                {item.result_round ? ` · ${t.eventDetail.round} ${item.result_round}` : ''}
-                {item.result_time ? ` (${item.result_time})` : ''}
-              </Text>
-            )}
-            {!cancelled && !item.result_winner_id && (
-              <FightVoteRow
-                fight={item}
-                summary={votes.get(item.id) ?? { fighter1Votes: 0, fighter2Votes: 0, myVote: null }}
-                onVote={handleVote}
-                t={t}
-                styles={styles}
-                colors={colors}
-              />
-            )}
-          </View>
-        );
-      }}
-    />
+              {group.fights.map((fight) => (
+                <FightRow key={fight.id} fight={fight} t={t} styles={styles} />
+              ))}
+            </Card>
+          ))
+        )}
+      </ScrollView>
+    </Screen>
   );
 }
 
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    list: {
-      padding: spacing.md,
-    },
-    header: {
-      marginBottom: spacing.lg,
-      position: 'relative',
-    },
-    eventName: {
-      fontSize: 22,
-      fontWeight: '700',
-      marginBottom: 6,
-      color: colors.textPrimary,
-      paddingRight: 60,
-    },
-    eventMeta: {
-      fontSize: 14,
+    iconButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    centered: { marginTop: 40 },
+    scroll: { padding: spacing.lg, paddingBottom: spacing.xxl },
+
+    eventInfo: { marginBottom: spacing.lg },
+    liveBadgeSlot: { marginBottom: spacing.sm, alignSelf: 'flex-start' },
+    cancelledBanner: { alignSelf: 'flex-start', marginBottom: spacing.sm },
+    orgRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.xs },
+    orgName: { ...typography.label, color: colors.focus },
+    eventName: { ...typography.display, color: colors.textPrimary, marginBottom: spacing.sm },
+    eventDate: {
+      ...typography.compact,
+      ...tabularNums,
+      fontFamily: typography.label.fontFamily,
+      letterSpacing: 0.5,
       color: colors.textSecondary,
-      flexShrink: 1,
-    },
-    locationRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    liveBadgeSlot: {
       marginBottom: spacing.sm,
     },
-    orgRow: {
+    locationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+    eventMeta: { ...typography.meta, color: colors.textSecondary, flexShrink: 1 },
+
+    groupCard: { padding: 0, marginBottom: spacing.lg },
+    groupHeader: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.md,
-      marginBottom: 4,
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
     },
-    orgName: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: colors.textSecondary,
+    groupTitle: { ...typography.label, color: colors.textSecondary },
+    groupStarts: { ...typography.meta, ...tabularNums, color: colors.textSecondary },
+
+    fightRow: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.divider,
     },
-    eventCancelledBanner: {
-      alignSelf: 'flex-start',
-      fontSize: 12,
-      fontWeight: '700',
-      color: colors.background,
-      backgroundColor: colors.danger,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 4,
-      borderRadius: 6,
-      marginBottom: spacing.sm,
-    },
-    broadcastTimes: {
-      marginTop: spacing.sm,
-      gap: 2,
-    },
-    fightCard: {
-      padding: 14,
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    fightCardCancelled: {
-      opacity: 0.5,
-    },
-    tagCancelled: {
-      fontSize: 11,
-      fontWeight: '700',
-      color: colors.background,
-      backgroundColor: colors.danger,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 3,
-      borderRadius: 6,
-    },
-    fightTags: {
-      flexDirection: 'row',
-      gap: spacing.sm,
-      marginBottom: 6,
-    },
-    tagMain: {
-      fontSize: 11,
-      fontWeight: '700',
-      color: colors.background,
-      backgroundColor: colors.textPrimary,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 3,
-      borderRadius: 6,
-    },
-    tagPrelimMain: {
-      fontSize: 11,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      backgroundColor: 'transparent',
-      borderWidth: 1,
-      borderColor: colors.textPrimary,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 2,
-      borderRadius: 6,
-    },
-    tagTitleGradient: {
-      borderRadius: 6,
-      overflow: 'hidden',
-    },
-    tagTitle: {
-      fontSize: 11,
-      fontWeight: '700',
-      color: colors.background,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 3,
-    },
-    matchupRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      flexWrap: 'wrap',
-      gap: spacing.sm,
-    },
-    fighterCell: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 5,
-      flexShrink: 1,
-    },
-    fighterName: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: colors.textPrimary,
-    },
-    fighterNameWinner: {
-      color: colors.accent,
-    },
-    fighterLink: {
-      color: colors.link,
-      textDecorationLine: 'underline',
-    },
-    vs: {
-      fontSize: 13,
-      color: colors.textSecondary,
-    },
-    weightClass: {
-      marginTop: 6,
-      fontSize: 13,
-      color: colors.textSecondary,
-    },
+    cancelled: { opacity: 0.5 },
+    bannerRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+    tag: { borderRadius: 8, paddingHorizontal: spacing.sm, paddingVertical: 3, overflow: 'hidden' },
+    tagMain: { backgroundColor: colors.accent },
+    tagMainText: { ...typography.caption, color: '#FFFFFF' },
+    tagTitle: { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.alloy },
+    tagTitleText: { ...typography.caption, color: colors.alloy },
+    tagCancelled: { backgroundColor: colors.danger },
+    tagCancelledText: { ...typography.caption, color: '#FFFFFF' },
+
+    matchup: { flexDirection: 'row', alignItems: 'center' },
+    fighterCell: { flex: 1, gap: spacing.xs },
+    alignStart: { alignItems: 'flex-start' },
+    alignEnd: { alignItems: 'flex-end' },
+    fighterHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+    rowReverse: { flexDirection: 'row-reverse' },
+    fighterNameWrap: { flexShrink: 1 },
+    fighterName: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary },
+    fighterNameWinner: { color: colors.accent },
+    textRight: { textAlign: 'right' },
+    record: { ...typography.meta, ...tabularNums, color: colors.textSecondary },
+
+    centerMeta: { alignItems: 'center', paddingHorizontal: spacing.sm },
+    weightClass: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
+    roundsText: { ...typography.caption, ...tabularNums, color: colors.textSecondary, textAlign: 'center' },
     result: {
-      marginTop: 4,
-      fontSize: 12,
+      ...typography.meta,
       color: colors.textSecondary,
       fontStyle: 'italic',
-    },
-    voteRow: {
-      flexDirection: 'row',
-      gap: spacing.sm,
+      textAlign: 'center',
       marginTop: spacing.sm,
-    },
-    voteButton: {
-      flex: 1,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.sm,
-      borderRadius: radius.sm,
-      borderWidth: 1,
-      borderColor: colors.border,
-      alignItems: 'center',
-    },
-    voteButtonText: {
-      fontSize: 12,
-      fontWeight: '600',
-      color: colors.textSecondary,
-    },
-    voteBarContainer: {
-      marginTop: spacing.sm,
-    },
-    voteBarLabelsRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: 4,
-    },
-    voteBarLabel: {
-      fontSize: 11,
-      color: colors.textSecondary,
-      flexShrink: 1,
-    },
-    voteBarLabelActive: {
-      color: colors.accent,
-      fontWeight: '700',
-    },
-    voteBarTrack: {
-      flexDirection: 'row',
-      height: 8,
-      borderRadius: 4,
-      overflow: 'hidden',
-      backgroundColor: colors.border,
-    },
-    voteBarFill1: {
-      backgroundColor: colors.accent,
-    },
-    voteBarFill2: {
-      backgroundColor: colors.surfaceAlt,
     },
   });

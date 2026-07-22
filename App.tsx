@@ -44,7 +44,7 @@ function EventsStackNavigator() {
       <EventsStack.Screen
         name="EventDetail"
         component={EventDetailScreen}
-        options={({ route }) => ({ title: route.params.eventName })}
+        options={{ headerShown: false }}
       />
     </EventsStack.Navigator>
   );
