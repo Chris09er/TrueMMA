@@ -105,17 +105,11 @@ export const spacing = {
   xxl: 32,
 };
 
-// Semantic radii (handoff): controls 10, cards 14, hero 20. The legacy
-// sm/md/lg keys are kept so not-yet-migrated screens still compile; they are
-// removed once every screen uses the semantic names.
+// Semantic radii (handoff): controls 10, cards 14, hero 20.
 export const radius = {
   control: 10,
   card: 14,
   hero: 20,
-  // deprecated aliases — do not use in new code
-  sm: 8,
-  md: 12,
-  lg: 20,
 };
 
 // iOS HIG (44pt) / Material (48dp) minimum — tappables should size against

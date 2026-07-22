@@ -35,7 +35,7 @@ const makeStyles = (colors: ColorTokens) =>
       backgroundColor: colors.live,
       paddingHorizontal: 8,
       paddingVertical: 3,
-      borderRadius: radius.sm,
+      borderRadius: radius.control,
     },
     text: {
       color: '#fff',

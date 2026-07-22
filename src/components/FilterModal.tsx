@@ -81,8 +81,8 @@ const makeStyles = (colors: ColorTokens) =>
     },
     sheet: {
       backgroundColor: colors.background,
-      borderTopLeftRadius: radius.lg,
-      borderTopRightRadius: radius.lg,
+      borderTopLeftRadius: radius.hero,
+      borderTopRightRadius: radius.hero,
       padding: spacing.lg,
       maxHeight: '80%',
     },
