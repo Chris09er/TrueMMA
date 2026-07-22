@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, type TextStyle } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeMode = 'dark' | 'light';
@@ -156,7 +156,7 @@ export const typography = {
 
 // Spread onto numeric Text (times, dates, records, rankings, data columns) so
 // digits share a fixed width and columns line up (handoff: tabular numerals).
-export const tabularNums = { fontVariant: ['tabular-nums'] as const };
+export const tabularNums: TextStyle = { fontVariant: ['tabular-nums'] };
 
 // Fixed to the dark palette — only for the brief window before `App.tsx`
 // has loaded fonts and mounted `ThemeProvider` (no context/useColorScheme
