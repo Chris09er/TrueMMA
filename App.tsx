@@ -63,7 +63,7 @@ function FightersStackNavigator() {
       <FightersStack.Screen
         name="FighterDetail"
         component={FighterDetailScreen}
-        options={({ route }) => ({ title: route.params.fighterName })}
+        options={{ headerShown: false }}
       />
     </FightersStack.Navigator>
   );

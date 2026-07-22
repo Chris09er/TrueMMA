@@ -84,6 +84,11 @@ export const translations = {
       stance: 'Kampfhaltung',
       dateOfBirth: 'Geburtsdatum',
       birthPlace: 'Geburtsort',
+      title: 'Kämpfer',
+      record: 'Bilanz',
+      koWins: 'KO-Siege',
+      submissionWins: 'Submission-Siege',
+      winStreak: 'Siegesserie',
     },
     settings: {
       title: 'Einstellungen',
@@ -275,6 +280,11 @@ export const translations = {
       stance: 'Stance',
       dateOfBirth: 'Date of birth',
       birthPlace: 'Birth place',
+      title: 'Fighter',
+      record: 'Record',
+      koWins: 'KO wins',
+      submissionWins: 'Submission wins',
+      winStreak: 'Win streak',
     },
     settings: {
       title: 'Settings',
