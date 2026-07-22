@@ -1503,6 +1503,28 @@ brand assets.
 
 ## Known open items
 
+- **API data-provider evaluation — in progress, undecided (opened 2026-07-22).**
+  balldontlie's coverage is the incumbent pain point: measured live (not quoted)
+  via `scripts/evaluate-api-providers.ts` (`npm run eval:apis`), its *entire*
+  history is **361 league-carrying events across 9 leagues, 1993–2026** (UFC 189
+  · PFL 76 · LFA 37 · DWCS 20 · CW 16 · ONE 10 · RIZIN 7 · Bellator 3 · Invicta 3),
+  OKTAGON = 0 — too thin on history, leagues, and per-event depth (its event
+  record carries only a `league` object, no fight-level stats). The evaluation
+  script probes candidate providers with the same "count it, don't trust the
+  marketing" discipline the [balldontlie sync](#balldontlie-sync) section
+  hard-won: for each provider whose key is set (`APISPORTS_KEY`,
+  `SPORTSDATAIO_KEY`, plus the `BALLDONTLIE_API_KEY` baseline) it reports real
+  league breadth + counts, history depth, and a dump of the raw record fields
+  (to compare data *depth*, e.g. round/strike stats), respecting free-tier caps
+  via per-provider request budgets. **Next step:** obtain free/trial keys
+  (API-Sports free 100 req/day — dashboard.api-football.com; SportsDataIO trial),
+  re-run, and decide. Goal = maximum league coverage; no single league is
+  mandatory. Note the app never calls any provider directly (sync-into-Supabase
+  architecture, low request volume), so a hard-quota/flat-fee provider is
+  strongly preferred for cost control over a metered/sales-contract one. Nothing
+  in the system has changed yet — when a switch (or an additive second source,
+  e.g. an Apify historical backfill) is decided, update the map
+  ([ecosystem-overview.html](ecosystem-overview.html)) and this handbook together.
 - ~~`main` had never received any of the dev/stage/main pipeline's work~~ —
   **resolved 2026-07-19.** First promotion since the pipeline was set up:
   PR #11 merged all 21 commits from `stage` into `main` in one go (sync-cost
