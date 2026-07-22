@@ -4,7 +4,6 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   SectionList,
   StyleSheet,
   Text,
@@ -24,8 +23,6 @@ import { useAuth } from '../lib/auth';
 import Flag from '../components/Flag';
 import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
-import FilterChip from '../components/FilterChip';
-import FilterModal, { FilterSection } from '../components/FilterModal';
 import LiveBadge from '../components/LiveBadge';
 import {
   Card,
@@ -57,7 +54,6 @@ export default function EventListScreen({ navigation }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
   const [showPast, setShowPast] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [search, setSearch] = useState('');
@@ -66,7 +62,6 @@ export default function EventListScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
 
   const [calendarMonth, setCalendarMonth] = useState(currentYearMonth);
   const [monthEvents, setMonthEvents] = useState<EventListItem[]>([]);
@@ -107,22 +102,19 @@ export default function EventListScreen({ navigation }: Props) {
     });
   }, []);
 
-  const loadMonthEvents = useCallback(
-    async (yearMonth: string) => {
-      setCalendarLoading(true);
-      try {
-        const [year, month] = yearMonth.split('-').map(Number);
-        const start = new Date(year, month - 1, 1).toISOString();
-        const end = new Date(year, month, 1).toISOString();
-        setMonthEvents(await getEventsInRange(start, end, selectedOrgId));
-      } catch {
-        setMonthEvents([]);
-      } finally {
-        setCalendarLoading(false);
-      }
-    },
-    [selectedOrgId]
-  );
+  const loadMonthEvents = useCallback(async (yearMonth: string) => {
+    setCalendarLoading(true);
+    try {
+      const [year, month] = yearMonth.split('-').map(Number);
+      const start = new Date(year, month - 1, 1).toISOString();
+      const end = new Date(year, month, 1).toISOString();
+      setMonthEvents(await getEventsInRange(start, end));
+    } catch {
+      setMonthEvents([]);
+    } finally {
+      setCalendarLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (viewMode === 'calendar') loadMonthEvents(calendarMonth);
@@ -145,29 +137,12 @@ export default function EventListScreen({ navigation }: Props) {
     return monthEvents.filter((event) => event.event_date.slice(0, 10) === selectedDate);
   }, [monthEvents, selectedDate]);
 
-  const listOrganizations = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const event of events) {
-      if (event.organizations?.short_name) map.set(event.organization_id, event.organizations.short_name);
-    }
-    return [...map].map(([id, short_name]) => ({ id, short_name }));
-  }, [events]);
-
-  useEffect(() => {
-    if (selectedOrgId && !listOrganizations.some((org) => org.id === selectedOrgId)) {
-      setSelectedOrgId(undefined);
-    }
-  }, [listOrganizations, selectedOrgId]);
-
   const visibleEvents = useMemo(() => {
     const query = search.trim().toLowerCase();
-    let filtered = selectedOrgId ? events.filter((event) => event.organization_id === selectedOrgId) : events;
-    if (query) filtered = filtered.filter((event) => event.name.toLowerCase().includes(query));
-    return filtered;
-  }, [events, search, selectedOrgId]);
+    if (!query) return events;
+    return events.filter((event) => event.name.toLowerCase().includes(query));
+  }, [events, search]);
 
-  // Group into date sections: upcoming -> Today / This week / month groups;
-  // past -> month groups, newest first.
   const sections = useMemo<Section[]>(() => {
     const monthLabel = (d: Date) =>
       d.toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', { month: 'long', year: 'numeric' });
@@ -207,8 +182,6 @@ export default function EventListScreen({ navigation }: Props) {
     return out;
   }, [visibleEvents, showPast, locale, t]);
 
-  const activeFilterCount = selectedOrgId === undefined ? 0 : 1;
-
   const renderEventCard = (item: EventListItem) => {
     const upcoming = isEventUpcoming(item.event_date);
     return (
@@ -238,57 +211,30 @@ export default function EventListScreen({ navigation }: Props) {
     );
   };
 
-  const listHeader = (
-    <View>
-      <View style={styles.searchRow}>
-        <View style={styles.searchFlex}>
-          <SearchInput value={search} onChangeText={setSearch} placeholder={t.eventList.searchPlaceholder} />
-        </View>
-        <Pressable
-          onPress={() => setFilterModalVisible(true)}
-          style={({ pressed }) => [styles.filterButton, pressed && pressedStyle]}
-        >
-          <MaterialCommunityIcons name="filter-variant" size={18} color="#FFFFFF" />
-          <Text style={styles.filterButtonText}>{t.eventList.filter}</Text>
-          {activeFilterCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{activeFilterCount}</Text>
-            </View>
-          )}
-        </Pressable>
-      </View>
+  const timeframeToggle = (
+    <View style={styles.segment}>
+      {[
+        { past: false, label: t.eventList.upcoming },
+        { past: true, label: t.eventList.past },
+      ].map((seg) => {
+        const active = showPast === seg.past;
+        return (
+          <Pressable
+            key={seg.label}
+            onPress={() => setShowPast(seg.past)}
+            style={({ pressed }) => [styles.segmentItem, active && styles.segmentItemActive, pressed && pressedStyle]}
+          >
+            <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{seg.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 
-      <View style={styles.chipRow}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
-          <FilterChip
-            label={t.eventList.filterAll}
-            active={selectedOrgId === undefined}
-            onPress={() => setSelectedOrgId(undefined)}
-          />
-          {listOrganizations.map((org) => (
-            <FilterChip
-              key={org.id}
-              label={org.short_name}
-              active={selectedOrgId === org.id}
-              onPress={() => setSelectedOrgId(org.id)}
-            />
-          ))}
-        </ScrollView>
-        <View style={[styles.pastDivider, { backgroundColor: colors.divider }]} />
-        <Pressable
-          onPress={() => setShowPast((prev) => !prev)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: showPast }}
-          style={({ pressed }) => [styles.pastToggle, pressed && pressedStyle]}
-        >
-          <MaterialCommunityIcons
-            name={showPast ? 'checkbox-marked' : 'checkbox-blank-outline'}
-            size={20}
-            color={showPast ? colors.accent : colors.textSecondary}
-          />
-          <Text style={styles.pastToggleLabel}>{t.eventList.pastEvents}</Text>
-        </Pressable>
-      </View>
+  const listHeader = (
+    <View style={styles.controls}>
+      <SearchInput value={search} onChangeText={setSearch} placeholder={t.eventList.searchPlaceholder} />
+      {timeframeToggle}
     </View>
   );
 
@@ -320,38 +266,9 @@ export default function EventListScreen({ navigation }: Props) {
     />
   );
 
-  const filterModal = (
-    <FilterModal
-      visible={filterModalVisible}
-      title={t.eventList.filter}
-      doneLabel={t.eventList.filterDone}
-      onClose={() => setFilterModalVisible(false)}
-      showReset={activeFilterCount > 0}
-      resetLabel={t.eventList.filterReset}
-      onReset={() => setSelectedOrgId(undefined)}
-    >
-      <FilterSection title={t.eventList.filterOrganization}>
-        <FilterChip
-          label={t.eventList.filterAll}
-          active={selectedOrgId === undefined}
-          onPress={() => setSelectedOrgId(undefined)}
-        />
-        {listOrganizations.map((org) => (
-          <FilterChip
-            key={org.id}
-            label={org.short_name}
-            active={selectedOrgId === org.id}
-            onPress={() => setSelectedOrgId(org.id)}
-          />
-        ))}
-      </FilterSection>
-    </FilterModal>
-  );
-
   return (
     <Screen>
       {brandHeader}
-      {filterModal}
 
       {viewMode === 'calendar' ? (
         <FlatList
@@ -424,10 +341,7 @@ export default function EventListScreen({ navigation }: Props) {
           }
           renderSectionHeader={({ section }) => <SectionHeader title={section.title} />}
           ListEmptyComponent={
-            <EmptyState
-              icon="calendar-blank-outline"
-              title={showPast ? t.eventList.emptyPast : t.eventList.empty}
-            />
+            <EmptyState icon="calendar-blank-outline" title={showPast ? t.eventList.emptyPast : t.eventList.empty} />
           }
           renderItem={({ item }) => renderEventCard(item)}
         />
@@ -439,54 +353,23 @@ export default function EventListScreen({ navigation }: Props) {
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
     brand: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    wordmark: {
-      fontFamily: typography.display.fontFamily,
-      fontSize: 22,
-      letterSpacing: 1,
-      color: colors.textPrimary,
-    },
+    wordmark: { fontFamily: typography.display.fontFamily, fontSize: 22, letterSpacing: 1, color: colors.textPrimary },
     iconButton: { minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
 
-    searchRow: {
+    controls: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.md },
+    segment: {
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
-    },
-    searchFlex: { flex: 1 },
-    filterButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.xs,
-      minHeight: 44,
-      paddingHorizontal: spacing.md,
+      backgroundColor: colors.surface,
       borderRadius: radius.control,
-      backgroundColor: colors.accent,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      padding: 3,
+      gap: 3,
     },
-    filterButtonText: { ...typography.body, fontFamily: typography.label.fontFamily, color: '#FFFFFF' },
-    badge: {
-      minWidth: 20,
-      height: 20,
-      borderRadius: 10,
-      paddingHorizontal: 5,
-      backgroundColor: colors.focus,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    badgeText: { ...typography.caption, color: '#FFFFFF' },
-
-    chipRow: { flexDirection: 'row', alignItems: 'center', paddingTop: spacing.md, paddingLeft: spacing.lg },
-    chipScroll: { gap: spacing.sm, paddingRight: spacing.sm, alignItems: 'center' },
-    pastDivider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', marginVertical: spacing.sm, marginHorizontal: spacing.sm },
-    pastToggle: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.xs,
-      minHeight: 44,
-      paddingRight: spacing.lg,
-    },
-    pastToggleLabel: { ...typography.meta, fontFamily: typography.label.fontFamily, color: colors.textSecondary },
+    segmentItem: { flex: 1, minHeight: 38, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    segmentItemActive: { backgroundColor: colors.accent },
+    segmentText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.textSecondary },
+    segmentTextActive: { color: '#FFFFFF' },
 
     listContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
     skeletonWrap: { paddingBottom: spacing.lg },

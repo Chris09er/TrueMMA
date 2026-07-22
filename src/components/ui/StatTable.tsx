@@ -41,12 +41,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
+    minHeight: 46,
     gap: spacing.md,
   },
-  // maxWidth (not a fixed width) so long German labels wrap instead of pushing
-  // the value column off-screen.
-  label: { ...typography.label, maxWidth: '48%' },
-  value: { ...typography.body, ...tabularNums, flex: 1 },
+  // Fixed label width so every value starts at the same x (aligned column);
+  // long German labels wrap within it rather than shoving the value around.
+  label: { ...typography.label, width: 128 },
+  value: { ...typography.compact, ...tabularNums, flex: 1 },
   trailing: { ...typography.meta, ...tabularNums },
 });

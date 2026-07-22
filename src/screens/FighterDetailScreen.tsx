@@ -61,7 +61,7 @@ function FightHistoryRow({
   return (
     <View style={[styles.historyRow, !isFirst && styles.historyDivider]}>
       <Text
-        style={[styles.opponent, opponent && styles.link]}
+        style={styles.opponent}
         onPress={
           opponent
             ? () =>
@@ -76,7 +76,7 @@ function FightHistoryRow({
       </Text>
       {fight.event && (
         <Text
-          style={[styles.historyMeta, styles.link]}
+          style={styles.historyMeta}
           onPress={() =>
             navigation.navigate('EventsTab', {
               screen: 'EventDetail',
@@ -187,7 +187,7 @@ export default function FighterDetailScreen({ route, navigation }: Props) {
   if (fighter?.weight_class) {
     statRows.push({
       label: t.fighterDetail.weightClass,
-      value: fighter.weight_class.toUpperCase(),
+      value: fighter.weight_class,
       trailing: fighter.weight_lbs ? `${fighter.weight_lbs} LB` : undefined,
     });
   }
@@ -197,13 +197,15 @@ export default function FighterDetailScreen({ route, navigation }: Props) {
   if (fighter?.reach_inches) {
     statRows.push({ label: t.fighterDetail.reach, value: `${fighter.reach_inches}"`, trailing: `${inchesToCm(fighter.reach_inches)} CM` });
   }
-  if (fighter?.stance) statRows.push({ label: t.fighterDetail.stance, value: fighter.stance.toUpperCase() });
+  if (fighter?.stance) statRows.push({ label: t.fighterDetail.stance, value: fighter.stance });
   if (fighter?.date_of_birth) {
     statRows.push({
       label: t.fighterDetail.dateOfBirth,
-      value: new Date(fighter.date_of_birth)
-        .toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-        .toUpperCase(),
+      value: new Date(fighter.date_of_birth).toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      }),
     });
   }
   if (completed.length > 0) {
@@ -315,8 +317,7 @@ const makeStyles = (colors: ColorTokens) =>
     historyRow: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
     historyDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider },
     opponent: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary },
-    historyMeta: { ...typography.meta, color: colors.textSecondary, marginTop: 2 },
-    link: { textDecorationLine: 'underline' },
+    historyMeta: { ...typography.meta, color: colors.focus, marginTop: 2 },
     result: { ...typography.caption, marginTop: spacing.xs },
     resultWin: { color: colors.accent },
     resultLoss: { color: colors.textSecondary },
