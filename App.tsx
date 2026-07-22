@@ -58,7 +58,7 @@ function FightersStackNavigator() {
       <FightersStack.Screen
         name="FighterList"
         component={FighterListScreen}
-        options={{ title: t.fighterList.title }}
+        options={{ title: t.fighterList.title, headerShown: false }}
       />
       <FightersStack.Screen
         name="FighterDetail"

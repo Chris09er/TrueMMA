@@ -6,9 +6,10 @@ import BellIconButton from './BellIconButton';
 
 type Props = {
   fighterId: string;
+  inline?: boolean;
 };
 
-export default function FighterFollowBell({ fighterId }: Props) {
+export default function FighterFollowBell({ fighterId, inline }: Props) {
   const { t } = useLocale();
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -52,5 +53,5 @@ export default function FighterFollowBell({ fighterId }: Props) {
     }
   };
 
-  return <BellIconButton active={active} busy={busy} onPress={handlePress} />;
+  return <BellIconButton active={active} busy={busy} onPress={handlePress} inline={inline} />;
 }
