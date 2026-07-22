@@ -5,6 +5,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   View,
@@ -24,6 +25,7 @@ import Flag from '../components/Flag';
 import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FilterChip from '../components/FilterChip';
+import FilterModal, { FilterSection } from '../components/FilterModal';
 import LiveBadge from '../components/LiveBadge';
 import {
   Card,
@@ -33,16 +35,21 @@ import {
   Screen,
   ScreenHeader,
   SearchInput,
+  SectionHeader,
   SkeletonCard,
 } from '../components/ui';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventList'>;
 type ViewMode = 'list' | 'calendar';
+type Section = { title: string; data: EventListItem[] };
 
 function currentYearMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
+
+const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const monthKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}`;
 
 export default function EventListScreen({ navigation }: Props) {
   const { t, locale } = useLocale();
@@ -51,7 +58,6 @@ export default function EventListScreen({ navigation }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
-  // Two states only (handoff): future (default, includes today) vs past.
   const [showPast, setShowPast] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [search, setSearch] = useState('');
@@ -60,13 +66,13 @@ export default function EventListScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
 
   const [calendarMonth, setCalendarMonth] = useState(currentYearMonth);
   const [monthEvents, setMonthEvents] = useState<EventListItem[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
 
-  // future (>= local start of today, so today stays here until tomorrow) vs past.
   const loadEvents = useCallback(async () => {
     setError(null);
     try {
@@ -139,8 +145,6 @@ export default function EventListScreen({ navigation }: Props) {
     return monthEvents.filter((event) => event.event_date.slice(0, 10) === selectedDate);
   }, [monthEvents, selectedDate]);
 
-  // League chips are derived from the loaded events so an empty option never
-  // appears (a league with no events in the current future/past set is hidden).
   const listOrganizations = useMemo(() => {
     const map = new Map<string, string>();
     for (const event of events) {
@@ -149,7 +153,6 @@ export default function EventListScreen({ navigation }: Props) {
     return [...map].map(([id, short_name]) => ({ id, short_name }));
   }, [events]);
 
-  // Drop a now-invisible league filter when switching future/past.
   useEffect(() => {
     if (selectedOrgId && !listOrganizations.some((org) => org.id === selectedOrgId)) {
       setSelectedOrgId(undefined);
@@ -160,9 +163,51 @@ export default function EventListScreen({ navigation }: Props) {
     const query = search.trim().toLowerCase();
     let filtered = selectedOrgId ? events.filter((event) => event.organization_id === selectedOrgId) : events;
     if (query) filtered = filtered.filter((event) => event.name.toLowerCase().includes(query));
-    // Favorited events first; existing (date) order preserved within each group.
-    return [...filtered].sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)));
-  }, [events, search, selectedOrgId, favoriteIds]);
+    return filtered;
+  }, [events, search, selectedOrgId]);
+
+  // Group into date sections: upcoming -> Today / This week / month groups;
+  // past -> month groups, newest first.
+  const sections = useMemo<Section[]>(() => {
+    const monthLabel = (d: Date) =>
+      d.toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', { month: 'long', year: 'numeric' });
+
+    if (showPast) {
+      const byMonth = new Map<string, { title: string; data: EventListItem[]; sort: number }>();
+      for (const e of visibleEvents) {
+        const d = new Date(e.event_date);
+        const k = monthKey(d);
+        if (!byMonth.has(k)) byMonth.set(k, { title: monthLabel(d), data: [], sort: d.getTime() });
+        byMonth.get(k)!.data.push(e);
+      }
+      return [...byMonth.values()].sort((a, b) => b.sort - a.sort).map(({ title, data }) => ({ title, data }));
+    }
+
+    const startToday = startOfLocalDay(new Date()).getTime();
+    const endToday = startToday + 86_400_000;
+    const endWeek = startToday + 7 * 86_400_000;
+    const today: EventListItem[] = [];
+    const week: EventListItem[] = [];
+    const later = new Map<string, { title: string; data: EventListItem[]; sort: number }>();
+    for (const e of visibleEvents) {
+      const ts = new Date(e.event_date).getTime();
+      if (ts < endToday) today.push(e);
+      else if (ts < endWeek) week.push(e);
+      else {
+        const d = new Date(e.event_date);
+        const k = monthKey(d);
+        if (!later.has(k)) later.set(k, { title: monthLabel(d), data: [], sort: d.getTime() });
+        later.get(k)!.data.push(e);
+      }
+    }
+    const out: Section[] = [];
+    if (today.length) out.push({ title: t.eventList.today, data: today });
+    if (week.length) out.push({ title: t.eventList.thisWeek, data: week });
+    for (const { title, data } of [...later.values()].sort((a, b) => a.sort - b.sort)) out.push({ title, data });
+    return out;
+  }, [visibleEvents, showPast, locale, t]);
+
+  const activeFilterCount = selectedOrgId === undefined ? 0 : 1;
 
   const renderEventCard = (item: EventListItem) => {
     const upcoming = isEventUpcoming(item.event_date);
@@ -193,79 +238,120 @@ export default function EventListScreen({ navigation }: Props) {
     );
   };
 
+  const listHeader = (
+    <View>
+      <View style={styles.searchRow}>
+        <View style={styles.searchFlex}>
+          <SearchInput value={search} onChangeText={setSearch} placeholder={t.eventList.searchPlaceholder} />
+        </View>
+        <Pressable
+          onPress={() => setFilterModalVisible(true)}
+          style={({ pressed }) => [styles.filterButton, pressed && pressedStyle]}
+        >
+          <MaterialCommunityIcons name="filter-variant" size={18} color="#FFFFFF" />
+          <Text style={styles.filterButtonText}>{t.eventList.filter}</Text>
+          {activeFilterCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{activeFilterCount}</Text>
+            </View>
+          )}
+        </Pressable>
+      </View>
+
+      <View style={styles.chipRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
+          <FilterChip
+            label={t.eventList.filterAll}
+            active={selectedOrgId === undefined}
+            onPress={() => setSelectedOrgId(undefined)}
+          />
+          {listOrganizations.map((org) => (
+            <FilterChip
+              key={org.id}
+              label={org.short_name}
+              active={selectedOrgId === org.id}
+              onPress={() => setSelectedOrgId(org.id)}
+            />
+          ))}
+        </ScrollView>
+        <View style={[styles.pastDivider, { backgroundColor: colors.divider }]} />
+        <Pressable
+          onPress={() => setShowPast((prev) => !prev)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: showPast }}
+          style={({ pressed }) => [styles.pastToggle, pressed && pressedStyle]}
+        >
+          <MaterialCommunityIcons
+            name={showPast ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            size={20}
+            color={showPast ? colors.accent : colors.textSecondary}
+          />
+          <Text style={styles.pastToggleLabel}>{t.eventList.pastEvents}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  const brandHeader = (
+    <ScreenHeader
+      left={
+        <View style={styles.brand}>
+          <LogoPlaceholder size={24} />
+          <Text style={styles.wordmark} numberOfLines={1}>
+            {t.eventList.title.toUpperCase()}
+          </Text>
+        </View>
+      }
+      right={
+        <Pressable
+          onPress={() => setViewMode((mode) => (mode === 'calendar' ? 'list' : 'calendar'))}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t.eventList.viewCalendar}
+          style={({ pressed }) => [styles.iconButton, pressed && pressedStyle]}
+        >
+          <MaterialCommunityIcons
+            name={viewMode === 'calendar' ? 'format-list-bulleted' : 'calendar-month-outline'}
+            size={24}
+            color={colors.textPrimary}
+          />
+        </Pressable>
+      }
+    />
+  );
+
+  const filterModal = (
+    <FilterModal
+      visible={filterModalVisible}
+      title={t.eventList.filter}
+      doneLabel={t.eventList.filterDone}
+      onClose={() => setFilterModalVisible(false)}
+      showReset={activeFilterCount > 0}
+      resetLabel={t.eventList.filterReset}
+      onReset={() => setSelectedOrgId(undefined)}
+    >
+      <FilterSection title={t.eventList.filterOrganization}>
+        <FilterChip
+          label={t.eventList.filterAll}
+          active={selectedOrgId === undefined}
+          onPress={() => setSelectedOrgId(undefined)}
+        />
+        {listOrganizations.map((org) => (
+          <FilterChip
+            key={org.id}
+            label={org.short_name}
+            active={selectedOrgId === org.id}
+            onPress={() => setSelectedOrgId(org.id)}
+          />
+        ))}
+      </FilterSection>
+    </FilterModal>
+  );
+
   return (
     <Screen>
-      <ScreenHeader
-        left={
-          <View style={styles.brand}>
-            <LogoPlaceholder size={24} />
-            <Text style={styles.wordmark} numberOfLines={1}>
-              {t.eventList.title.toUpperCase()}
-            </Text>
-          </View>
-        }
-        right={
-          <Pressable
-            onPress={() => setViewMode((mode) => (mode === 'calendar' ? 'list' : 'calendar'))}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t.eventList.viewCalendar}
-            style={({ pressed }) => [styles.iconButton, pressed && pressedStyle]}
-          >
-            <MaterialCommunityIcons
-              name={viewMode === 'calendar' ? 'format-list-bulleted' : 'calendar-month-outline'}
-              size={24}
-              color={colors.textPrimary}
-            />
-          </Pressable>
-        }
-      />
-
-      {viewMode === 'list' && (
-        <>
-          <View style={styles.controls}>
-            <SearchInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder={t.eventList.searchPlaceholder}
-            />
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipRow}
-          >
-            <FilterChip
-              label={t.eventList.filterAll}
-              active={selectedOrgId === undefined}
-              onPress={() => setSelectedOrgId(undefined)}
-            />
-            {listOrganizations.map((org) => (
-              <FilterChip
-                key={org.id}
-                label={org.short_name}
-                active={selectedOrgId === org.id}
-                onPress={() => setSelectedOrgId(org.id)}
-              />
-            ))}
-          </ScrollView>
-          <View style={styles.controls}>
-            <Pressable
-              onPress={() => setShowPast((prev) => !prev)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: showPast }}
-              style={({ pressed }) => [styles.pastToggle, pressed && pressedStyle]}
-            >
-              <MaterialCommunityIcons
-                name={showPast ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                size={22}
-                color={showPast ? colors.accent : colors.textSecondary}
-              />
-              <Text style={styles.pastToggleLabel}>{t.eventList.pastEvents}</Text>
-            </Pressable>
-          </View>
-        </>
-      )}
+      {brandHeader}
+      {filterModal}
 
       {viewMode === 'calendar' ? (
         <FlatList
@@ -309,17 +395,25 @@ export default function EventListScreen({ navigation }: Props) {
         />
       ) : loading ? (
         <View style={styles.skeletonWrap}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <SkeletonCard key={i} />
-          ))}
+          {listHeader}
+          <View style={styles.skeletonList}>
+            {[0, 1, 2, 3].map((i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </View>
         </View>
       ) : error ? (
-        <ErrorState message={error} retryLabel={t.common.retry} onRetry={load} />
+        <>
+          {listHeader}
+          <ErrorState message={error} retryLabel={t.common.retry} onRetry={load} />
+        </>
       ) : (
-        <FlatList
-          data={visibleEvents}
+        <SectionList
+          sections={sections}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
+          stickySectionHeadersEnabled={false}
+          ListHeaderComponent={listHeader}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -328,6 +422,7 @@ export default function EventListScreen({ navigation }: Props) {
               colors={[colors.accent]}
             />
           }
+          renderSectionHeader={({ section }) => <SectionHeader title={section.title} />}
           ListEmptyComponent={
             <EmptyState
               icon="calendar-blank-outline"
@@ -350,86 +445,69 @@ const makeStyles = (colors: ColorTokens) =>
       letterSpacing: 1,
       color: colors.textPrimary,
     },
-    iconButton: {
-      minWidth: 44,
-      minHeight: 44,
-      alignItems: 'flex-end',
-      justifyContent: 'center',
-    },
-    controls: {
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
-    },
-    chipRow: {
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
-      gap: spacing.sm,
-    },
-    pastToggle: {
+    iconButton: { minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
+
+    searchRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
-      minHeight: 44,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
     },
-    pastToggleLabel: {
-      ...typography.compact,
-      fontFamily: typography.label.fontFamily,
-      color: colors.textSecondary,
-    },
-    listContent: {
-      padding: spacing.lg,
-      gap: spacing.md,
-    },
-    skeletonWrap: {
-      padding: spacing.lg,
-    },
-    card: {
-      position: 'relative',
-    },
-    eventOrg: {
-      ...typography.label,
-      color: colors.textSecondary,
-      marginBottom: spacing.xs,
-    },
-    liveBadgeSlot: {
-      marginBottom: spacing.xs,
-    },
-    eventName: {
-      ...typography.cardTitle,
-      marginBottom: spacing.xs,
-      color: colors.textPrimary,
-    },
-    eventNameWithIcons: {
-      paddingRight: 56,
-    },
-    eventDate: {
-      ...typography.meta,
-      ...tabularNums,
-      color: colors.textSecondary,
-      marginBottom: spacing.sm,
-    },
-    locationRow: {
+    searchFlex: { flex: 1 },
+    filterButton: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.xs,
+      minHeight: 44,
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.control,
+      backgroundColor: colors.accent,
     },
-    eventMeta: {
-      ...typography.meta,
-      color: colors.textSecondary,
-      flexShrink: 1,
+    filterButtonText: { ...typography.body, fontFamily: typography.label.fontFamily, color: '#FFFFFF' },
+    badge: {
+      minWidth: 20,
+      height: 20,
+      borderRadius: 10,
+      paddingHorizontal: 5,
+      backgroundColor: colors.focus,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
+    badgeText: { ...typography.caption, color: '#FFFFFF' },
+
+    chipRow: { flexDirection: 'row', alignItems: 'center', paddingTop: spacing.md, paddingLeft: spacing.lg },
+    chipScroll: { gap: spacing.sm, paddingRight: spacing.sm, alignItems: 'center' },
+    pastDivider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', marginVertical: spacing.sm, marginHorizontal: spacing.sm },
+    pastToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      minHeight: 44,
+      paddingRight: spacing.lg,
+    },
+    pastToggleLabel: { ...typography.meta, fontFamily: typography.label.fontFamily, color: colors.textSecondary },
+
+    listContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+    skeletonWrap: { paddingBottom: spacing.lg },
+    skeletonList: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
+    card: { marginTop: spacing.md, position: 'relative' },
+    eventOrg: { ...typography.label, color: colors.textSecondary, marginBottom: spacing.xs },
+    liveBadgeSlot: { marginBottom: spacing.xs },
+    eventName: { ...typography.cardTitle, marginBottom: spacing.xs, color: colors.textPrimary },
+    eventNameWithIcons: { paddingRight: 56 },
+    eventDate: { ...typography.meta, ...tabularNums, color: colors.textSecondary, marginBottom: spacing.sm },
+    locationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+    eventMeta: { ...typography.meta, color: colors.textSecondary, flexShrink: 1 },
+
     calendar: {
       borderRadius: radius.card,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
+      marginTop: spacing.md,
       marginBottom: spacing.md,
       overflow: 'hidden',
     },
     centered: { marginTop: 40 },
-    calendarHint: {
-      ...typography.body,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      padding: spacing.lg,
-    },
+    calendarHint: { ...typography.body, color: colors.textSecondary, textAlign: 'center', padding: spacing.lg },
   });
