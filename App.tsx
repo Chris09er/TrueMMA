@@ -39,7 +39,7 @@ function EventsStackNavigator() {
       <EventsStack.Screen
         name="EventList"
         component={EventListScreen}
-        options={{ title: t.eventList.title }}
+        options={{ title: t.eventList.title, headerShown: false }}
       />
       <EventsStack.Screen
         name="EventDetail"

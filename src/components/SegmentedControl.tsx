@@ -53,7 +53,7 @@ const makeStyles = (colors: ColorTokens) =>
     track: {
       flexDirection: 'row',
       backgroundColor: colors.surface,
-      borderRadius: radius.lg,
+      borderRadius: radius.control,
       borderWidth: 1,
       borderColor: colors.border,
       padding: 3,
@@ -62,7 +62,7 @@ const makeStyles = (colors: ColorTokens) =>
     segment: {
       flex: 1,
       minHeight: minTapTarget - 8,
-      borderRadius: radius.md,
+      borderRadius: 8,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: spacing.sm,
@@ -74,6 +74,6 @@ const makeStyles = (colors: ColorTokens) =>
       color: colors.textSecondary,
     },
     labelActive: {
-      color: colors.background,
+      color: '#FFFFFF',
     },
   });

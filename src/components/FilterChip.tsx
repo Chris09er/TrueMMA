@@ -47,7 +47,7 @@ const makeStyles = (colors: ColorTokens) =>
     chip: {
       paddingHorizontal: 14,
       minHeight: minTapTarget,
-      borderRadius: radius.lg,
+      borderRadius: radius.control,
       justifyContent: 'center',
       borderWidth: 1,
       borderColor: colors.accent,
@@ -72,6 +72,6 @@ const makeStyles = (colors: ColorTokens) =>
       ...typography.body,
       fontFamily: typography.label.fontFamily,
       fontSize: 13,
-      color: colors.background,
+      color: '#FFFFFF',
     },
   });

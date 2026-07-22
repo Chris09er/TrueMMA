@@ -10,7 +10,7 @@ export type Locale = 'de' | 'en';
 export const translations = {
   de: {
     tabs: { events: 'Veranstaltungen', fighters: 'Kämpfer', contact: 'Kontakt', profile: 'Profil' },
-    common: { loading: 'Lädt...', error: 'Fehler beim Laden', live: 'LIVE' },
+    common: { loading: 'Lädt...', error: 'Fehler beim Laden', live: 'LIVE', retry: 'Erneut versuchen' },
     eventList: {
       title: 'True MMA',
       filterAll: 'Alle',
@@ -24,6 +24,7 @@ export const translations = {
       today: 'Heute',
       upcoming: 'Kommende',
       past: 'Vergangene',
+      pastEvents: 'Vergangene Events',
       searchPlaceholder: 'Events suchen...',
       viewList: 'Liste',
       viewCalendar: 'Kalender',
@@ -199,7 +200,7 @@ export const translations = {
   },
   en: {
     tabs: { events: 'Events', fighters: 'Fighters', contact: 'Contact', profile: 'Profile' },
-    common: { loading: 'Loading...', error: 'Failed to load', live: 'LIVE' },
+    common: { loading: 'Loading...', error: 'Failed to load', live: 'LIVE', retry: 'Retry' },
     eventList: {
       title: 'True MMA',
       filterAll: 'All',
@@ -213,6 +214,7 @@ export const translations = {
       today: 'Today',
       upcoming: 'Upcoming',
       past: 'Past',
+      pastEvents: 'Past events',
       searchPlaceholder: 'Search events...',
       viewList: 'List',
       viewCalendar: 'Calendar',
