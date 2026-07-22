@@ -68,7 +68,7 @@ const darkColors: ColorTokens = {
   alloyMuted: '#7D8A9B',
   danger: '#E5484D',
   live: '#F04438',
-  backgroundGradient: ['#0A162B', '#050C1C'],
+  backgroundGradient: ['#0F2547', '#050C1C'],
   accentGradient: ['#3A7BE0', '#1B4F9E'],
 };
 
@@ -88,7 +88,7 @@ const lightColors: ColorTokens = {
   alloyMuted: '#5A6A82',
   danger: '#C4362F',
   live: '#D13A2E',
-  backgroundGradient: ['#FFFFFF', '#EEF3FB'],
+  backgroundGradient: ['#FFFFFF', '#E4ECF8'],
   accentGradient: ['#3A7BE0', '#1F5DBB'],
 };
 
