@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,18 +12,19 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import EventReminderBell from '../components/EventReminderBell';
 import FighterFollowBell from '../components/FighterFollowBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 import OrganizationFollowBell from '../components/OrganizationFollowBell';
-import SettingsModal from '../components/SettingsModal';
+import Flag from '../components/Flag';
+import { TIMEZONE_OPTIONS } from '../lib/timezones';
+import { LogoPlaceholder, Screen, ScreenHeader } from '../components/ui';
 import { useAuth, type AuthResult } from '../lib/auth';
 import { authErrorMessage } from '../lib/authErrors';
 import { formatEventDate } from '../lib/dateFormat';
-import { useLocale } from '../lib/i18n';
+import { SUPPORTED_LOCALES, useLocale } from '../lib/i18n';
 import type { Translations } from '../lib/i18n';
 import { getProfile, updateNickname } from '../lib/profile';
 import { PASSWORD_REQUIREMENTS, isPasswordValid } from '../lib/passwordPolicy';
@@ -36,7 +37,7 @@ import {
   getFollowedFighters,
   getFollowedOrganizations,
 } from '../lib/queries';
-import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
+import { minTapTarget, pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens, type ThemeOverride } from '../lib/theme';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
 type LoggedOutMode =
@@ -62,64 +63,108 @@ function normalizeEmail(email: string): string {
 }
 
 export default function ProfileScreen() {
-  const { user, loading, timezoneOverride, setTimezoneOverride } = useAuth();
+  const { user, loading } = useAuth();
+  const { t } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const commonStyles = useCommonStyles();
-  const navigation = useNavigation();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-
-  useEffect(() => {
-    isBiometricLockAvailable().then(setBiometricAvailable);
-    isBiometricLockEnabled().then(setBiometricEnabled);
-  }, []);
-
-  const handleBiometricLockChange = async (enabled: boolean) => {
-    await setBiometricLockEnabled(enabled);
-    setBiometricEnabled(enabled);
-  };
-
-  // Rendered in the native header (top-right, level with the "Profil"
-  // title) via headerRight, not absolutely positioned inside the screen
-  // body — the latter put it level with the screen's own content instead
-  // (e.g. the "Anmelden" heading), not the header bar.
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <Pressable
-          style={({ pressed }) => [styles.settingsButton, pressed && pressedStyle]}
-          onPress={() => setSettingsOpen(true)}
-          hitSlop={8}
-        >
-          <Ionicons name="settings-outline" size={22} color={colors.textPrimary} />
-        </Pressable>
-      ),
-    });
-  }, [navigation, styles, colors]);
-
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator style={commonStyles.center} color={colors.accent} />
-        <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      </View>
-    );
-  }
 
   return (
-    <View style={styles.container}>
-      {user ? <LoggedInView userId={user.id} email={user.email ?? ''} /> : <LoggedOutView />}
-      <SettingsModal
-        visible={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        timezoneOverride={user ? timezoneOverride : undefined}
-        onTimezoneChange={user ? (tz) => setTimezoneOverride(tz) : undefined}
-        biometricLockEnabled={user && biometricAvailable ? biometricEnabled : undefined}
-        onBiometricLockChange={user && biometricAvailable ? handleBiometricLockChange : undefined}
+    <Screen>
+      <ScreenHeader
+        center={
+          <View style={styles.brand}>
+            <LogoPlaceholder size={22} />
+            <Text style={styles.wordmark}>{t.eventList.title.toUpperCase()}</Text>
+          </View>
+        }
       />
-    </View>
+      {loading ? (
+        <ActivityIndicator style={commonStyles.center} color={colors.accent} />
+      ) : user ? (
+        <LoggedInView userId={user.id} email={user.email ?? ''} />
+      ) : (
+        <LoggedOutView />
+      )}
+    </Screen>
+  );
+}
+
+// Theme / language / timezone / biometric settings, rendered inline on the
+// Profile screen (handoff: these live here, not in a separate modal). Timezone
+// and biometric only appear when their props are supplied (logged-in only).
+function SettingsSection({
+  timezoneOverride,
+  onTimezoneChange,
+  biometric,
+}: {
+  timezoneOverride?: string | null;
+  onTimezoneChange?: (timezone: string | null) => void;
+  biometric?: { enabled: boolean; onChange: (enabled: boolean) => void };
+}) {
+  const { locale, setLocale, t } = useLocale();
+  const { colors, themeOverride, setThemeOverride } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const localeCountry: Record<string, string> = { de: 'DE', en: 'GB' };
+  const themeOptions: { value: ThemeOverride; label: string }[] = [
+    { value: 'system', label: t.settings.themeSystem },
+    { value: 'light', label: t.settings.themeLight },
+    { value: 'dark', label: t.settings.themeDark },
+  ];
+
+  const Row = ({ active, onPress, children }: { active: boolean; onPress: () => void; children: React.ReactNode }) => (
+    <Pressable
+      style={({ pressed }) => [styles.settingRow, active && styles.settingRowActive, pressed && pressedStyle]}
+      onPress={onPress}
+    >
+      {children}
+      {active && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+    </Pressable>
+  );
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>{t.settings.themeTitle}</Text>
+      {themeOptions.map((option) => (
+        <Row key={option.value} active={option.value === themeOverride} onPress={() => setThemeOverride(option.value)}>
+          <Text style={styles.settingRowText}>{option.label}</Text>
+        </Row>
+      ))}
+
+      <Text style={styles.sectionTitle}>{t.settings.languageTitle}</Text>
+      {SUPPORTED_LOCALES.map((option) => (
+        <Row key={option.code} active={option.code === locale} onPress={() => setLocale(option.code)}>
+          <View style={styles.settingRowLabel}>
+            <Flag country={localeCountry[option.code]} height={14} />
+            <Text style={styles.settingRowText}>{option.label}</Text>
+          </View>
+        </Row>
+      ))}
+
+      {timezoneOverride !== undefined && onTimezoneChange && (
+        <>
+          <Text style={styles.sectionTitle}>{t.profile.timezoneTitle}</Text>
+          {TIMEZONE_OPTIONS.map((option) => (
+            <Row
+              key={option.value ?? 'device'}
+              active={(timezoneOverride ?? null) === option.value}
+              onPress={() => onTimezoneChange(option.value)}
+            >
+              <Text style={styles.settingRowText}>{option.label[locale]}</Text>
+            </Row>
+          ))}
+        </>
+      )}
+
+      {biometric && (
+        <>
+          <Text style={styles.sectionTitle}>{t.profile.biometricLockTitle}</Text>
+          <Row active={biometric.enabled} onPress={() => biometric.onChange(!biometric.enabled)}>
+            <Text style={styles.settingRowText}>{t.profile.biometricLockTitle}</Text>
+          </Row>
+        </>
+      )}
+    </>
   );
 }
 
@@ -707,6 +752,8 @@ function LoggedOutView() {
             </View>
           </Pressable>
         )}
+
+        <SettingsSection />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -716,7 +763,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { signOut, updateEmail, confirmEmailChange, updatePassword, timezoneOverride } = useAuth();
+  const { signOut, updateEmail, confirmEmailChange, updatePassword, timezoneOverride, setTimezoneOverride } = useAuth();
   const [nickname, setNickname] = useState('');
   const [nicknameLoading, setNicknameLoading] = useState(true);
   const [newEmail, setNewEmail] = useState(email);
@@ -733,6 +780,18 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const [favoritedFighters, setFavoritedFighters] = useState<Fighter[]>([]);
   const [favoritedEvents, setFavoritedEvents] = useState<EventListItem[]>([]);
   const [favoritesLoading, setFavoritesLoading] = useState(true);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+
+  useEffect(() => {
+    isBiometricLockAvailable().then(setBiometricAvailable);
+    isBiometricLockEnabled().then(setBiometricEnabled);
+  }, []);
+
+  const handleBiometricLockChange = async (enabled: boolean) => {
+    await setBiometricLockEnabled(enabled);
+    setBiometricEnabled(enabled);
+  };
 
   useEffect(() => {
     getProfile(userId)
@@ -1006,6 +1065,12 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         ))
       )}
 
+      <SettingsSection
+        timezoneOverride={timezoneOverride}
+        onTimezoneChange={setTimezoneOverride}
+        biometric={biometricAvailable ? { enabled: biometricEnabled, onChange: handleBiometricLockChange } : undefined}
+      />
+
       <Pressable style={({ pressed }) => [styles.logoutButton, pressed && pressedStyle]} onPress={signOut}>
         <Text style={styles.logoutButtonText}>{t.profile.logoutButton}</Text>
       </Pressable>
@@ -1015,121 +1080,69 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    form: {
-      padding: spacing.lg,
-    },
-    title: {
-      fontSize: 20,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      marginBottom: spacing.md,
-    },
-    sectionTitle: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      marginTop: spacing.xl,
-      marginBottom: spacing.sm,
-    },
-    body: {
-      fontSize: 14,
-      color: colors.textSecondary,
-      marginBottom: spacing.lg,
-    },
+    container: { flex: 1 },
+    form: { padding: spacing.lg },
+    brand: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    wordmark: { fontFamily: typography.display.fontFamily, fontSize: 20, letterSpacing: 1, color: colors.textPrimary },
+    title: { ...typography.title, color: colors.textPrimary, marginBottom: spacing.md },
+    sectionTitle: { ...typography.label, color: colors.textSecondary, marginTop: spacing.xl, marginBottom: spacing.sm },
+    body: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.lg },
     input: {
+      ...typography.body,
       backgroundColor: colors.surface,
-      borderWidth: 1,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
-      borderRadius: radius.md,
-      padding: 14,
+      borderRadius: radius.control,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
       color: colors.textPrimary,
       marginBottom: spacing.md,
+      minHeight: minTapTarget,
     },
     button: {
       backgroundColor: colors.surface,
-      borderWidth: 1,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.accent,
-      borderRadius: radius.md,
-      paddingVertical: 14,
+      borderRadius: radius.control,
+      minHeight: minTapTarget,
       alignItems: 'center',
+      justifyContent: 'center',
       marginBottom: spacing.md,
     },
-    dividerRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginVertical: spacing.md,
-      gap: spacing.sm,
-    },
-    dividerLine: {
-      flex: 1,
-      height: 1,
-      backgroundColor: colors.border,
-    },
-    dividerText: {
-      color: colors.textSecondary,
-      fontSize: 13,
-    },
-    oauthButtonContent: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-    },
-    buttonText: {
-      color: colors.textPrimary,
-      fontWeight: '700',
-      fontSize: 15,
-    },
-    link: {
-      color: colors.link,
-      textAlign: 'center',
-      marginTop: spacing.sm,
-    },
-    settingsButton: {
-      paddingHorizontal: spacing.lg,
-      paddingVertical: 4,
-    },
-    listCard: {
-      padding: 14,
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-      position: 'relative',
-    },
-    listCardTitle: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      paddingRight: 56,
-    },
-    listCardRow: {
+    buttonText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.textPrimary },
+    dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: spacing.md, gap: spacing.sm },
+    dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.divider },
+    dividerText: { ...typography.meta, color: colors.textSecondary },
+    oauthButtonContent: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    link: { ...typography.body, color: colors.link, textAlign: 'center', marginTop: spacing.sm },
+    settingRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      minHeight: minTapTarget,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      marginBottom: spacing.sm,
     },
-    listCardTitleInline: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: colors.textPrimary,
+    settingRowActive: { borderColor: colors.accent },
+    settingRowLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    settingRowText: { ...typography.body, color: colors.textPrimary },
+    listCard: {
+      padding: spacing.lg,
+      borderRadius: radius.card,
+      backgroundColor: colors.surface,
+      marginBottom: spacing.sm,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      position: 'relative',
     },
-    listCardMeta: {
-      fontSize: 13,
-      color: colors.textSecondary,
-      marginTop: 2,
-    },
-    logoutButton: {
-      marginTop: spacing.xl,
-      paddingVertical: 14,
-      alignItems: 'center',
-    },
-    logoutButtonText: {
-      color: colors.danger,
-      fontWeight: '700',
-      fontSize: 15,
-    },
+    listCardTitle: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary, paddingRight: 56 },
+    listCardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    listCardTitleInline: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary },
+    listCardMeta: { ...typography.meta, color: colors.textSecondary, marginTop: 2 },
+    logoutButton: { marginTop: spacing.xl, minHeight: minTapTarget, alignItems: 'center', justifyContent: 'center' },
+    logoutButtonText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.danger },
   });

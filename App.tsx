@@ -103,12 +103,12 @@ function RootTabs() {
       <Tab.Screen
         name="ProfileTab"
         component={ProfileScreen}
-        options={{ title: t.tabs.profile, headerShown: true, headerTitle: t.profile.title }}
+        options={{ title: t.tabs.profile, headerShown: false }}
       />
       <Tab.Screen
         name="ContactTab"
         component={ContactScreen}
-        options={{ title: t.tabs.contact, headerShown: true, headerTitle: t.contact.title }}
+        options={{ title: t.tabs.contact, headerShown: false }}
       />
     </Tab.Navigator>
   );

@@ -1,7 +1,9 @@
-import { useMemo } from 'react';
-import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Alert, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocale } from '../lib/i18n';
-import { pressedStyle, radius, spacing, useTheme, type ColorTokens } from '../lib/theme';
+import { radius, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
+import FilterChip from '../components/FilterChip';
+import { Button, Screen, ScreenHeader } from '../components/ui';
 
 const CONTACT_EMAIL = 'support@true-mma.com';
 
@@ -10,61 +12,81 @@ export default function ContactScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const handleEmailPress = async () => {
-    const url = `mailto:${CONTACT_EMAIL}`;
-    const canOpen = await Linking.canOpenURL(url);
-    if (canOpen) {
-      Linking.openURL(url);
-    } else {
+  const topics = [
+    { key: 'general', label: t.contact.topicGeneral },
+    { key: 'bug', label: t.contact.topicBug },
+    { key: 'feedback', label: t.contact.topicFeedback },
+  ];
+  const [topic, setTopic] = useState('general');
+  const [message, setMessage] = useState('');
+
+  const handleSend = async () => {
+    const topicLabel = topics.find((x) => x.key === topic)?.label ?? '';
+    const subject = `[True MMA] ${topicLabel}`;
+    const canOpen = await Linking.canOpenURL(`mailto:${CONTACT_EMAIL}`);
+    if (!canOpen) {
       Alert.alert(t.contact.noMailClientTitle, t.contact.noMailClientBody);
+      return;
     }
+    Linking.openURL(
+      `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`
+    );
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.body}>{t.contact.body}</Text>
-      <Text style={styles.email} selectable>
-        {CONTACT_EMAIL}
-      </Text>
-      <Pressable
-        style={({ pressed }) => [styles.button, pressed && pressedStyle]}
-        onPress={handleEmailPress}
-      >
-        <Text style={styles.buttonText}>{t.contact.emailButton}</Text>
-      </Pressable>
-    </View>
+    <Screen>
+      <ScreenHeader title={t.contact.title} />
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <Text style={styles.body}>{t.contact.body}</Text>
+
+        <Text style={styles.label}>{t.contact.topicTitle}</Text>
+        <View style={styles.chipRow}>
+          {topics.map((x) => (
+            <FilterChip key={x.key} label={x.label} active={topic === x.key} onPress={() => setTopic(x.key)} />
+          ))}
+        </View>
+
+        <TextInput
+          style={styles.message}
+          placeholder={t.contact.messagePlaceholder}
+          placeholderTextColor={colors.textSecondary}
+          value={message}
+          onChangeText={setMessage}
+          multiline
+          textAlignVertical="top"
+        />
+
+        <Button
+          label={t.contact.sendButton}
+          onPress={handleSend}
+          disabled={message.trim().length === 0}
+          fullWidth
+        />
+
+        <Text style={styles.emailHint} selectable>
+          {CONTACT_EMAIL}
+        </Text>
+      </ScrollView>
+    </Screen>
   );
 }
 
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-      padding: spacing.lg,
-    },
-    body: {
-      fontSize: 15,
-      color: colors.textSecondary,
+    scroll: { padding: spacing.lg },
+    body: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.lg },
+    label: { ...typography.label, color: colors.textSecondary, marginBottom: spacing.sm },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
+    message: {
+      ...typography.body,
+      minHeight: 120,
+      padding: spacing.md,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      color: colors.textPrimary,
       marginBottom: spacing.lg,
     },
-    email: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      marginBottom: spacing.md,
-    },
-    button: {
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radius.md,
-      paddingVertical: 14,
-      alignItems: 'center',
-    },
-    buttonText: {
-      color: colors.textPrimary,
-      fontWeight: '700',
-      fontSize: 15,
-    },
+    emailHint: { ...typography.meta, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.lg },
   });
