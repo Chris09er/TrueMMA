@@ -249,7 +249,7 @@ Tables (Supabase Postgres), all with RLS enabled:
 | `fighters` | Fighter roster + record + tale-of-the-tape | none (read-only) |
 | `events` | Event calendar entries + status + broadcast segment times | none (read-only) |
 | `fights` | Matchups within an event, incl. results + card segment | none (read-only) |
-| `fight_votes` | Device id ↔ picked fighter per fight ("who wins?") | **insert/select/update** (anon, no login concept at all) |
+| `fight_votes` | Device id ↔ picked fighter per fight ("who wins?") | **RPC only** (base table locked; writes via `cast_fight_vote`, reads via `get_fight_vote_tallies` — no `device_id` ever returned) |
 | `profiles` | Login-only: nickname + optional `timezone_override` per account (`id` = `auth.users.id`) | own row only |
 | `saved_fighters` / `saved_events` / `saved_organizations` | **Gruppe C (bell→heart merge).** Unified "save = list + notify". `device_id`-anchored, with `user_id`/`push_token` as attributes | **RPC only** (base tables fully locked, no policies) |
 | `notification_prefs` | **Gruppe C Phase 6+.** Per-device, per-category push preferences (5 booleans; result defaults off). No row = start/announce types on, result off | **RPC only** (base table fully locked, no policies) |
@@ -288,9 +288,20 @@ All reads and writes go through SECURITY DEFINER RPCs (`save_*` / `unsave_*` /
 `attach_push_token` / `claim_saves_for_user` / `list_saved_*` /
 `get_notification_prefs` / `set_notification_prefs`),
 so a client can never SELECT another device's `push_token`. `device_id` and
-`push_token` are client-self-reported (the accepted anon trust model from
-`fight_votes` / `push_subscriptions`), but `user_id` is derived server-side from
+`push_token` are client-self-reported (the accepted anon trust model inherited
+from `fight_votes`), but `user_id` is derived server-side from
 `auth.uid()` and cannot be spoofed into another account.
+
+> **Note on migration numbers.** The Gruppe C migrations were later renamed from
+> plain `013`–`017` to their stage-apply timestamps, so the numbers below are
+> *phase labels*, not filenames. The mapping is: `013` →
+> `20260723154924_saved_objects_schema`, `014` → `20260723155705_saved_push_triggers`,
+> `015` → `20260723165949_notification_prefs`, `016` →
+> `20260723171407_drop_legacy_saves_tables`, `017` →
+> `20260723172543_fight_result_push` (with `20260723153252_fight_votes_rpc`
+> landing just before them). Three later review follow-ups —
+> `20260723191444_fight_vote_tally_rpc`, `20260723191455_dedupe_new_fight_push`,
+> `20260723191506_fight_result_recency_gate` — build on top.
 
 **Rollout order (non-breaking).** Migration `013` (Phase 1) created the tables +
 RPCs. Migration `014` (Phase 2, applied to stage) rewired the push path:
@@ -345,8 +356,8 @@ Migration `015` moved notification preferences from **per object** to **per
 category**. Phase 1 had put a `notify_*` flag on every `saved_*` row, which put
 a switch on every saved entry; in use that was the wrong altitude — the list
 became a wall of toggles and nobody wants to answer "notify me about a new
-fight?" once per fighter. There are now **four** switches in total, under
-Einstellungen:
+fight?" once per fighter. There are now **five** switches in total (the
+default-off `notify_fight_result` was added later), under Einstellungen:
 
 | Category | Switches | Gates |
 | --- | --- | --- |
@@ -763,7 +774,10 @@ The four push types below differ only in their trigger mechanics:
      `pg_net` extension) that fires `AFTER INSERT ON fights` and POSTs
      directly to Expo's push API (`https://exp.host/--/api/v2/push/send`)
      for every matching saved row — **no Supabase Edge Function**, kept
-     entirely in SQL to avoid needing the Supabase CLI.
+     entirely in SQL to avoid needing the Supabase CLI. The audience is
+     **deduped on `push_token`** (migration `20260723191455`, review follow-up),
+     so a device that saved *both* fighters of the new bout gets one push, not
+     two — matching the fight-result push's dedup.
    - **Expo Go cannot receive real push notifications since SDK 54** — a
      development build (EAS) is required to test this path.
    - **Also fires on fight start** (`notify_fight_start`), piggybacked onto
@@ -840,6 +854,11 @@ The four push types below differ only in their trigger mechanics:
    fighters of either fighter, deduped on `push_token`, tagged `fight_result`.
    Results arrive via the balldontlie upsert (`sync-balldontlie` /
    `sync-live-event`), which is what performs the UPDATE.
+   **Recency gate (migration `20260723191506`, review follow-up):** the null→
+   non-null transition alone still fired for a fight *first* inserted with a null
+   `result_method` and only later backfilled — a spoiler push for a months-old
+   bout. The function now additionally requires the event to have happened within
+   the **last 2 days**, so only genuinely just-decided results push.
 
 **Chunking and delivery receipts, added 2026-07-19
 (`supabase/migrations/008_push_chunking_and_receipts.sql`).** Both push paths
@@ -1273,15 +1292,24 @@ overridden here). `src/lib/voting.ts` was restored unchanged from history.
 - **Identity:** a locally-generated `device_id` (`true-mma:device-id` in
   AsyncStorage), deliberately **independent of the push token** so voting never
   triggers the OS notification-permission prompt.
-- **Trust model — unchanged and still permissive:** the `fight_votes` table
-  (`fight_id`, `device_id`, `picked_fighter_id`, unique on
-  `(fight_id, device_id)`) has anonymous insert/select/update with
-  `update using (true)` and no `device_id` scoping, so counts are
-  attacker-mutable and only ever indicative. **Open item:** the earlier
-  removal note recommended moving casting behind a `security definer` RPC /
-  service-role path before any real reliance on the numbers — that hardening
-  was **not** done on re-add (restored as-was); revisit before the counts are
-  ever presented as trustworthy.
+- **Trust model — RPC-mediated, still indicative not trustworthy:** the
+  `fight_votes` table (`fight_id`, `device_id`, `picked_fighter_id`, unique on
+  `(fight_id, device_id)`) is **RLS-locked** — no policies, no anon/authenticated
+  grants — and reached only through two SECURITY DEFINER RPCs:
+  - **write** `cast_fight_vote(fight_id, device_id, fighter_id)` (migration
+    `20260723153252`) validates the picked fighter actually belongs to the fight
+    and upserts on `(fight_id, device_id)`; direct insert/update policies were
+    dropped.
+  - **read** `get_fight_vote_tallies(fight_ids[], device_id)` (migration
+    `20260723191444`, a review follow-up) returns only per-fighter counts plus a
+    `mine` flag for the calling device. It **replaced** the old public `select`
+    that had shipped every voter's `device_id` to any client (an enumeration /
+    push-hijack vector via `attach_push_token`).
+
+  `device_id` is still client-self-reported, so a determined client can forge
+  ids and pad the tallies — the counts remain **indicative, not trustworthy**.
+  Closing that fully needs a server-verifiable identity (real auth), out of
+  scope for a community poll.
 
 ## balldontlie sync
 
@@ -1761,8 +1789,9 @@ brand assets.
   unverified against a real event and a real device** — the Expo POST
   itself was simulated by injecting `net._http_response` rows, so no push
   has actually been delivered end-to-end through this path. Stage
-  currently has zero `organization_follows` rows, so following a league
-  on a stage build is a precondition for ever exercising it for real.
+  currently has zero `saved_organizations` rows with a `notify_league_start`
+  audience, so saving a league on a stage build is a precondition for ever
+  exercising it for real.
 - **Revoking a function from `anon` takes TWO revokes on Supabase — the
   single most repeated footgun in this project.** Introduced in `006` and
   fixed in `007`: `send_league_start_pushes()` was revoked from `anon,

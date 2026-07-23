@@ -566,9 +566,9 @@ function FavoritesList({ data }: { data: MerklisteData }) {
   );
 }
 
-// The four per-category notification switches, shown under Einstellungen. This
+// The five per-category notification switches, shown under Einstellungen. This
 // is the ONLY place notifications are configured — grouped by category, not by
-// saved entry (see 015_notification_prefs.sql for why).
+// saved entry (see 20260723165949_notification_prefs.sql for why).
 //
 // Prefs are device-anchored, so this renders logged in or out. When the OS
 // permission was never granted the switches would be meaningless, so the whole

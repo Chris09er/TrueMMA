@@ -8,13 +8,13 @@ import { getDeviceId } from './deviceId';
 // notify) concept, consolidating the five legacy libs (favorites,
 // pushSubscriptions, organizationFollows, eventFollows, notifications).
 //
-// Identity model (mirrors the saved_* tables, see 013_saved_objects_schema.sql):
+// Identity model (mirrors the saved_* tables, see 20260723154924_saved_objects_schema.sql):
 //   * device_id  — always present (shared with fight_votes via ./deviceId), the
 //                  row anchor; saving never requires a permission prompt.
 //   * push_token — stamped onto ALL of this device's rows once the OS
 //                  notification permission is granted (attach_push_token). Only
 //                  rows with a token get push, gated by the device's
-//                  per-category prefs (015_notification_prefs.sql).
+//                  per-category prefs (20260723165949_notification_prefs.sql).
 //   * user_id    — attached on login (claim_saves_for_user), derived
 //                  server-side from auth.uid(); never passed from the client.
 // All access goes through the SECURITY DEFINER RPCs; the base tables are
@@ -218,8 +218,9 @@ export async function getSavedOrganizations(): Promise<SavedOrganization[]> {
 
 // ---------------------------------------------------------------------------
 // Notification preferences — PER CATEGORY, not per saved object (see
-// 015_notification_prefs.sql). Four switches govern every save: two for
-// fighters, one for events, one for leagues. Anchored on device_id like the
+// 20260723165949_notification_prefs.sql). Five switches govern every save: three
+// for fighters (incl. the default-off result), one for events, one for leagues.
+// Anchored on device_id like the
 // saves themselves, since push is delivered to a device.
 //
 // A device that has never touched these has no prefs row at all; the RPC
@@ -235,7 +236,7 @@ export type NotificationPrefs = {
   notifyFightResult: boolean;
 };
 
-// Defaults mirror the server (015 + 017): the four start/announce types default
+// Defaults mirror the server (notification_prefs + fight_result_push): the four start/announce types default
 // ON, the result push defaults OFF (it's a spoiler by nature).
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   notifyNewFight: true,
