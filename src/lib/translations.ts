@@ -181,6 +181,12 @@ export const translations = {
     },
     profile: {
       title: 'Profil',
+      sectionAccount: 'Konto',
+      sectionFavorites: 'Favoriten',
+      sectionSettings: 'Einstellungen',
+      notificationsTitle: 'Benachrichtigungen',
+      notificationsBody:
+        'Du erhältst Erinnerungen für Veranstaltungen und Ligen, denen du folgst, sowie für Kämpfe deiner gefolgten Kämpfer. Feinere Einstellungen folgen.',
       guestMode: 'Gastmodus',
       guestTitle: 'Gast',
       guestSubtitle: 'Erlebe True MMA im Gastmodus',
@@ -388,6 +394,12 @@ export const translations = {
     },
     profile: {
       title: 'Profile',
+      sectionAccount: 'Account',
+      sectionFavorites: 'Favorites',
+      sectionSettings: 'Settings',
+      notificationsTitle: 'Notifications',
+      notificationsBody:
+        'You get reminders for events and leagues you follow, and for fights of fighters you follow. Finer controls are coming.',
       guestMode: 'Guest mode',
       guestTitle: 'Guest',
       guestSubtitle: 'Experience True MMA in guest mode',

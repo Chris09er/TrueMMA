@@ -12,7 +12,9 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, type NavigationProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import type { RootTabParamList } from '../navigation';
 import EventReminderBell from '../components/EventReminderBell';
 import FighterFollowBell from '../components/FighterFollowBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
@@ -41,6 +43,8 @@ import {
 } from '../lib/queries';
 import { minTapTarget, pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens, type ThemeOverride } from '../lib/theme';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
+
+type ProfileSection = 'account' | 'favorites' | 'settings';
 
 type LoggedOutMode =
   | 'login'
@@ -124,7 +128,9 @@ function SettingsSection({
   const { colors, themeOverride, setThemeOverride } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [picker, setPicker] = useState<null | 'language' | 'timezone'>(null);
-  const localeCountry: Record<string, string> = { de: 'DE', en: 'GB' };
+  // Country *names* (not ISO codes) so flagSvgForCountry resolves them — see
+  // src/lib/countryFlags.ts, whose map is keyed by name.
+  const localeCountry: Record<string, string> = { de: 'Germany', en: 'United Kingdom' };
   const themeOptions: { value: ThemeOverride; label: string; preview: string }[] = [
     { value: 'system', label: t.settings.themeSystem, preview: colors.surfaceAlt },
     { value: 'light', label: t.settings.themeLight, preview: '#F4F7FC' },
@@ -844,6 +850,8 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const navigation = useNavigation<NavigationProp<RootTabParamList>>();
+  const [section, setSection] = useState<ProfileSection>('account');
   const { signOut, updateEmail, confirmEmailChange, updatePassword, timezoneOverride, setTimezoneOverride } = useAuth();
   const [nickname, setNickname] = useState('');
   const [nicknameLoading, setNicknameLoading] = useState(true);
@@ -970,8 +978,25 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
     }
   };
 
-  return (
-    <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+  const openFighter = (fighter: Fighter) =>
+    navigation.navigate('FightersTab', {
+      screen: 'FighterDetail',
+      params: { fighterId: fighter.id, fighterName: fighter.name },
+    });
+  const openEvent = (event: EventListItem) =>
+    navigation.navigate('EventsTab', {
+      screen: 'EventDetail',
+      params: { eventId: event.id, eventName: event.name },
+    });
+
+  const sections: { key: ProfileSection; label: string }[] = [
+    { key: 'account', label: t.profile.sectionAccount },
+    { key: 'favorites', label: t.profile.sectionFavorites },
+    { key: 'settings', label: t.profile.sectionSettings },
+  ];
+
+  const accountContent = (
+    <>
       <Text style={styles.sectionTitle}>{t.profile.nicknameLabel}</Text>
       {nicknameLoading ? (
         <ActivityIndicator color={colors.accent} />
@@ -1074,35 +1099,14 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         spinnerColor={colors.accent}
       />
 
-      <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
-      {followsLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : followedFighters.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedFighters}</Text>
-      ) : (
-        followedFighters.map((fighter) => (
-          <View key={fighter.id} style={styles.listCard}>
-            <FighterFollowBell fighterId={fighter.id} />
-            <Text style={styles.listCardTitle}>{fighter.name}</Text>
-          </View>
-        ))
-      )}
+      <Pressable style={({ pressed }) => [styles.logoutButton, pressed && pressedStyle]} onPress={signOut}>
+        <Text style={styles.logoutButtonText}>{t.profile.logoutButton}</Text>
+      </Pressable>
+    </>
+  );
 
-      <Text style={styles.sectionTitle}>{t.profile.followedEventsTitle}</Text>
-      {followsLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : followedEvents.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedEvents}</Text>
-      ) : (
-        followedEvents.map((event) => (
-          <View key={event.id} style={styles.listCard}>
-            <EventReminderBell eventId={event.id} eventName={event.name} eventDateIso={event.event_date} />
-            <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>{formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}</Text>
-          </View>
-        ))
-      )}
-
+  const favoritesContent = (
+    <>
       <Text style={styles.sectionTitle}>{t.profile.followedOrganizationsTitle}</Text>
       {followsLoading ? (
         <ActivityIndicator color={colors.accent} />
@@ -1117,6 +1121,45 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         ))
       )}
 
+      <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
+      {followsLoading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : followedFighters.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFollowedFighters}</Text>
+      ) : (
+        followedFighters.map((fighter) => (
+          <Pressable
+            key={fighter.id}
+            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
+            onPress={() => openFighter(fighter)}
+          >
+            <FighterFollowBell fighterId={fighter.id} />
+            <Text style={styles.listCardTitle}>{fighter.name}</Text>
+          </Pressable>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>{t.profile.followedEventsTitle}</Text>
+      {followsLoading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : followedEvents.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFollowedEvents}</Text>
+      ) : (
+        followedEvents.map((event) => (
+          <Pressable
+            key={event.id}
+            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
+            onPress={() => openEvent(event)}
+          >
+            <EventReminderBell eventId={event.id} eventName={event.name} eventDateIso={event.event_date} />
+            <Text style={styles.listCardTitle}>{event.name}</Text>
+            <Text style={styles.listCardMeta}>
+              {formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}
+            </Text>
+          </Pressable>
+        ))
+      )}
+
       <Text style={styles.sectionTitle}>{t.profile.favoritedFightersTitle}</Text>
       {favoritesLoading ? (
         <ActivityIndicator color={colors.accent} />
@@ -1124,10 +1167,14 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         <Text style={styles.body}>{t.profile.noFavoritedFighters}</Text>
       ) : (
         favoritedFighters.map((fighter) => (
-          <View key={fighter.id} style={styles.listCard}>
+          <Pressable
+            key={fighter.id}
+            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
+            onPress={() => openFighter(fighter)}
+          >
             <FighterFavoriteHeart fighterId={fighter.id} />
             <Text style={styles.listCardTitle}>{fighter.name}</Text>
-          </View>
+          </Pressable>
         ))
       )}
 
@@ -1138,14 +1185,24 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         <Text style={styles.body}>{t.profile.noFavoritedEvents}</Text>
       ) : (
         favoritedEvents.map((event) => (
-          <View key={event.id} style={styles.listCard}>
+          <Pressable
+            key={event.id}
+            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
+            onPress={() => openEvent(event)}
+          >
             <EventFavoriteHeart eventId={event.id} />
             <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>{formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}</Text>
-          </View>
+            <Text style={styles.listCardMeta}>
+              {formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}
+            </Text>
+          </Pressable>
         ))
       )}
+    </>
+  );
 
+  const settingsContent = (
+    <>
       <SettingsSection
         timezoneOverride={timezoneOverride}
         onTimezoneChange={setTimezoneOverride}
@@ -1156,17 +1213,68 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         }
       />
 
-      <Pressable style={({ pressed }) => [styles.logoutButton, pressed && pressedStyle]} onPress={signOut}>
-        <Text style={styles.logoutButtonText}>{t.profile.logoutButton}</Text>
-      </Pressable>
-    </ScrollView>
+      <Text style={styles.sectionTitle}>{t.profile.notificationsTitle}</Text>
+      <View style={styles.infoCard}>
+        <Text style={[styles.body, styles.infoCardText]}>{t.profile.notificationsBody}</Text>
+      </View>
+    </>
+  );
+
+  return (
+    <View style={styles.loggedIn}>
+      <View style={styles.switcher}>
+        {sections.map((seg) => {
+          const active = section === seg.key;
+          return (
+            <Pressable
+              key={seg.key}
+              onPress={() => setSection(seg.key)}
+              style={({ pressed }) => [styles.switcherItem, active && styles.switcherItemActive, pressed && pressedStyle]}
+            >
+              <Text style={[styles.switcherText, active && styles.switcherTextActive]} numberOfLines={1}>
+                {seg.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+        {section === 'account' && accountContent}
+        {section === 'favorites' && favoritesContent}
+        {section === 'settings' && settingsContent}
+      </ScrollView>
+    </View>
   );
 }
 
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
     container: { flex: 1 },
+    loggedIn: { flex: 1 },
     form: { padding: spacing.lg },
+    switcher: {
+      flexDirection: 'row',
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      backgroundColor: colors.surface,
+      borderRadius: radius.control,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      padding: 3,
+      gap: 3,
+    },
+    switcherItem: { flex: 1, minHeight: 38, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    switcherItemActive: { backgroundColor: colors.accent },
+    switcherText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.textSecondary },
+    switcherTextActive: { color: '#FFFFFF' },
+    infoCard: {
+      padding: spacing.lg,
+      borderRadius: radius.card,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    infoCardText: { marginBottom: 0 },
     title: { ...typography.title, color: colors.textPrimary, marginBottom: spacing.md },
     sectionTitle: { ...typography.label, color: colors.textSecondary, marginTop: spacing.xl, marginBottom: spacing.sm },
     body: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.lg },
