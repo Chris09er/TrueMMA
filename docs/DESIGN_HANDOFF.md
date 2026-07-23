@@ -68,11 +68,11 @@ German is the core market; English launches at the same quality. Layouts must to
 
 ### Event detail
 
-- Header: back left, centered final symbol, 44pt bell and heart actions right; all three zones balanced.
+- Header: back left, centered final symbol, a single 44pt save-heart action right; all three zones balanced. (As shipped: the former follow-bell was merged into the one heart — save + notify — in the Gruppe C overhaul, 2026-07-23.)
 - Show league, full event name, exact weekday/date/time, then Flag + arena/city/country.
 - Main Event is a regular fight-card with a small Main Event banner, not a separate oversized visual language.
 - Keep Main Card / Prelims grouping.
-- No win-pick/voting controls.
+- Per-fight community win-pick ("who wins?") split bar. (This reverses the original handoff, which specified no voting controls; the anonymous per-device poll was re-added and hardened, 2026-07-23.)
 - Every fight: flags next to names; records below names; weight class and rounds as secondary Inter metadata.
 
 ### Fighter list
