@@ -232,13 +232,17 @@ export type NotificationPrefs = {
   notifyFightStart: boolean;
   notifyEventStart: boolean;
   notifyLeagueStart: boolean;
+  notifyFightResult: boolean;
 };
 
+// Defaults mirror the server (015 + 017): the four start/announce types default
+// ON, the result push defaults OFF (it's a spoiler by nature).
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   notifyNewFight: true,
   notifyFightStart: true,
   notifyEventStart: true,
   notifyLeagueStart: true,
+  notifyFightResult: false,
 };
 
 export async function getNotificationPrefs(): Promise<NotificationPrefs> {
@@ -251,6 +255,7 @@ export async function getNotificationPrefs(): Promise<NotificationPrefs> {
     notifyFightStart: row.notify_fight_start as boolean,
     notifyEventStart: row.notify_event_start as boolean,
     notifyLeagueStart: row.notify_league_start as boolean,
+    notifyFightResult: row.notify_fight_result as boolean,
   };
 }
 
@@ -262,6 +267,7 @@ export async function setNotificationPrefs(prefs: NotificationPrefs): Promise<vo
     p_notify_fight_start: prefs.notifyFightStart,
     p_notify_event_start: prefs.notifyEventStart,
     p_notify_league_start: prefs.notifyLeagueStart,
+    p_notify_fight_result: prefs.notifyFightResult,
   });
 }
 

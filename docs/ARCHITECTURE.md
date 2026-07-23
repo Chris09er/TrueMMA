@@ -249,14 +249,16 @@ Tables (Supabase Postgres), all with RLS enabled:
 | `fighters` | Fighter roster + record + tale-of-the-tape | none (read-only) |
 | `events` | Event calendar entries + status + broadcast segment times | none (read-only) |
 | `fights` | Matchups within an event, incl. results + card segment | none (read-only) |
-| `push_subscriptions` | **Legacy (superseded by `saved_fighters`, not yet dropped).** Device push token ↔ followed fighter | — no longer read/written by the client |
-| `organization_follows` | **Legacy (superseded by `saved_organizations`, not yet dropped).** Device push token ↔ followed league/org | — no longer read/written by the client |
 | `fight_votes` | Device id ↔ picked fighter per fight ("who wins?") | **insert/select/update** (anon, no login concept at all) |
 | `profiles` | Login-only: nickname + optional `timezone_override` per account (`id` = `auth.users.id`) | own row only |
-| `event_follows` | **Legacy (superseded by `saved_events`, not yet dropped).** Login-only: user ↔ followed event | — no longer read/written by the client |
-| `fighter_favorites` / `event_favorites` | **Legacy (superseded by `saved_fighters`/`saved_events`, not yet dropped).** Login-only: user ↔ favorited fighter/event | — no longer read/written by the client |
 | `saved_fighters` / `saved_events` / `saved_organizations` | **Gruppe C (bell→heart merge).** Unified "save = list + notify". `device_id`-anchored, with `user_id`/`push_token` as attributes | **RPC only** (base tables fully locked, no policies) |
-| `notification_prefs` | **Gruppe C Phase 6.** Per-device, per-category push preferences (4 booleans). No row = all categories on | **RPC only** (base table fully locked, no policies) |
+| `notification_prefs` | **Gruppe C Phase 6+.** Per-device, per-category push preferences (5 booleans; result defaults off). No row = start/announce types on, result off | **RPC only** (base table fully locked, no policies) |
+
+The five legacy favorite/follow tables (`push_subscriptions`,
+`organization_follows`, `event_follows`, `fighter_favorites`, `event_favorites`)
+were **dropped in `016`** after the Gruppe C cutover was verified on a real
+build — superseded by the `saved_*` tables above. **On stage; prod still has
+them until `015`–`017` are promoted.**
 
 ### Gruppe C — the `saved_*` model (bell→heart merge)
 
@@ -307,12 +309,12 @@ list survives an uninstall — a deliberate change from the old "the follow row
 was the subscription, delete it" behaviour, since a `saved_*` row is now also a
 list entry.
 
-After `014`, **nothing reads the five legacy tables** (`push_subscriptions`,
-`organization_follows`, `event_follows`, `fighter_favorites`, `event_favorites`).
-They are intentionally **not yet dropped** — that is a separate follow-up once
-verified on a real build, so a rollback doesn't strand data. Data is **not**
-migrated — a clean cutover was chosen because both envs held only a handful of
-test rows (prod: 4 rows, one test user; stage: 3).
+After `014`, **nothing read the five legacy tables** (`push_subscriptions`,
+`organization_follows`, `event_follows`, `fighter_favorites`, `event_favorites`),
+and once the cutover was verified on a real build they were **dropped in `016`**
+(on stage; prod pending promotion). Data was **not** migrated — a clean cutover
+was chosen because both envs held only a handful of test rows (prod: 4 rows, one
+test user; stage: 3).
 
 **Client (Phase 3+4+5) — done.** The five legacy client libs collapsed into one
 [`src/lib/saves.ts`](../src/lib/saves.ts): `device_id` (shared with `voting.ts`
@@ -348,9 +350,18 @@ Einstellungen:
 
 | Category | Switches | Gates |
 | --- | --- | --- |
-| Kämpfer | `notify_new_fight`, `notify_fight_start` | `fighter_follow` (both paths) |
+| Kämpfer | `notify_new_fight`, `notify_fight_start`, `notify_fight_result` | `fighter_follow`, `fight_result` |
 | Veranstaltungen | `notify_event_start` | `event_start` |
 | Ligen | `notify_league_start` | `league_start` |
+
+`notify_fight_result` (added in `017`) is the one switch that **defaults OFF** —
+a result is a spoiler, so a device with no prefs row must not receive it. Its
+gate coalesces to `false` and `get_notification_prefs()` returns `false` for the
+unset case, the mirror image of the `coalesce(..., true)` the other four use. It
+fires from a dedicated `on_fight_result` trigger (`AFTER UPDATE ON fights WHEN
+old.result_method IS NULL AND new.result_method IS NOT NULL`, so exactly once
+when a result first lands, covering win/draw/NC), tagged `fight_result`, audience
+= saved fighters of either fighter (deduped on `push_token`).
 
 Stored in **`notification_prefs`**, one row per device, `device_id`-anchored
 exactly like `saved_*` (push is delivered to a device, so the device owns the
@@ -373,7 +384,9 @@ backfill — already-saved devices kept receiving push across the migration.
 Consequently the per-row `notify_*` columns, the three `set_*_notify` RPCs and
 the notify columns in the `list_saved_*` return types were all dropped in `015`.
 
-Remaining for Gruppe C: drop the five legacy tables.
+Gruppe C is complete on dev/stage (schema, client, per-category prefs incl. the
+default-off result push, legacy tables dropped). Remaining: promote `015`–`017`
+to prod, and refresh `docs/ecosystem-overview.html` once the flow reaches prod.
 
 The `saved_*` tables (via their RPCs) are the exception to "app is read-only"
 for anonymous users — a `SaveHeart` tap writes a device-anchored row without
@@ -732,7 +745,7 @@ single lib, `src/lib/saves.ts` (device token resolved via
 `Notifications.getExpoPushTokenAsync`, stamped onto the device's rows with
 `attach_push_token` when permission is granted); the audience/table/trigger
 details live in the [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge).
-The three push types below differ only in their trigger mechanics:
+The four push types below differ only in their trigger mechanics:
 
 1. **Event-start push** (`saved_events`, gated by the device's
    `notify_event_start` pref) — **replaced the
@@ -815,6 +828,18 @@ The three push types below differ only in their trigger mechanics:
    unreachable longer than that window the push is correctly *dropped*
    rather than sent late. That divergence is intentional — don't "fix" it by
    unifying the two buffers.
+4. **Fight-result push** (`saved_fighters`, gated by `notify_fight_result` —
+   the one push that **defaults OFF**, since the body is a spoiler) — added in
+   `017`. Unlike the fighter-follow push (item 2, `AFTER INSERT`), this fires
+   from an `AFTER UPDATE ON fights` trigger (`on_fight_result`) gated on the
+   `result_method` null→non-null transition, so it fires exactly once when a
+   result first lands — covering win (`result_winner_id` set), draw and
+   no-contest (winner null, `result_method` carries it). Historical fights
+   inserted with a result already present don't fire (INSERT, not UPDATE), and a
+   later correction to an already-scored fight doesn't re-fire. Audience = saved
+   fighters of either fighter, deduped on `push_token`, tagged `fight_result`.
+   Results arrive via the balldontlie upsert (`sync-balldontlie` /
+   `sync-live-event`), which is what performs the UPDATE.
 
 **Chunking and delivery receipts, added 2026-07-19
 (`supabase/migrations/008_push_chunking_and_receipts.sql`).** Both push paths
@@ -842,10 +867,12 @@ separately:
 - **`request_push_receipts()` / `reconcile_push_receipts()`** — ≥20 minutes
   after a ticket was created (Expo recommends waiting ≥15 min), batches
   ticket ids (≤1000 per Expo's `/getReceipts` limit) and polls it, updating
-  `push_tickets.receipt_status`. A `DeviceNotRegistered` receipt deletes
-  every `push_subscriptions`/`organization_follows` row with that
-  `push_token` — checked on both tables regardless of which path the ticket
-  came from, since a stale token is stale everywhere.
+  `push_tickets.receipt_status`. A `DeviceNotRegistered` receipt calls
+  `retire_dead_push_token()` (Gruppe C, `014`), which **deletes** anonymous
+  `saved_*` rows with that `push_token` but only **NULLs the token** on
+  logged-in rows so a user's cross-device saved list survives an uninstall —
+  applied across all three `saved_*` tables, since a stale token is stale
+  everywhere.
 - **`push_maintenance()`** runs the three reconcile/request functions above
   in order, guarded by its own `pg_try_advisory_lock` (independent of
   `send_league_start_pushes`'s lock — different concern). Registered as a
@@ -1938,12 +1965,14 @@ brand assets.
   preference server-side. Open design questions, deliberately left for a
   future session rather than guessed at now: scope (per-fight mute, a
   followed-fighter-only mute, or a global "hide all results" toggle?),
-  whether it should also suppress spoilers in push-notification text
-  (fighter-follow push currently sends the opponent's name the moment a
-  fight is announced, not a result — but a future "fight ended" push would
-  need this considered), and how it interacts with `FighterDetailScreen`'s
-  fight history (which shows W/L for every past fight) versus
-  `EventDetailScreen`'s per-fight result line.
+  whether it should also suppress spoilers in push-notification text — this
+  is now live, not hypothetical: the **fight-result push** (`017`, see
+  [Notification preferences](#notification-preferences--per-category)) puts the
+  outcome directly in the notification body. It ships **default OFF** precisely
+  because there is no spoiler toggle yet, so a result push is strictly opt-in;
+  if/when spoiler protection lands it should gate that push's text too. Also
+  open: how it interacts with `FighterDetailScreen`'s fight history (which shows
+  W/L for every past fight) versus `EventDetailScreen`'s per-fight result line.
 - **Full visual/UX redesign — in progress, started 2026-07-20.** Agreed
   process: critical analysis → mood/color → typography → component system →
   screen-by-screen, nothing final without discussion (see [App

@@ -617,6 +617,11 @@ function NotificationPrefsSection() {
               value={prefs.notifyFightStart}
               onChange={(v) => change({ notifyFightStart: v })}
             />
+            <NotifyToggle
+              label={t.profile.notifyResult}
+              value={prefs.notifyFightResult}
+              onChange={(v) => change({ notifyFightResult: v })}
+            />
           </View>
 
           <Text style={styles.sectionTitle}>{t.profile.notifyCategoryEvents}</Text>
