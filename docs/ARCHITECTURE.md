@@ -535,6 +535,52 @@ else (UFC + 9 other leagues) is populated by
     items](#known-open-items)), don't reword the alert to promise it before
     the trigger exists.
 
+## Design system (Blue Alloy)
+
+The full visual redesign (branch `dev`, 2026-07) replaced the ad-hoc styling
+with one token-driven system. Binding spec: `docs/DESIGN_HANDOFF.md` with the
+approved reference images in `docs/design-references/`. Direction is **Blue
+Alloy**, shipped in a Dark and a fully equivalent Light theme — nothing else
+("Steel"/"Onyx" in the old Profile mock are superseded, ignore them).
+
+- **Tokens (`src/lib/theme.tsx`).** `ThemeProvider` picks `dark`/`light` from
+  the OS by default, overridable and persisted (`true-mma:themeOverride`).
+  Screens read tokens via `useTheme()`; the exported `colors` is dark-only and
+  used **only** in the brief pre-mount window before the provider exists.
+  `ColorTokens` carries surfaces, text, cobalt `accent`, `focus`/`link`, the
+  reserved metallic `alloy`/`alloyMuted` (logo & rare premium accents only —
+  not general text), a `live` red for the on-air badge, and two static
+  gradients (`backgroundGradient`, `accentGradient`). Also here: `spacing`
+  (8-pt grid + `xs:4`), `radius` (control 10 / card 14 / hero 20),
+  `minTapTarget` 44, `pressedStyle`, the Barlow/Inter `fontFamily` +
+  `typography` scale, and `tabularNums` (spread onto times/dates/records).
+- **Primitives (`src/components/ui/`, barrel `index.ts`).** `Screen`,
+  `ScreenHeader`, `Card`, `Button`, `SearchInput`, `FilterIconButton`,
+  `SectionHeader`, `EmptyState`, `ErrorState`, `Skeleton*`, `StatTable`, and
+  `LogoMark`. Import from the barrel so screens share one surface. Bespoke
+  filter UIs still use `src/components/FilterModal.tsx` (a bottom-sheet shell:
+  scrolls, and closes on backdrop tap — the sheet is a `Pressable` that
+  swallows inner taps) with `FilterChip`.
+- **Header pattern (unified 2026-07-23).** Tab screens: `LogoMark` left,
+  centered uppercase page title, optional action right. Detail screens: back
+  button left, centered title, actions right (no logo — the back button owns
+  the left slot; EventDetail's old centered logo became a "Veranstaltung/
+  Event" title). `ScreenHeader` gives left/right equal flex so the centre
+  stays centred regardless of action count.
+- **LogoMark (`src/components/ui/LogoMark.tsx`).** The final brand mark as a
+  pure vector on a 100×100 viewBox (crisp at the 22–30px it ships at): a
+  silver flat-top octagon, a centred silver slab "T", and an inner contour
+  split cobalt-left / red-right to echo the blue and red corners of an MMA
+  bout. No raster logo asset ships. The app-icon PNGs (`assets/…`) are a
+  separate, manually-produced set that mirrors this mark on `#050C1C`.
+- **Data-carrying dates.** `formatEventDateTime` (`src/lib/dateFormat.ts`)
+  renders weekday + date + time, timezone-aware via the user's override; used
+  on the event list, the detail header, and the card "starts" times so all
+  three agree once an override is set.
+- **Long German + large system fonts.** Copy is DE-first; layouts must wrap,
+  not clip. The primary test device runs a large accessibility font — verify
+  wrapping and contrast in both themes on a real build, not just the emulator.
+
 ## Notifications
 
 Two independent mechanisms, because they have fundamentally different
@@ -1059,41 +1105,25 @@ notifications.
   `onToggle` callback, refreshed from `getFighterFavoriteIds()`/
   `getEventFavoriteIds()` on load and pull-to-refresh.
 
-## Voting
+## Voting (removed)
 
-Added 2026-07-19: anonymous community voting on upcoming fights ("who
-wins?"), one vote per device — no login required, and deliberately
-independent of the push-token identity used for follows (voting must never
-trigger the OS notification-permission prompt).
+Added 2026-07-19, then **removed**: an anonymous "who wins?" community vote on
+upcoming fights. The UI was dropped during the Blue Alloy redesign (the
+design handoff mandates "No win-pick/voting controls"), and the now-orphaned
+client `src/lib/voting.ts` was deleted 2026-07-23. No app code references
+voting anymore.
 
-- **Identity:** `getDeviceId()` (`src/lib/voting.ts`) generates a random
-  id once, cached in AsyncStorage (`true-mma:device-id`) — not
-  `expo-crypto`'s `randomUUID`, deliberately, to avoid pulling in a native
-  module just for this.
-- **Schema:** `fight_votes` (`fight_id`, `device_id`, `picked_fighter_id`,
-  unique on `(fight_id, device_id)`) — see [Data model](#data-model). RLS
-  allows anonymous insert/select/update outright (same trust model already
-  accepted for `push_subscriptions`'s anonymous rows: client self-reports
-  its own identifier, low-sensitivity data, no server-verifiable anti-abuse
-  beyond the per-device uniqueness constraint). Concretely, the `update`
-  policy is `using (true)` with no `device_id` scoping, so vote counts are
-  fully attacker-mutable: anyone with the anon key can not only stuff the
-  tally with forged `device_id`s (the uniqueness constraint only stops
-  duplicates, not distinct fakes) but also **overwrite existing rows created
-  by other devices** in a single `PATCH`. Accepted for MVP — these are
-  anonymous, non-PII "who wins?" tallies with no server-verifiable device
-  identity to scope against — but treat the counts as indicative, not
-  trustworthy. If they ever need to be trustworthy, casting has to move
-  behind a `security definer` RPC / service-role path.
-- **Fetching:** `getEventVotes()` batches one query per event load (all
-  fight ids via `.in()`) rather than one query per fight card, then counts
-  votes per fighter client-side — small enough per event that a dedicated
-  aggregation view wasn't worth adding.
-- **UI (`EventDetailScreen`):** only shown for fights with no result yet
-  (`result_winner_id == null`) and not cancelled. Before voting: two
-  pressable picks. After voting: a two-segment percentage bar, the picked
-  side highlighted. `castVote()` upserts on `(fight_id, device_id)`, so
-  changing a pick just overwrites the previous vote.
+The `fight_votes` table (`fight_id`, `device_id`, `picked_fighter_id`, unique
+on `(fight_id, device_id)`) is **left in the database** — see [Data
+model](#data-model) — carrying a handful of legacy rows. It is not written or
+read by the app. Its RLS is deliberately permissive (anonymous
+insert/select/update, `update using (true)` with no `device_id` scoping), so
+the counts were always attacker-mutable and only ever meant as indicative.
+
+If voting ever returns, do not reuse this trust model: casting should move
+behind a `security definer` RPC / service-role path, and the identity should
+again avoid triggering the OS notification-permission prompt (it must stay
+independent of the push-token identity used for follows).
 
 ## balldontlie sync
 
