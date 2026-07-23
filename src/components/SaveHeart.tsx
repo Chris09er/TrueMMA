@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocale } from '../lib/i18n';
@@ -38,13 +38,26 @@ export default function SaveHeart({ kind, id, active, onToggle, inline, offsetRi
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [activeState, setActiveState] = useState(active ?? false);
   const [busy, setBusy] = useState(false);
+  // True once the user has toggled this heart, so a late-resolving initial
+  // lookup (which queried the pre-tap state) can't overwrite their action.
+  const touchedRef = useRef(false);
 
   useEffect(() => {
+    // A fresh object resets the "touched" guard so the new id gets a real lookup.
+    touchedRef.current = false;
     if (active !== undefined) {
       setActiveState(active);
       return;
     }
-    isSaved(kind, id).then(setActiveState);
+    // Uncontrolled: look up our own state. Ignore the result if it arrives after
+    // a dep change/unmount, or after the user has already toggled the heart.
+    let ignore = false;
+    isSaved(kind, id).then((saved) => {
+      if (!ignore && !touchedRef.current) setActiveState(saved);
+    });
+    return () => {
+      ignore = true;
+    };
   }, [kind, id, active]);
 
   const showFirstTapHint = () =>
@@ -57,6 +70,7 @@ export default function SaveHeart({ kind, id, active, onToggle, inline, offsetRi
   const handlePress = async (event?: { stopPropagation?: () => void }) => {
     event?.stopPropagation?.();
     if (busy) return;
+    touchedRef.current = true;
     setBusy(true);
     try {
       if (!activeState) {

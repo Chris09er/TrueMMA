@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList } from '../navigation';
@@ -55,6 +56,15 @@ export default function FighterListScreen({ navigation }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // The tab screen stays mounted, so refresh the saved set every time it
+  // regains focus — otherwise a save/unsave on a detail screen wouldn't show
+  // here (stale heart, and fighters wouldn't float to the top) until refresh.
+  useFocusEffect(
+    useCallback(() => {
+      getSavedIds('fighter').then(setFavoriteIds);
+    }, [])
+  );
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);

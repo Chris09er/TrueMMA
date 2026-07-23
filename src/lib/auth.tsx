@@ -208,8 +208,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         if (verifyError) return toAuthResult(verifyError);
 
+        // verifyOtp('recovery') already established a real session. If setting the
+        // new password fails, tear that session down again so the user isn't left
+        // silently logged in with the OLD password while seeing an error — sign in
+        // is meant to happen via the new password, not the recovery code.
         const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-        return toAuthResult(updateError);
+        if (updateError) {
+          await supabase.auth.signOut();
+          return toAuthResult(updateError);
+        }
+        return toAuthResult(null);
       },
       updateEmail: async (email) => {
         // Does NOT change the address yet — Auth emails a confirmation code to

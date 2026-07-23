@@ -55,8 +55,38 @@ function FightHistoryRow({
 }) {
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const opponent = fight.fighter1?.id === fighterId ? fight.fighter2 : fight.fighter1;
-  const isWinner = fight.result_winner_id === fighterId;
-  const hasResult = fight.result_winner_id !== null;
+  // Mirror EventDetail's fightOutcome: winner/loser from result_winner_id, and
+  // draws / no-contests (no winner) read from the free-text result_method, so a
+  // decided draw/NC still shows an outcome instead of a blank row.
+  const method = (fight.result_method ?? '').toLowerCase();
+  const outcome: 'win' | 'loss' | 'draw' | 'nc' | null =
+    fight.result_method == null
+      ? null
+      : fight.result_winner_id
+        ? fight.result_winner_id === fighterId
+          ? 'win'
+          : 'loss'
+        : method.includes('no contest')
+          ? 'nc'
+          : method.includes('draw')
+            ? 'draw'
+            : null;
+  const outcomeLabel =
+    outcome === 'win'
+      ? t.fighterDetail.resultWin
+      : outcome === 'loss'
+        ? t.fighterDetail.resultLoss
+        : outcome === 'draw'
+          ? t.fighterDetail.resultDraw
+          : t.fighterDetail.resultNc;
+  const outcomeStyle =
+    outcome === 'win' ? styles.resultWin : outcome === 'loss' ? styles.resultLoss : styles.resultNeutral;
+  // Win/loss: append the finish method. Draw/NC: the label already says it, so
+  // only add a specific detail when one exists (never the generic "Draw").
+  const outcomeDetail =
+    outcome === 'win' || outcome === 'loss'
+      ? fight.result_method_detail || fight.result_method
+      : fight.result_method_detail;
   return (
     <View style={[styles.historyRow, !isFirst && styles.historyDivider]}>
       <Text
@@ -86,12 +116,10 @@ function FightHistoryRow({
           {fight.event.name} · {formatEventDate(fight.event.event_date, locale)}
         </Text>
       )}
-      {hasResult && (
-        <Text style={[styles.result, isWinner ? styles.resultWin : styles.resultLoss]}>
-          {isWinner ? t.fighterDetail.resultWin : t.fighterDetail.resultLoss}
-          {fight.result_method_detail || fight.result_method
-            ? ` · ${fight.result_method_detail ?? fight.result_method}`
-            : ''}
+      {outcome && (
+        <Text style={[styles.result, outcomeStyle]}>
+          {outcomeLabel}
+          {outcomeDetail ? ` · ${outcomeDetail}` : ''}
           {fight.result_round ? ` · ${t.eventDetail.round} ${fight.result_round}` : ''}
         </Text>
       )}
@@ -163,7 +191,11 @@ export default function FighterDetailScreen({ route, navigation }: Props) {
   const orderedDesc = [...completed].sort(
     (a, b) => new Date(b.event!.event_date).getTime() - new Date(a.event!.event_date).getTime()
   );
-  const wins = fighter?.record_wins ?? completed.filter((f) => f.result_winner_id === fighterId).length;
+  // KO%/Sub% are a *finish rate* over the wins we can actually classify from the
+  // loaded fight history — so the denominator must be those same completed wins,
+  // NOT the career record_wins (which can far exceed the fights present in the
+  // DB and would understate the percentages).
+  const completedWins = completed.filter((f) => f.result_winner_id === fighterId).length;
   const koWins = completed.filter(
     (f) => f.result_winner_id === fighterId && /\b(ko|tko)\b/i.test(f.result_method ?? '')
   ).length;
@@ -175,7 +207,7 @@ export default function FighterDetailScreen({ route, navigation }: Props) {
     if (f.result_winner_id === fighterId) winStreak += 1;
     else break;
   }
-  const pct = (n: number) => (wins > 0 ? `${Math.round((n / wins) * 100)}%` : undefined);
+  const pct = (n: number) => (completedWins > 0 ? `${Math.round((n / completedWins) * 100)}%` : undefined);
 
   const statRows: StatRow[] = [];
   if (fighter?.weight_class) {
@@ -315,4 +347,5 @@ const makeStyles = (colors: ColorTokens) =>
     result: { ...typography.caption, marginTop: spacing.xs },
     resultWin: { color: colors.accent },
     resultLoss: { color: colors.textSecondary },
+    resultNeutral: { color: colors.textSecondary },
   });

@@ -580,16 +580,25 @@ function NotificationPrefsSection() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
   const [hasPush, setHasPush] = useState<boolean | null>(null);
+  // Mirrors `prefs` so each toggle merges onto the latest value, not the render
+  // that produced the handler — otherwise two quick toggles both read the same
+  // stale `prefs` and the second write clobbers the first (locally and on the
+  // server, since every write sends the whole object).
+  const prefsRef = useRef<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
 
   useEffect(() => {
     hasNotificationPermission().then(setHasPush);
-    getNotificationPrefs().then(setPrefs);
+    getNotificationPrefs().then((p) => {
+      prefsRef.current = p;
+      setPrefs(p);
+    });
   }, []);
 
   // Optimistic: flip locally at once, persist in the background. A failed write
   // leaves the switch where the user put it and re-syncs on the next mount.
   const change = (patch: Partial<NotificationPrefs>) => {
-    const next = { ...prefs, ...patch };
+    const next = { ...prefsRef.current, ...patch };
+    prefsRef.current = next;
     setPrefs(next);
     setNotificationPrefs(next).catch(() => {});
   };

@@ -122,10 +122,20 @@ export async function getEventsInRange(
   return (data ?? []) as unknown as EventListItem[];
 }
 
-// Local YYYY-MM-DD, from the device's own calendar fields — deliberately not
-// via toISOString(), which converts to UTC and would name the previous day
-// for any positive-UTC-offset zone (all of Europe).
-function localDateKey(date: Date): string {
+// YYYY-MM-DD in the given IANA zone (or the device's own zone when omitted) —
+// deliberately not via toISOString(), which converts to UTC and would name the
+// previous day for any positive-UTC-offset zone (all of Europe). Pass the app's
+// timezoneOverride so a day-key matches the times shown everywhere else.
+export function localDateKey(date: Date, timeZone?: string): string {
+  if (timeZone) {
+    // en-CA renders as YYYY-MM-DD.
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  }
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');

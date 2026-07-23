@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   FlatList,
@@ -20,6 +21,7 @@ import {
   getPastEvents,
   getUpcomingEvents,
   isEventLive,
+  localDateKey,
 } from '../lib/queries';
 import { getSavedIds } from '../lib/saves';
 import type { EventListItem, Organization } from '../lib/types';
@@ -123,6 +125,15 @@ export default function EventListScreen({ navigation }: Props) {
     load();
   }, [load]);
 
+  // The tab screen stays mounted, so refresh the saved set on every focus —
+  // otherwise a save/unsave made on a detail screen wouldn't show here until
+  // a manual refresh (stale heart).
+  useFocusEffect(
+    useCallback(() => {
+      getSavedIds('event').then(setFavoriteIds);
+    }, [])
+  );
+
   useEffect(() => {
     getOrganizations().then(setOrganizations).catch(() => {});
   }, []);
@@ -160,22 +171,28 @@ export default function EventListScreen({ navigation }: Props) {
     if (viewMode === 'calendar') loadMonthEvents(calendarMonth);
   }, [viewMode, calendarMonth, loadMonthEvents]);
 
+  // Key events by the calendar day they're *displayed* as (the timezoneOverride
+  // zone, or the device zone when unset) — not event_date.slice(0,10), which is
+  // the UTC day and would dot/filter an event on the wrong day relative to the
+  // times shown everywhere else (off-by-one for any positive-offset zone).
+  const tz = timezoneOverride ?? undefined;
+
   const markedDates = useMemo(() => {
     const marks: Record<string, { marked?: boolean; dotColor?: string; selected?: boolean; selectedColor?: string }> = {};
     for (const event of monthEvents) {
-      const day = event.event_date.slice(0, 10);
+      const day = localDateKey(new Date(event.event_date), tz);
       marks[day] = { ...marks[day], marked: true, dotColor: colors.accent };
     }
     if (selectedDate) {
       marks[selectedDate] = { ...marks[selectedDate], selected: true, selectedColor: colors.accent };
     }
     return marks;
-  }, [monthEvents, selectedDate, colors]);
+  }, [monthEvents, selectedDate, colors, tz]);
 
   const dayEvents = useMemo(() => {
     if (!selectedDate) return [];
-    return monthEvents.filter((event) => event.event_date.slice(0, 10) === selectedDate);
-  }, [monthEvents, selectedDate]);
+    return monthEvents.filter((event) => localDateKey(new Date(event.event_date), tz) === selectedDate);
+  }, [monthEvents, selectedDate, tz]);
 
   const visibleEvents = useMemo(() => {
     const query = search.trim().toLowerCase();
