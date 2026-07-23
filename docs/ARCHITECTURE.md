@@ -255,6 +255,48 @@ Tables (Supabase Postgres), all with RLS enabled:
 | `profiles` | Login-only: nickname + optional `timezone_override` per account (`id` = `auth.users.id`) | own row only |
 | `event_follows` | Login-only: user ↔ followed event (profile visibility) | own rows only |
 | `fighter_favorites` / `event_favorites` | Login-only: user ↔ favorited fighter/event | own rows only |
+| `saved_fighters` / `saved_events` / `saved_organizations` | **Gruppe C (bell→heart merge), Phase 1.** Unified "save = list + notify". `device_id`-anchored, with `user_id`/`push_token` as attributes | **RPC only** (base tables fully locked, no policies) |
+
+### Gruppe C — the `saved_*` model (bell→heart merge, in progress)
+
+Gruppe C collapses the split "favorite (heart, list-only) vs. follow (bell,
+push)" into a single heart per object = *saved to the list AND notifications on
+by default*, tunable per object in the profile. The six legacy rows above
+(`push_subscriptions`, `organization_follows`, `event_follows`,
+`fighter_favorites`, `event_favorites`) are replaced by three `saved_*` tables,
+one per object type.
+
+**Identity model.** The row is anchored on **`device_id`** — the only
+identifier that always exists (the same locally-generated `true-mma:device-id`
+that `fight_votes` uses; no OS notification permission required). This is the
+key improvement over the legacy split, where the three concepts had three
+*different* anchors and anonymous favorites could only live in local
+AsyncStorage. `user_id` and `push_token` are mutable **attributes** of the row:
+`user_id` set from `auth.uid()` on login (cross-device), `push_token` set when
+notification permission is granted. The push audience for any object is simply
+`push_token is not null AND notify_<type> = true`. Unique on
+`(device_id, object_id)`. Notify flags: fighter → `notify_new_fight` +
+`notify_fight_start`; event/org → `notify_event_start`.
+
+**Access.** Base tables are fully RLS-locked (RLS on, no policies, no
+anon/authenticated grants — same treatment as the `push_*` bookkeeping tables).
+All reads and writes go through SECURITY DEFINER RPCs (`save_*` / `unsave_*` /
+`set_*_notify` / `attach_push_token` / `claim_saves_for_user` / `list_saved_*`),
+so a client can never SELECT another device's `push_token`. `device_id` and
+`push_token` are client-self-reported (the accepted anon trust model from
+`fight_votes` / `push_subscriptions`), but `user_id` is derived server-side from
+`auth.uid()` and cannot be spoofed into another account.
+
+**Rollout order (non-breaking).** Migration `013` is **Phase 1 only**: it
+creates the tables + RPCs and leaves the six legacy tables and the existing push
+triggers untouched. Phase 2 rewrites `notify_fighter_added_to_fight()` and
+`send_league_start_pushes()` to read `saved_*` — including a brand-new per-event
+push audience for `saved_events` (events had *no* server push before; only
+org-level league-start existed), retiring the local event reminders. Only after
+Phase 2 lands do the legacy tables get dropped, so the running push functions
+never reference a missing table. Data is **not** migrated — a clean cutover was
+chosen because both envs held only a handful of test rows (prod: 4 rows, one
+test user; stage: 3).
 
 `push_subscriptions` and `organization_follows` are the exceptions to "app
 is read-only" for anonymous users — they're how the fighter-follow and
