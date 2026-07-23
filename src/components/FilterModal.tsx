@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { pressedStyle, radius, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
 
 type Props = {
@@ -27,13 +28,22 @@ export default function FilterModal({
   children,
 }: Props) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      {/* Tapping the dimmed backdrop closes the sheet; the sheet itself is a
-          Pressable that swallows taps so they don't bubble up and close it. */}
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
+      <View style={styles.root}>
+        {/* The dimmed backdrop is a SIBLING behind the sheet (absolute fill),
+            not an ancestor. Wrapping the sheet in a Pressable to "swallow" taps
+            stole the touch responder from the inner ScrollView on Android, so
+            the list wouldn't scroll. As siblings, a tap outside the sheet hits
+            the backdrop (closes), a tap on the sheet hits a plain View (no-op),
+            and the ScrollView keeps its vertical drag gesture. */}
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        {/* Bottom inset keeps the last row clear of the Android gesture bar —
+            without it a short sheet's final option sits in the gesture zone and
+            is hard to tap. */}
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
           <View style={styles.headerRow}>
             <Text style={styles.title}>{title}</Text>
             <Pressable onPress={onClose} style={({ pressed }) => pressed && pressedStyle} hitSlop={8}>
@@ -57,8 +67,8 @@ export default function FilterModal({
               <Text style={styles.resetButtonText}>{resetLabel}</Text>
             </Pressable>
           )}
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -76,10 +86,13 @@ export function FilterSection({ title, children }: { title: string; children: Re
 
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
-    backdrop: {
+    root: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
       justifyContent: 'flex-end',
+    },
+    backdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.5)',
     },
     sheet: {
       backgroundColor: colors.background,
