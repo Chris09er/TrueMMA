@@ -3,10 +3,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList } from '../navigation';
-import { abbreviateWeightClass, getFighters, getOrganizations, sortWeightClasses, weightClassRank } from '../lib/queries';
+import { abbreviateWeightClass, formatRecord, getFighters, getOrganizations, sortWeightClasses, weightClassRank } from '../lib/queries';
 import { getSavedIds } from '../lib/saves';
 import type { Fighter, Organization } from '../lib/types';
-import { pressedStyle, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
+import { pressedStyle, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
 import Flag from '../components/Flag';
 import SaveHeart from '../components/SaveHeart';
@@ -14,7 +14,7 @@ import FilterChip from '../components/FilterChip';
 import FilterModal, { FilterSection } from '../components/FilterModal';
 import { EmptyState, ErrorState, FilterIconButton, LogoMark, Screen, ScreenHeader, SearchInput, SkeletonBlock } from '../components/ui';
 
-type FighterSort = 'name' | 'weight' | 'record' | 'nationality';
+type FighterSort = 'name' | 'weight' | 'nationality';
 
 type Props = NativeStackScreenProps<FightersStackParamList, 'FighterList'>;
 
@@ -135,10 +135,6 @@ export default function FighterListScreen({ navigation }: Props) {
           const diff = weightClassRank(a.weight_class) - weightClassRank(b.weight_class);
           return diff !== 0 ? diff : a.name.localeCompare(b.name);
         }
-        case 'record': {
-          const diff = (b.record_wins ?? -1) - (a.record_wins ?? -1);
-          return diff !== 0 ? diff : a.name.localeCompare(b.name);
-        }
         case 'nationality': {
           const diff = (a.nationality ?? '￿').localeCompare(b.nationality ?? '￿');
           return diff !== 0 ? diff : a.name.localeCompare(b.name);
@@ -152,7 +148,6 @@ export default function FighterListScreen({ navigation }: Props) {
   const sortOptions: { value: FighterSort; label: string }[] = [
     { value: 'name', label: t.fighterList.sortName },
     { value: 'weight', label: t.fighterList.sortWeight },
-    { value: 'record', label: t.fighterList.sortRecord },
     { value: 'nationality', label: t.fighterList.sortNationality },
   ];
 
@@ -265,6 +260,7 @@ export default function FighterListScreen({ navigation }: Props) {
     const meta = [abbreviateWeightClass(item.weight_class), item.nickname ? `"${item.nickname}"` : null]
       .filter(Boolean)
       .join(' · ');
+    const record = formatRecord(item);
     return (
       <Pressable
         style={({ pressed }) => [styles.row, pressed && pressedStyle]}
@@ -283,6 +279,11 @@ export default function FighterListScreen({ navigation }: Props) {
             </Text>
           )}
         </View>
+        {record && (
+          <Text style={styles.record} numberOfLines={1}>
+            {record}
+          </Text>
+        )}
         <View style={styles.rowActions}>
           <SaveHeart
             inline
@@ -351,6 +352,7 @@ const makeStyles = (colors: ColorTokens) =>
     rowBody: { flex: 1, gap: 2 },
     name: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary },
     meta: { ...typography.meta, color: colors.textSecondary },
+    record: { ...typography.compact, ...tabularNums, color: colors.textSecondary },
     rowActions: { flexDirection: 'row', alignItems: 'center' },
     separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginHorizontal: spacing.lg },
     skeletonWrap: { padding: spacing.lg, gap: spacing.lg },

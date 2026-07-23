@@ -331,6 +331,18 @@ export function sortWeightClasses(weightClasses: string[]): string[] {
   });
 }
 
+// Career record as "W-L-D" (with a "(n NC)" suffix when there are no-contests).
+// Shared by the fighter list (inline behind the name) and the detail header, so
+// both format identically. Returns null when no record data exists at all.
+export function formatRecord(
+  fighter: Pick<Fighter, 'record_wins' | 'record_losses' | 'record_draws' | 'record_no_contests'>
+): string | null {
+  const { record_wins: w, record_losses: l, record_draws: d, record_no_contests: nc } = fighter;
+  if (w === null && l === null && d === null) return null;
+  const base = `${w ?? 0}-${l ?? 0}-${d ?? 0}`;
+  return nc ? `${base} (${nc} NC)` : base;
+}
+
 export async function getFightsForEvent(eventId: string): Promise<Fight[]> {
   const { data, error } = await supabase.from('fights').select(FIGHT_COLUMNS).eq('event_id', eventId);
 

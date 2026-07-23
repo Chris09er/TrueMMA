@@ -5,13 +5,14 @@ import type { NavigationProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList, RootTabParamList } from '../navigation';
-import { getFighterById, getFighterFights, isEventUpcoming } from '../lib/queries';
+import { formatRecord, getFighterById, getFighterFights, isEventUpcoming } from '../lib/queries';
 import type { Fighter, FightWithEvent } from '../lib/types';
 import { pressedStyle, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import Flag from '../components/Flag';
 import SaveHeart from '../components/SaveHeart';
+import ResultBadge from '../components/ResultBadge';
 import {
   Button,
   Card,
@@ -30,13 +31,6 @@ type Loc = ReturnType<typeof useLocale>['t'];
 
 const inchesToCm = (inches: number) => Math.round(inches * 2.54);
 const formatHeight = (inches: number) => `${Math.floor(inches / 12)}' ${inches % 12}"`;
-
-function formatRecord(fighter: Fighter): string | null {
-  const { record_wins: w, record_losses: l, record_draws: d, record_no_contests: nc } = fighter;
-  if (w === null && l === null && d === null) return null;
-  const base = `${w ?? 0}-${l ?? 0}-${d ?? 0}`;
-  return nc ? `${base} (${nc} NC)` : base;
-}
 
 function FightHistoryRow({
   fight,
@@ -79,8 +73,6 @@ function FightHistoryRow({
         : outcome === 'draw'
           ? t.fighterDetail.resultDraw
           : t.fighterDetail.resultNc;
-  const outcomeStyle =
-    outcome === 'win' ? styles.resultWin : outcome === 'loss' ? styles.resultLoss : styles.resultNeutral;
   // Win/loss: append the finish method. Draw/NC: the label already says it, so
   // only add a specific detail when one exists (never the generic "Draw").
   const outcomeDetail =
@@ -117,11 +109,16 @@ function FightHistoryRow({
         </Text>
       )}
       {outcome && (
-        <Text style={[styles.result, outcomeStyle]}>
-          {outcomeLabel}
-          {outcomeDetail ? ` · ${outcomeDetail}` : ''}
-          {fight.result_round ? ` · ${t.eventDetail.round} ${fight.result_round}` : ''}
-        </Text>
+        <View style={styles.resultRow}>
+          <ResultBadge outcome={outcome} label={outcomeLabel} />
+          {(outcomeDetail || fight.result_round) && (
+            <Text style={styles.resultMeta} numberOfLines={1}>
+              {[outcomeDetail, fight.result_round ? `${t.eventDetail.round} ${fight.result_round}` : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+          )}
+        </View>
       )}
     </View>
   );
@@ -344,8 +341,6 @@ const makeStyles = (colors: ColorTokens) =>
     historyDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider },
     opponent: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary },
     historyMeta: { ...typography.meta, color: colors.focus, marginTop: 2 },
-    result: { ...typography.caption, marginTop: spacing.xs },
-    resultWin: { color: colors.accent },
-    resultLoss: { color: colors.textSecondary },
-    resultNeutral: { color: colors.textSecondary },
+    resultRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+    resultMeta: { ...typography.meta, color: colors.textSecondary, flexShrink: 1 },
   });

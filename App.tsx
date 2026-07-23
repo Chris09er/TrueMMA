@@ -116,7 +116,21 @@ function RootTabs() {
       })}
     >
       <Tab.Screen name="EventsTab" component={EventsStackNavigator} options={{ title: t.tabs.events }} />
-      <Tab.Screen name="FightersTab" component={FightersStackNavigator} options={{ title: t.tabs.fighters }} />
+      <Tab.Screen
+        name="FightersTab"
+        component={FightersStackNavigator}
+        options={{ title: t.tabs.fighters }}
+        listeners={({ navigation }) => ({
+          // Re-tapping the already-focused Fighters tab returns to the list root
+          // (pops any pushed FighterDetail) instead of doing nothing.
+          tabPress: (e) => {
+            if (navigation.isFocused()) {
+              e.preventDefault();
+              navigation.navigate('FightersTab', { screen: 'FighterList' });
+            }
+          },
+        })}
+      />
       <Tab.Screen
         name="ProfileTab"
         component={ProfileScreen}

@@ -39,6 +39,12 @@ export type ColorTokens = {
   /** "On air" red for the live badge — urgent, not negative; kept separate. */
   live: string;
   /**
+   * Fight-outcome semantics for result badges (Win/Loss/Draw/NC). Deliberately
+   * outside the Blue Alloy palette — these carry meaning (win green, loss red,
+   * draw orange, no-contest grey) and are the one sanctioned use of green/orange.
+   */
+  outcome: { win: string; loss: string; draw: string; nc: string };
+  /**
    * Subtle, static deep-navy background gradient (two stops, top -> bottom)
    * used as the global screen background treatment. Restrained by design.
    */
@@ -68,6 +74,7 @@ const darkColors: ColorTokens = {
   alloyMuted: '#7D8A9B',
   danger: '#E5484D',
   live: '#F04438',
+  outcome: { win: '#3FB950', loss: '#E5484D', draw: '#E3873C', nc: '#7D8A9B' },
   backgroundGradient: ['#0F2547', '#050C1C'],
   accentGradient: ['#3A7BE0', '#1B4F9E'],
 };
@@ -88,6 +95,7 @@ const lightColors: ColorTokens = {
   alloyMuted: '#5A6A82',
   danger: '#C4362F',
   live: '#D13A2E',
+  outcome: { win: '#2DA44E', loss: '#C4362F', draw: '#C2711F', nc: '#5A6A82' },
   backgroundGradient: ['#FFFFFF', '#E4ECF8'],
   accentGradient: ['#3A7BE0', '#1F5DBB'],
 };

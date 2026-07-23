@@ -5,7 +5,7 @@ import type { NavigationProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList, RootTabParamList } from '../navigation';
-import { abbreviateWeightClass, getEventDetail, getFightsForEvent, isEventLive } from '../lib/queries';
+import { abbreviateWeightClass, formatRecord, getEventDetail, getFightsForEvent, isEventLive } from '../lib/queries';
 import type { CardSegment, EventDetail, Fight, Fighter } from '../lib/types';
 import { castVote, getEventVotes, type FightVoteSummary } from '../lib/voting';
 import { pressedStyle, radius, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
@@ -14,6 +14,7 @@ import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 import Flag from '../components/Flag';
 import SaveHeart from '../components/SaveHeart';
+import ResultBadge, { type FightOutcome } from '../components/ResultBadge';
 import LiveBadge from '../components/LiveBadge';
 import { Card, EmptyState, ErrorState, Screen, ScreenHeader } from '../components/ui';
 
@@ -22,16 +23,6 @@ type Styles = ReturnType<typeof makeStyles>;
 type Loc = ReturnType<typeof useLocale>['t'];
 
 const SEGMENT_ORDER: CardSegment[] = ['main_card', 'prelims', 'early_prelims'];
-
-function formatRecord(fighter: Fighter | null): string | null {
-  if (!fighter) return null;
-  const { record_wins: w, record_losses: l, record_draws: d, record_no_contests: nc } = fighter;
-  if (w == null && l == null && d == null) return null;
-  const base = `${w ?? 0}-${l ?? 0}-${d ?? 0}`;
-  return nc ? `${base} (${nc} NC)` : base;
-}
-
-type FightOutcome = 'win' | 'loss' | 'draw' | 'nc';
 
 // A fighter's result in a *completed* fight. Winner/loser come straight from
 // result_winner_id; draws and no-contests have no winner and are read from
@@ -47,20 +38,14 @@ function fightOutcome(fight: Fight, fighterId: string | undefined): FightOutcome
   return null;
 }
 
-function ResultBadge({ outcome, styles, t }: { outcome: FightOutcome; styles: Styles; t: Loc }) {
-  const config: Record<FightOutcome, { box: object; text: object; label: string }> = {
-    win: { box: styles.badgeWin, text: styles.badgeWinText, label: t.eventDetail.resultWin },
-    loss: { box: styles.badgeLoss, text: styles.badgeLossText, label: t.eventDetail.resultLoss },
-    draw: { box: styles.badgeNeutral, text: styles.badgeNeutralText, label: t.eventDetail.resultDraw },
-    nc: { box: styles.badgeNeutral, text: styles.badgeNeutralText, label: t.eventDetail.resultNc },
-  };
-  const { box, text, label } = config[outcome];
-  return (
-    <View style={[styles.resultBadge, box]}>
-      <Text style={[styles.resultBadgeText, text]}>{label}</Text>
-    </View>
-  );
-}
+const outcomeLabel = (outcome: FightOutcome, t: Loc): string =>
+  outcome === 'win'
+    ? t.eventDetail.resultWin
+    : outcome === 'loss'
+      ? t.eventDetail.resultLoss
+      : outcome === 'draw'
+        ? t.eventDetail.resultDraw
+        : t.eventDetail.resultNc;
 
 function FighterCell({
   fighter,
@@ -77,7 +62,7 @@ function FighterCell({
 }) {
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const right = align === 'right';
-  const record = formatRecord(fighter);
+  const record = fighter ? formatRecord(fighter) : null;
   const name = fighter?.name ?? 'TBA';
   return (
     <View style={[styles.fighterCell, right ? styles.alignEnd : styles.alignStart]}>
@@ -103,7 +88,7 @@ function FighterCell({
       </View>
       {(outcome || record) && (
         <View style={[styles.metaRow, right && styles.rowReverse]}>
-          {outcome && <ResultBadge outcome={outcome} styles={styles} t={t} />}
+          {outcome && <ResultBadge outcome={outcome} label={outcomeLabel(outcome, t)} />}
           {record && <Text style={[styles.record, right && styles.textRight]}>{record}</Text>}
         </View>
       )}
@@ -499,24 +484,6 @@ const makeStyles = (colors: ColorTokens) =>
     textRight: { textAlign: 'right' },
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     record: { ...typography.meta, ...tabularNums, color: colors.textSecondary },
-
-    // WIN/LOSS/DRAW/NC result pills, shown next to the record on completed
-    // fights (replacing the old winner-name colouring). WIN is the filled
-    // cobalt accent; everything else is a muted outline so a card of results
-    // stays calm — no green/red trade dress, matching the Blue Alloy system.
-    resultBadge: {
-      borderRadius: 6,
-      paddingHorizontal: 6,
-      paddingVertical: 1,
-      borderWidth: StyleSheet.hairlineWidth,
-    },
-    resultBadgeText: { ...typography.caption, fontSize: 10, letterSpacing: 0.5 },
-    badgeWin: { backgroundColor: colors.accent, borderColor: colors.accent },
-    badgeWinText: { color: '#FFFFFF' },
-    badgeLoss: { backgroundColor: 'transparent', borderColor: colors.border },
-    badgeLossText: { color: colors.textSecondary },
-    badgeNeutral: { backgroundColor: 'transparent', borderColor: colors.alloyMuted },
-    badgeNeutralText: { color: colors.alloy },
 
     voteRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
     voteButton: {
