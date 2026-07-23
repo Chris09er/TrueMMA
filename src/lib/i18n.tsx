@@ -6,9 +6,9 @@ import { supabase } from './supabase';
 
 export type { Locale, Translations };
 
-export const SUPPORTED_LOCALES: { code: Locale; label: string; flag: string }[] = [
-  { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
-  { code: 'en', label: 'English', flag: '🇬🇧' },
+export const SUPPORTED_LOCALES: { code: Locale; label: string }[] = [
+  { code: 'de', label: 'Deutsch' },
+  { code: 'en', label: 'English' },
 ];
 
 const STORAGE_KEY = 'true-mma:locale';

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,37 +7,45 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, type NavigationProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import EventReminderBell from '../components/EventReminderBell';
-import FighterFollowBell from '../components/FighterFollowBell';
-import EventFavoriteHeart from '../components/EventFavoriteHeart';
-import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
-import OrganizationFollowBell from '../components/OrganizationFollowBell';
-import SettingsModal from '../components/SettingsModal';
+import type { RootTabParamList } from '../navigation';
+import SaveHeart from '../components/SaveHeart';
+import Flag from '../components/Flag';
+import FilterModal from '../components/FilterModal';
+import { LinearGradient } from 'expo-linear-gradient';
+import { TIMEZONE_OPTIONS } from '../lib/timezones';
+import { LogoMark, Screen, ScreenHeader } from '../components/ui';
 import { useAuth, type AuthResult } from '../lib/auth';
 import { authErrorMessage } from '../lib/authErrors';
 import { formatEventDate } from '../lib/dateFormat';
-import { useLocale } from '../lib/i18n';
+import { SUPPORTED_LOCALES, useLocale } from '../lib/i18n';
 import type { Translations } from '../lib/i18n';
 import { getProfile, updateNickname } from '../lib/profile';
 import { PASSWORD_REQUIREMENTS, isPasswordValid } from '../lib/passwordPolicy';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { isBiometricLockAvailable, isBiometricLockEnabled, setBiometricLockEnabled } from '../lib/biometrics';
+import { getEventsByIds, getFightersByIds, getOrganizationsByIds } from '../lib/queries';
 import {
-  getFavoritedEvents,
-  getFavoritedFighters,
-  getFollowedEvents,
-  getFollowedFighters,
-  getFollowedOrganizations,
-} from '../lib/queries';
-import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
+  DEFAULT_NOTIFICATION_PREFS,
+  getNotificationPrefs,
+  getSavedEvents,
+  getSavedFighters,
+  getSavedOrganizations,
+  hasNotificationPermission,
+  setNotificationPrefs,
+  type NotificationPrefs,
+} from '../lib/saves';
+import { minTapTarget, pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens, type ThemeOverride } from '../lib/theme';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
+
+type ProfileSection = 'account' | 'favorites' | 'settings';
 
 type LoggedOutMode =
   | 'login'
@@ -57,69 +65,193 @@ const RESEND_COOLDOWN_SECONDS = 60;
 
 const LAST_EMAIL_STORAGE_KEY = 'true-mma:last-email';
 
+// Biometric app-lock is implemented (see lib/biometrics + the biometric prop
+// on SettingsSection) but intentionally hidden from the UI for now. Flip to
+// true to resurface it once the feature is ready to ship.
+const SHOW_BIOMETRIC_LOCK = false;
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
 export default function ProfileScreen() {
-  const { user, loading, timezoneOverride, setTimezoneOverride } = useAuth();
+  const { user, loading } = useAuth();
+  const { t } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const commonStyles = useCommonStyles();
-  const navigation = useNavigation();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-
-  useEffect(() => {
-    isBiometricLockAvailable().then(setBiometricAvailable);
-    isBiometricLockEnabled().then(setBiometricEnabled);
-  }, []);
-
-  const handleBiometricLockChange = async (enabled: boolean) => {
-    await setBiometricLockEnabled(enabled);
-    setBiometricEnabled(enabled);
-  };
-
-  // Rendered in the native header (top-right, level with the "Profil"
-  // title) via headerRight, not absolutely positioned inside the screen
-  // body — the latter put it level with the screen's own content instead
-  // (e.g. the "Anmelden" heading), not the header bar.
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <Pressable
-          style={({ pressed }) => [styles.settingsButton, pressed && pressedStyle]}
-          onPress={() => setSettingsOpen(true)}
-          hitSlop={8}
-        >
-          <Ionicons name="settings-outline" size={22} color={colors.textPrimary} />
-        </Pressable>
-      ),
-    });
-  }, [navigation, styles, colors]);
-
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator style={commonStyles.center} color={colors.accent} />
-        <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      </View>
-    );
-  }
 
   return (
-    <View style={styles.container}>
-      {user ? <LoggedInView userId={user.id} email={user.email ?? ''} /> : <LoggedOutView />}
-      <SettingsModal
-        visible={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        timezoneOverride={user ? timezoneOverride : undefined}
-        onTimezoneChange={user ? (tz) => setTimezoneOverride(tz) : undefined}
-        biometricLockEnabled={user && biometricAvailable ? biometricEnabled : undefined}
-        onBiometricLockChange={user && biometricAvailable ? handleBiometricLockChange : undefined}
-      />
-    </View>
+    <Screen>
+      <ScreenHeader left={<LogoMark size={26} />} title={t.tabs.profile.toUpperCase()} />
+      {loading ? (
+        <ActivityIndicator style={commonStyles.center} color={colors.accent} />
+      ) : user ? (
+        <LoggedInView userId={user.id} email={user.email ?? ''} />
+      ) : (
+        <LoggedOutView />
+      )}
+    </Screen>
+  );
+}
+
+// Metallic "guest mode" card at the top of the logged-out profile — the
+// brushed-navy look from the design references.
+function GuestCard() {
+  const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <LinearGradient colors={['#3B4658', '#232D3C', '#151C28']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.guestCard}>
+      <View style={styles.guestBadge}>
+        <Text style={styles.guestBadgeText}>{t.profile.guestMode.toUpperCase()}</Text>
+      </View>
+      <Ionicons name="person-circle-outline" size={44} color={colors.alloy} style={styles.guestAvatar} />
+      <Text style={styles.guestTitle}>{t.profile.guestTitle.toUpperCase()}</Text>
+      <Text style={styles.guestSubtitle}>{t.profile.guestSubtitle}</Text>
+    </LinearGradient>
+  );
+}
+
+// Theme / language / timezone / biometric settings, inline on the Profile
+// screen. Theme is a card row; language and timezone are dropdowns that open a
+// picker. Timezone/biometric only appear when their props are supplied.
+function SettingsSection({
+  timezoneOverride,
+  onTimezoneChange,
+  biometric,
+}: {
+  timezoneOverride?: string | null;
+  onTimezoneChange?: (timezone: string | null) => void;
+  biometric?: { enabled: boolean; onChange: (enabled: boolean) => void };
+}) {
+  const { locale, setLocale, t } = useLocale();
+  const { colors, themeOverride, setThemeOverride } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [picker, setPicker] = useState<null | 'language' | 'timezone'>(null);
+  // Country *names* (not ISO codes) so flagSvgForCountry resolves them — see
+  // src/lib/countryFlags.ts, whose map is keyed by name.
+  const localeCountry: Record<string, string> = { de: 'Germany', en: 'United Kingdom' };
+  const themeOptions: { value: ThemeOverride; label: string; preview: string }[] = [
+    { value: 'system', label: t.settings.themeSystem, preview: colors.surfaceAlt },
+    { value: 'light', label: t.settings.themeLight, preview: '#F4F7FC' },
+    { value: 'dark', label: t.settings.themeDark, preview: '#050C1C' },
+  ];
+  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
+  const currentTz =
+    timezoneOverride !== undefined ? TIMEZONE_OPTIONS.find((o) => (timezoneOverride ?? null) === o.value) : undefined;
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>{t.settings.themeTitle}</Text>
+      <View style={styles.themeCards}>
+        {themeOptions.map((option) => {
+          const active = option.value === themeOverride;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => setThemeOverride(option.value)}
+              style={({ pressed }) => [styles.themeCard, active && styles.themeCardActive, pressed && pressedStyle]}
+            >
+              <View style={[styles.themePreview, { backgroundColor: option.preview }]}>
+                <View style={[styles.themePreviewDot, { backgroundColor: colors.accent }]} />
+              </View>
+              <Text style={styles.themeCardLabel}>{option.label}</Text>
+              {active && (
+                <View style={styles.themeCheck}>
+                  <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                </View>
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={styles.sectionTitle}>{t.settings.languageTitle}</Text>
+      <Pressable onPress={() => setPicker('language')} style={({ pressed }) => [styles.dropdown, pressed && pressedStyle]}>
+        <View style={styles.settingRowLabel}>
+          <Flag country={localeCountry[locale]} height={14} />
+          <Text style={styles.settingRowText}>{currentLocale?.label ?? ''}</Text>
+        </View>
+        <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+      </Pressable>
+
+      {timezoneOverride !== undefined && onTimezoneChange && (
+        <>
+          <Text style={styles.sectionTitle}>{t.profile.timezoneTitle}</Text>
+          <Pressable onPress={() => setPicker('timezone')} style={({ pressed }) => [styles.dropdown, pressed && pressedStyle]}>
+            <Text style={styles.settingRowText} numberOfLines={1}>
+              {currentTz?.label[locale] ?? ''}
+            </Text>
+            <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+          </Pressable>
+        </>
+      )}
+
+      {biometric && (
+        <>
+          <Text style={styles.sectionTitle}>{t.profile.biometricLockTitle}</Text>
+          <Pressable
+            onPress={() => biometric.onChange(!biometric.enabled)}
+            style={({ pressed }) => [styles.settingRow, biometric.enabled && styles.settingRowActive, pressed && pressedStyle]}
+          >
+            <Text style={styles.settingRowText}>{t.profile.biometricLockTitle}</Text>
+            {biometric.enabled && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+          </Pressable>
+        </>
+      )}
+
+      <FilterModal
+        visible={picker === 'language'}
+        title={t.settings.languageTitle}
+        doneLabel={t.eventList.filterDone}
+        onClose={() => setPicker(null)}
+      >
+        {SUPPORTED_LOCALES.map((option) => (
+          <Pressable
+            key={option.code}
+            onPress={() => {
+              setLocale(option.code);
+              setPicker(null);
+            }}
+            style={({ pressed }) => [styles.settingRow, option.code === locale && styles.settingRowActive, pressed && pressedStyle]}
+          >
+            <View style={styles.settingRowLabel}>
+              <Flag country={localeCountry[option.code]} height={14} />
+              <Text style={styles.settingRowText}>{option.label}</Text>
+            </View>
+            {option.code === locale && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+          </Pressable>
+        ))}
+      </FilterModal>
+
+      {timezoneOverride !== undefined && onTimezoneChange && (
+        <FilterModal
+          visible={picker === 'timezone'}
+          title={t.profile.timezoneTitle}
+          doneLabel={t.eventList.filterDone}
+          onClose={() => setPicker(null)}
+        >
+          {TIMEZONE_OPTIONS.map((option) => (
+            <Pressable
+              key={option.value ?? 'device'}
+              onPress={() => {
+                onTimezoneChange(option.value);
+                setPicker(null);
+              }}
+              style={({ pressed }) => [
+                styles.settingRow,
+                (timezoneOverride ?? null) === option.value && styles.settingRowActive,
+                pressed && pressedStyle,
+              ]}
+            >
+              <Text style={styles.settingRowText}>{option.label[locale]}</Text>
+              {(timezoneOverride ?? null) === option.value && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+            </Pressable>
+          ))}
+        </FilterModal>
+      )}
+    </>
   );
 }
 
@@ -225,7 +357,344 @@ function showAuthError(t: Translations, result: AuthResult) {
   }
 }
 
+type SavedFighterItem = { fighter: Fighter };
+type SavedEventItem = { event: EventListItem };
+type SavedOrganizationItem = { organization: Organization };
+
+type MerklisteData = {
+  savedFighters: SavedFighterItem[];
+  savedEvents: SavedEventItem[];
+  savedOrganizations: SavedOrganizationItem[];
+  loading: boolean;
+  removeFighter: (id: string) => void;
+  removeEvent: (id: string) => void;
+  removeOrganization: (id: string) => void;
+};
+
+// Loads the unified saved_* list shown in the "Favoriten" tab. There is no
+// longer a logged-in/logged-out branch: the list_saved_* RPCs return this
+// device's rows UNION the logged-in user's rows, so the same three calls work
+// in either state (the RPC reads auth.uid() and device_id itself). The `userId`
+// arg only drives a reload when the auth state flips. The RPCs return bare ids;
+// the objects are resolved via getFightersByIds etc.
+function useMerkliste(userId: string | null): MerklisteData {
+  const [savedFighters, setSavedFighters] = useState<SavedFighterItem[]>([]);
+  const [savedEvents, setSavedEvents] = useState<SavedEventItem[]>([]);
+  const [savedOrganizations, setSavedOrganizations] = useState<SavedOrganizationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    (async () => {
+      const [fighterRows, eventRows, orgRows] = await Promise.all([
+        getSavedFighters(),
+        getSavedEvents(),
+        getSavedOrganizations(),
+      ]);
+      const [fighters, events, organizations] = await Promise.all([
+        getFightersByIds(fighterRows.map((r) => r.id)),
+        getEventsByIds(eventRows.map((r) => r.id)),
+        getOrganizationsByIds(orgRows.map((r) => r.id)),
+      ]);
+      const fighterById = new Map(fighters.map((f) => [f.id, f]));
+      const eventById = new Map(events.map((e) => [e.id, e]));
+      const orgById = new Map(organizations.map((o) => [o.id, o]));
+      return {
+        savedFighters: fighterRows.filter((r) => fighterById.has(r.id)).map((r) => ({ fighter: fighterById.get(r.id)! })),
+        savedEvents: eventRows.filter((r) => eventById.has(r.id)).map((r) => ({ event: eventById.get(r.id)! })),
+        savedOrganizations: orgRows
+          .filter((r) => orgById.has(r.id))
+          .map((r) => ({ organization: orgById.get(r.id)! })),
+      };
+    })()
+      .then((res) => {
+        setSavedFighters(res.savedFighters);
+        setSavedEvents(res.savedEvents);
+        setSavedOrganizations(res.savedOrganizations);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [userId]);
+
+  // Reload every time the Profile tab regains focus, not just on mount — the
+  // tab screen stays mounted, so saving on a detail or list screen would
+  // otherwise not show here until an app restart.
+  useFocusEffect(useCallback(() => load(), [load]));
+
+  return {
+    savedFighters,
+    savedEvents,
+    savedOrganizations,
+    loading,
+    removeFighter: (id) => setSavedFighters((prev) => prev.filter((x) => x.fighter.id !== id)),
+    removeEvent: (id) => setSavedEvents((prev) => prev.filter((x) => x.event.id !== id)),
+    removeOrganization: (id) => setSavedOrganizations((prev) => prev.filter((x) => x.organization.id !== id)),
+  };
+}
+
+// The Konto / Merkliste / Einstellungen segmented control, shared by the
+// logged-in and logged-out profile so both use identical tabs.
+function SectionSwitcher({ section, onChange }: { section: ProfileSection; onChange: (section: ProfileSection) => void }) {
+  const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const sections: { key: ProfileSection; label: string }[] = [
+    { key: 'account', label: t.profile.sectionAccount },
+    { key: 'favorites', label: t.profile.sectionFavorites },
+    { key: 'settings', label: t.profile.sectionSettings },
+  ];
+  return (
+    <View style={styles.switcher}>
+      {sections.map((seg) => {
+        const active = section === seg.key;
+        return (
+          <Pressable
+            key={seg.key}
+            onPress={() => onChange(seg.key)}
+            style={({ pressed }) => [styles.switcherItem, active && styles.switcherItemActive, pressed && pressedStyle]}
+          >
+            <Text style={[styles.switcherText, active && styles.switcherTextActive]} numberOfLines={1}>
+              {seg.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// The full contents of the Favoriten tab: a plain list of everything saved with
+// the heart, grouped by kind. Deliberately toggle-free — what gets notified is a
+// per-category setting under Einstellungen (see NotificationPrefsSection), not a
+// per-entry one. Presentational; the data comes from useMerkliste, so it renders
+// identically for logged-in and logged-out users.
+function FavoritesList({ data }: { data: MerklisteData }) {
+  const { t, locale } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const navigation = useNavigation<NavigationProp<RootTabParamList>>();
+  const { timezoneOverride } = useAuth();
+  const { savedOrganizations, savedFighters, savedEvents, loading, removeFighter, removeEvent, removeOrganization } =
+    data;
+
+  const openFighter = (fighter: Fighter) =>
+    navigation.navigate('FightersTab', {
+      screen: 'FighterDetail',
+      params: { fighterId: fighter.id, fighterName: fighter.name },
+    });
+  const openEvent = (event: EventListItem) =>
+    navigation.navigate('EventsTab', {
+      screen: 'EventDetail',
+      params: { eventId: event.id, eventName: event.name },
+    });
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>{t.profile.savedOrganizationsTitle}</Text>
+      {loading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : savedOrganizations.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noSavedOrganizations}</Text>
+      ) : (
+        savedOrganizations.map((item) => (
+          <View key={item.organization.id} style={styles.listCard}>
+            <View style={styles.listCardHeader}>
+              <Text style={styles.listCardTitleInline}>{item.organization.short_name}</Text>
+              <SaveHeart
+                inline
+                kind="organization"
+                id={item.organization.id}
+                active
+                onToggle={(active) => !active && removeOrganization(item.organization.id)}
+              />
+            </View>
+          </View>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>{t.profile.savedFightersTitle}</Text>
+      {loading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : savedFighters.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noSavedFighters}</Text>
+      ) : (
+        savedFighters.map((item) => (
+          <View key={item.fighter.id} style={styles.listCard}>
+            <View style={styles.listCardHeader}>
+              <Pressable style={styles.listCardHeaderTitle} onPress={() => openFighter(item.fighter)}>
+                <Text style={styles.listCardTitleInline}>{item.fighter.name}</Text>
+              </Pressable>
+              <SaveHeart
+                inline
+                kind="fighter"
+                id={item.fighter.id}
+                active
+                onToggle={(active) => !active && removeFighter(item.fighter.id)}
+              />
+            </View>
+          </View>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>{t.profile.savedEventsTitle}</Text>
+      {loading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : savedEvents.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noSavedEvents}</Text>
+      ) : (
+        savedEvents.map((item) => (
+          <View key={item.event.id} style={styles.listCard}>
+            <View style={styles.listCardHeader}>
+              <Pressable style={styles.listCardHeaderTitle} onPress={() => openEvent(item.event)}>
+                <Text style={styles.listCardTitleInline}>{item.event.name}</Text>
+                <Text style={styles.listCardMeta}>
+                  {formatEventDate(item.event.event_date, locale, undefined, timezoneOverride ?? undefined)}
+                </Text>
+              </Pressable>
+              <SaveHeart
+                inline
+                kind="event"
+                id={item.event.id}
+                active
+                onToggle={(active) => !active && removeEvent(item.event.id)}
+              />
+            </View>
+          </View>
+        ))
+      )}
+    </>
+  );
+}
+
+// The four per-category notification switches, shown under Einstellungen. This
+// is the ONLY place notifications are configured — grouped by category, not by
+// saved entry (see 015_notification_prefs.sql for why).
+//
+// Prefs are device-anchored, so this renders logged in or out. When the OS
+// permission was never granted the switches would be meaningless, so the whole
+// block is replaced by a single hint — checked via hasNotificationPermission(),
+// which reads the status without ever triggering the prompt.
+function NotificationPrefsSection() {
+  const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
+  const [hasPush, setHasPush] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    hasNotificationPermission().then(setHasPush);
+    getNotificationPrefs().then(setPrefs);
+  }, []);
+
+  // Optimistic: flip locally at once, persist in the background. A failed write
+  // leaves the switch where the user put it and re-syncs on the next mount.
+  const change = (patch: Partial<NotificationPrefs>) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    setNotificationPrefs(next).catch(() => {});
+  };
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>{t.profile.notificationsTitle}</Text>
+      <View style={styles.infoCard}>
+        <Text style={[styles.body, styles.infoCardText]}>{t.profile.notificationsBody}</Text>
+      </View>
+
+      {hasPush === false ? (
+        <Text style={styles.notifyNote}>{t.profile.notifyNeedsPermission}</Text>
+      ) : (
+        <>
+          <Text style={styles.sectionTitle}>{t.profile.notifyCategoryFighters}</Text>
+          <View style={styles.notifyGroup}>
+            <NotifyToggle
+              label={t.profile.notifyNewFight}
+              value={prefs.notifyNewFight}
+              onChange={(v) => change({ notifyNewFight: v })}
+            />
+            <NotifyToggle
+              label={t.profile.notifyFightStart}
+              value={prefs.notifyFightStart}
+              onChange={(v) => change({ notifyFightStart: v })}
+            />
+            <NotifyToggle
+              label={t.profile.notifyResult}
+              value={prefs.notifyFightResult}
+              onChange={(v) => change({ notifyFightResult: v })}
+            />
+          </View>
+
+          <Text style={styles.sectionTitle}>{t.profile.notifyCategoryEvents}</Text>
+          <View style={styles.notifyGroup}>
+            <NotifyToggle
+              label={t.profile.notifyEventStart}
+              value={prefs.notifyEventStart}
+              onChange={(v) => change({ notifyEventStart: v })}
+            />
+          </View>
+
+          <Text style={styles.sectionTitle}>{t.profile.notifyCategoryLeagues}</Text>
+          <View style={styles.notifyGroup}>
+            <NotifyToggle
+              label={t.profile.notifyEventStart}
+              value={prefs.notifyLeagueStart}
+              onChange={(v) => change({ notifyLeagueStart: v })}
+            />
+          </View>
+        </>
+      )}
+    </>
+  );
+}
+
+function NotifyToggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View style={styles.notifyRow}>
+      <Text style={styles.notifyLabel}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ true: colors.accent, false: colors.border }}
+        thumbColor="#FFFFFF"
+      />
+    </View>
+  );
+}
+
+// The logged-out profile: the same three-tab switcher as the logged-in view.
+// Konto holds the auth form, Merkliste holds the anonymous saved_* list (same
+// component as logged-in — the RPCs union device + account rows),
+// Einstellungen holds theme/language.
 function LoggedOutView() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [section, setSection] = useState<ProfileSection>('account');
+  const merkliste = useMerkliste(null);
+
+  return (
+    <View style={styles.loggedIn}>
+      <SectionSwitcher section={section} onChange={setSection} />
+      {section === 'account' && <AuthPanel />}
+      {section === 'favorites' && (
+        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+          <FavoritesList data={merkliste} />
+        </ScrollView>
+      )}
+      {section === 'settings' && (
+        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+          <SettingsSection />
+          <NotificationPrefsSection />
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+// The auth form (login / signup / password reset / magic link / OAuth), shown
+// under the Konto tab of the logged-out profile.
+function AuthPanel() {
   const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -626,6 +1095,7 @@ function LoggedOutView() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+        <GuestCard />
         <Text style={styles.title}>{isSignup ? t.auth.signupTitle : t.auth.loginTitle}</Text>
         <TextInput
           style={styles.input}
@@ -713,48 +1183,38 @@ function LoggedOutView() {
 }
 
 function LoggedInView({ userId, email }: { userId: string; email: string }) {
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { signOut, updateEmail, updatePassword, timezoneOverride } = useAuth();
+  const [section, setSection] = useState<ProfileSection>('account');
+  const { signOut, updateEmail, confirmEmailChange, updatePassword, timezoneOverride, setTimezoneOverride } = useAuth();
   const [nickname, setNickname] = useState('');
   const [nicknameLoading, setNicknameLoading] = useState(true);
   const [newEmail, setNewEmail] = useState(email);
+  // Set once updateEmail() has sent a code — holds the address the code went
+  // to, which is also the address verifyOtp must be called against.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [emailCode, setEmailCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [followedFighters, setFollowedFighters] = useState<Fighter[]>([]);
-  const [followedEvents, setFollowedEvents] = useState<EventListItem[]>([]);
-  const [followedOrganizations, setFollowedOrganizations] = useState<Organization[]>([]);
-  const [followsLoading, setFollowsLoading] = useState(true);
-  const [favoritedFighters, setFavoritedFighters] = useState<Fighter[]>([]);
-  const [favoritedEvents, setFavoritedEvents] = useState<EventListItem[]>([]);
-  const [favoritesLoading, setFavoritesLoading] = useState(true);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const merkliste = useMerkliste(userId);
+
+  useEffect(() => {
+    isBiometricLockAvailable().then(setBiometricAvailable);
+    isBiometricLockEnabled().then(setBiometricEnabled);
+  }, []);
+
+  const handleBiometricLockChange = async (enabled: boolean) => {
+    await setBiometricLockEnabled(enabled);
+    setBiometricEnabled(enabled);
+  };
 
   useEffect(() => {
     getProfile(userId)
       .then((profile) => setNickname(profile?.nickname ?? ''))
       .finally(() => setNicknameLoading(false));
-  }, [userId]);
-
-  useEffect(() => {
-    setFollowsLoading(true);
-    Promise.all([getFollowedFighters(userId), getFollowedEvents(userId), getFollowedOrganizations(userId)])
-      .then(([fighters, events, organizations]) => {
-        setFollowedFighters(fighters);
-        setFollowedEvents(events);
-        setFollowedOrganizations(organizations);
-      })
-      .finally(() => setFollowsLoading(false));
-  }, [userId]);
-
-  useEffect(() => {
-    setFavoritesLoading(true);
-    Promise.all([getFavoritedFighters(userId), getFavoritedEvents(userId)])
-      .then(([fighters, events]) => {
-        setFavoritedFighters(fighters);
-        setFavoritedEvents(events);
-      })
-      .finally(() => setFavoritesLoading(false));
   }, [userId]);
 
   const handleSaveNickname = async () => {
@@ -776,14 +1236,36 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   };
 
   const handleSaveEmail = async () => {
+    const normalized = normalizeEmail(newEmail);
     setBusy(true);
     try {
-      const result = await updateEmail(normalizeEmail(newEmail));
+      const result = await updateEmail(normalized);
       if (result.status === 'error') {
         showAuthError(t, result);
         return;
       }
+      // The address isn't changed yet — a code went to the new address and
+      // has to be confirmed before Auth applies it.
+      setEmailCode('');
+      setPendingEmail(normalized);
       Alert.alert(t.profile.changeEmailTitle, t.profile.changeEmailSaved);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleConfirmEmailChange = async () => {
+    if (!pendingEmail) return;
+    setBusy(true);
+    try {
+      const result = await confirmEmailChange(pendingEmail, emailCode);
+      if (result.status === 'error') {
+        showAuthError(t, result);
+        return;
+      }
+      setPendingEmail(null);
+      setEmailCode('');
+      Alert.alert(t.profile.changeEmailTitle, t.profile.changeEmailConfirmed);
     } finally {
       setBusy(false);
     }
@@ -804,8 +1286,8 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
     }
   };
 
-  return (
-    <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+  const accountContent = (
+    <>
       <Text style={styles.sectionTitle}>{t.profile.nicknameLabel}</Text>
       {nicknameLoading ? (
         <ActivityIndicator color={colors.accent} />
@@ -841,15 +1323,50 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         autoComplete="email"
         value={newEmail}
         onChangeText={setNewEmail}
+        editable={pendingEmail === null}
       />
-      <SubmitButton
-        label={t.profile.changeEmailButton}
-        busy={busy}
-        onPress={handleSaveEmail}
-        style={styles.button}
-        textStyle={styles.buttonText}
-        spinnerColor={colors.accent}
-      />
+      {pendingEmail === null ? (
+        <SubmitButton
+          label={t.profile.changeEmailButton}
+          busy={busy}
+          onPress={handleSaveEmail}
+          style={styles.button}
+          textStyle={styles.buttonText}
+          spinnerColor={colors.accent}
+        />
+      ) : (
+        <>
+          <Text style={styles.body}>{t.profile.changeEmailConfirmBody}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder={t.auth.codeLabel}
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="number-pad"
+            returnKeyType="done"
+            onSubmitEditing={handleConfirmEmailChange}
+            value={emailCode}
+            onChangeText={setEmailCode}
+          />
+          <SubmitButton
+            label={t.profile.changeEmailConfirmButton}
+            busy={busy}
+            onPress={handleConfirmEmailChange}
+            style={styles.button}
+            textStyle={styles.buttonText}
+            spinnerColor={colors.accent}
+          />
+          <Pressable
+            onPress={() => {
+              setPendingEmail(null);
+              setEmailCode('');
+              setNewEmail(email);
+            }}
+            style={({ pressed }) => pressed && pressedStyle}
+          >
+            <Text style={styles.link}>{t.profile.changeEmailCancel}</Text>
+          </Pressable>
+        </>
+      )}
 
       <Text style={styles.sectionTitle}>{t.profile.changePasswordTitle}</Text>
       <PasswordField
@@ -873,202 +1390,200 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         spinnerColor={colors.accent}
       />
 
-      <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
-      {followsLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : followedFighters.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedFighters}</Text>
-      ) : (
-        followedFighters.map((fighter) => (
-          <View key={fighter.id} style={styles.listCard}>
-            <FighterFollowBell fighterId={fighter.id} />
-            <Text style={styles.listCardTitle}>{fighter.name}</Text>
-          </View>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.followedEventsTitle}</Text>
-      {followsLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : followedEvents.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedEvents}</Text>
-      ) : (
-        followedEvents.map((event) => (
-          <View key={event.id} style={styles.listCard}>
-            <EventReminderBell eventId={event.id} eventName={event.name} eventDateIso={event.event_date} />
-            <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>{formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}</Text>
-          </View>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.followedOrganizationsTitle}</Text>
-      {followsLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : followedOrganizations.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedOrganizations}</Text>
-      ) : (
-        followedOrganizations.map((org) => (
-          <View key={org.id} style={[styles.listCard, styles.listCardRow]}>
-            <Text style={styles.listCardTitleInline}>{org.short_name}</Text>
-            <OrganizationFollowBell organizationId={org.id} />
-          </View>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.favoritedFightersTitle}</Text>
-      {favoritesLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : favoritedFighters.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFavoritedFighters}</Text>
-      ) : (
-        favoritedFighters.map((fighter) => (
-          <View key={fighter.id} style={styles.listCard}>
-            <FighterFavoriteHeart fighterId={fighter.id} />
-            <Text style={styles.listCardTitle}>{fighter.name}</Text>
-          </View>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.favoritedEventsTitle}</Text>
-      {favoritesLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : favoritedEvents.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFavoritedEvents}</Text>
-      ) : (
-        favoritedEvents.map((event) => (
-          <View key={event.id} style={styles.listCard}>
-            <EventFavoriteHeart eventId={event.id} />
-            <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>{formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}</Text>
-          </View>
-        ))
-      )}
-
       <Pressable style={({ pressed }) => [styles.logoutButton, pressed && pressedStyle]} onPress={signOut}>
         <Text style={styles.logoutButtonText}>{t.profile.logoutButton}</Text>
       </Pressable>
-    </ScrollView>
+    </>
+  );
+
+  const settingsContent = (
+    <>
+      <SettingsSection
+        timezoneOverride={timezoneOverride}
+        onTimezoneChange={setTimezoneOverride}
+        biometric={
+          SHOW_BIOMETRIC_LOCK && biometricAvailable
+            ? { enabled: biometricEnabled, onChange: handleBiometricLockChange }
+            : undefined
+        }
+      />
+
+      <NotificationPrefsSection />
+    </>
+  );
+
+  return (
+    <View style={styles.loggedIn}>
+      <SectionSwitcher section={section} onChange={setSection} />
+      <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+        {section === 'account' && accountContent}
+        {section === 'favorites' && <FavoritesList data={merkliste} />}
+        {section === 'settings' && settingsContent}
+      </ScrollView>
+    </View>
   );
 }
 
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    form: {
-      padding: spacing.lg,
-    },
-    title: {
-      fontSize: 20,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      marginBottom: spacing.md,
-    },
-    sectionTitle: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      marginTop: spacing.xl,
-      marginBottom: spacing.sm,
-    },
-    body: {
-      fontSize: 14,
-      color: colors.textSecondary,
-      marginBottom: spacing.lg,
-    },
-    input: {
+    container: { flex: 1 },
+    loggedIn: { flex: 1 },
+    form: { padding: spacing.lg },
+    switcher: {
+      flexDirection: 'row',
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
       backgroundColor: colors.surface,
-      borderWidth: 1,
+      borderRadius: radius.control,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
-      borderRadius: radius.md,
-      padding: 14,
+      padding: 3,
+      gap: 3,
+    },
+    switcherItem: { flex: 1, minHeight: 38, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    switcherItemActive: { backgroundColor: colors.accent },
+    switcherText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.textSecondary },
+    switcherTextActive: { color: '#FFFFFF' },
+    infoCard: {
+      padding: spacing.lg,
+      borderRadius: radius.card,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    infoCardText: { marginBottom: 0 },
+    title: { ...typography.title, color: colors.textPrimary, marginBottom: spacing.md },
+    sectionTitle: { ...typography.label, color: colors.textSecondary, marginTop: spacing.xl, marginBottom: spacing.sm },
+    body: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.lg },
+    input: {
+      ...typography.body,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: radius.control,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
       color: colors.textPrimary,
       marginBottom: spacing.md,
+      minHeight: minTapTarget,
     },
     button: {
       backgroundColor: colors.surface,
-      borderWidth: 1,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.accent,
-      borderRadius: radius.md,
-      paddingVertical: 14,
+      borderRadius: radius.control,
+      minHeight: minTapTarget,
       alignItems: 'center',
+      justifyContent: 'center',
       marginBottom: spacing.md,
     },
-    dividerRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginVertical: spacing.md,
-      gap: spacing.sm,
-    },
-    dividerLine: {
-      flex: 1,
-      height: 1,
-      backgroundColor: colors.border,
-    },
-    dividerText: {
-      color: colors.textSecondary,
-      fontSize: 13,
-    },
-    oauthButtonContent: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-    },
-    buttonText: {
-      color: colors.textPrimary,
-      fontWeight: '700',
-      fontSize: 15,
-    },
-    link: {
-      color: colors.link,
-      textAlign: 'center',
-      marginTop: spacing.sm,
-    },
-    settingsButton: {
-      paddingHorizontal: spacing.lg,
-      paddingVertical: 4,
-    },
-    listCard: {
-      padding: 14,
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-      position: 'relative',
-    },
-    listCardTitle: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      paddingRight: 56,
-    },
-    listCardRow: {
+    buttonText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.textPrimary },
+    dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: spacing.md, gap: spacing.sm },
+    dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.divider },
+    dividerText: { ...typography.meta, color: colors.textSecondary },
+    oauthButtonContent: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    link: { ...typography.body, color: colors.link, textAlign: 'center', marginTop: spacing.sm },
+    settingRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      minHeight: minTapTarget,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      marginBottom: spacing.sm,
     },
-    listCardTitleInline: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: colors.textPrimary,
+    settingRowActive: { borderColor: colors.accent },
+    settingRowLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    settingRowText: { ...typography.body, color: colors.textPrimary },
+    listCard: {
+      padding: spacing.lg,
+      borderRadius: radius.card,
+      backgroundColor: colors.surface,
+      marginBottom: spacing.sm,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      position: 'relative',
     },
-    listCardMeta: {
-      fontSize: 13,
-      color: colors.textSecondary,
-      marginTop: 2,
-    },
-    logoutButton: {
-      marginTop: spacing.xl,
-      paddingVertical: 14,
+    listCardTitle: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary, paddingRight: 56 },
+    listCardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    listCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
+    listCardHeaderTitle: { flex: 1 },
+    listCardTitleInline: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary },
+    listCardMeta: { ...typography.meta, color: colors.textSecondary, marginTop: 2 },
+    notifyGroup: { marginTop: spacing.sm, gap: 2 },
+    notifyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 36 },
+    notifyLabel: { ...typography.body, color: colors.textSecondary },
+    notifyNote: { ...typography.meta, color: colors.textSecondary, marginTop: spacing.sm },
+    logoutButton: { marginTop: spacing.xl, minHeight: minTapTarget, alignItems: 'center', justifyContent: 'center' },
+    logoutButtonText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.danger },
+
+    guestCard: {
+      borderRadius: radius.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.alloyMuted,
+      padding: spacing.md,
       alignItems: 'center',
+      marginBottom: spacing.md,
     },
-    logoutButtonText: {
-      color: colors.danger,
-      fontWeight: '700',
-      fontSize: 15,
+    guestBadge: {
+      backgroundColor: 'rgba(0,0,0,0.25)',
+      borderRadius: radius.control,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      marginBottom: spacing.sm,
+    },
+    guestBadgeText: { ...typography.caption, color: colors.alloy },
+    guestAvatar: { marginBottom: spacing.xs },
+    guestTitle: { ...typography.title, color: colors.alloy },
+    guestSubtitle: { ...typography.meta, color: colors.alloyMuted, textAlign: 'center', marginTop: spacing.xs },
+
+    themeCards: { flexDirection: 'row', gap: spacing.sm },
+    themeCard: {
+      flex: 1,
+      borderRadius: radius.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: spacing.md,
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    themeCardActive: { borderColor: colors.accent },
+    themePreview: {
+      width: '100%',
+      height: 44,
+      borderRadius: radius.control,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    themePreviewDot: { width: 14, height: 14, borderRadius: 7 },
+    themeCardLabel: { ...typography.meta, color: colors.textPrimary },
+    themeCheck: {
+      position: 'absolute',
+      top: spacing.xs,
+      right: spacing.xs,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    dropdown: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      minHeight: minTapTarget,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      marginBottom: spacing.sm,
     },
   });

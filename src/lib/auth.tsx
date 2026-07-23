@@ -6,15 +6,13 @@ import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { getQueryParams } from './oauthRedirect';
 import { supabase } from './supabase';
+import { claimSavesForUser } from './saves';
+import { getProfile, updateTimezoneOverride } from './profile';
+import type { Locale } from './translations';
 
 // Required once at module load so the in-app browser used for
 // signInWithGoogle() correctly dismisses itself after the OAuth redirect.
 WebBrowser.maybeCompleteAuthSession();
-import { claimAnonymousFollows } from './pushSubscriptions';
-import { claimLocalFavorites } from './favorites';
-import { claimAnonymousOrganizationFollows } from './organizationFollows';
-import { getProfile, updateTimezoneOverride } from './profile';
-import type { Locale } from './translations';
 
 export type AuthResult = { status: 'ok' } | { status: 'error'; code: string; message: string };
 
@@ -44,6 +42,7 @@ type AuthContextValue = {
   requestPasswordReset: (email: string) => Promise<AuthResult>;
   confirmPasswordReset: (email: string, token: string, newPassword: string) => Promise<AuthResult>;
   updateEmail: (email: string) => Promise<AuthResult>;
+  confirmEmailChange: (newEmail: string, token: string) => Promise<AuthResult>;
   updatePassword: (newPassword: string) => Promise<AuthResult>;
   // null = device-local (default). Only ever set for logged-in users — see
   // docs/ARCHITECTURE.md, Timezone override.
@@ -59,15 +58,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [timezoneOverride, setTimezoneOverrideState] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-      if (data.session?.user) {
-        getProfile(data.session.user.id)
-          .then((profile) => setTimezoneOverrideState(profile?.timezone_override ?? null))
-          .catch(() => {});
-      }
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        setSession(data.session);
+        if (data.session?.user) {
+          getProfile(data.session.user.id)
+            .then((profile) => setTimezoneOverrideState(profile?.timezone_override ?? null))
+            .catch(() => {});
+        }
+      })
+      // If reading the persisted session ever rejects (e.g. an AsyncStorage
+      // failure), still drop out of the loading state — otherwise ProfileScreen
+      // is stuck on its spinner forever with no way forward.
+      .finally(() => setLoading(false));
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
@@ -78,14 +82,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         getProfile(nextSession.user.id)
           .then((profile) => setTimezoneOverrideState(profile?.timezone_override ?? null))
           .catch(() => {});
-        claimAnonymousFollows(nextSession.user.id).catch((err) => {
-          console.error('claimAnonymousFollows failed:', err);
-        });
-        claimLocalFavorites(nextSession.user.id).catch((err) => {
-          console.error('claimLocalFavorites failed:', err);
-        });
-        claimAnonymousOrganizationFollows(nextSession.user.id).catch((err) => {
-          console.error('claimAnonymousOrganizationFollows failed:', err);
+        // Attaches this device's anonymous saved_* rows to the account
+        // (user_id derived server-side from auth.uid()) so they become the
+        // account's cross-device merkliste. No-op if nothing is saved.
+        claimSavesForUser().catch((err) => {
+          console.error('claimSavesForUser failed:', err);
         });
       }
     });
@@ -211,7 +212,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return toAuthResult(updateError);
       },
       updateEmail: async (email) => {
+        // Does NOT change the address yet — Auth emails a confirmation code to
+        // the new address and only applies the change once it's verified via
+        // confirmEmailChange() below. The send goes through the auth-email Edge
+        // Function's `email_change` template (see
+        // supabase/functions/send-auth-email/index.ts).
         const { error } = await supabase.auth.updateUser({ email });
+        return toAuthResult(error);
+      },
+      confirmEmailChange: async (newEmail, token) => {
+        // `email_change` verifies against the *new* address — that's where the
+        // code was sent. On success the session's user.email is updated and
+        // onAuthStateChange fires, so the profile screen picks it up on its own.
+        const { error } = await supabase.auth.verifyOtp({
+          email: newEmail,
+          token,
+          type: 'email_change',
+        });
         return toAuthResult(error);
       },
       updatePassword: async (newPassword) => {

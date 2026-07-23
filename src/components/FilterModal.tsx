@@ -30,8 +30,10 @@ export default function FilterModal({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheet}>
+      {/* Tapping the dimmed backdrop closes the sheet; the sheet itself is a
+          Pressable that swallows taps so they don't bubble up and close it. */}
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.headerRow}>
             <Text style={styles.title}>{title}</Text>
             <Pressable onPress={onClose} style={({ pressed }) => pressed && pressedStyle} hitSlop={8}>
@@ -55,8 +57,8 @@ export default function FilterModal({
               <Text style={styles.resetButtonText}>{resetLabel}</Text>
             </Pressable>
           )}
-        </View>
-      </View>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
@@ -81,8 +83,8 @@ const makeStyles = (colors: ColorTokens) =>
     },
     sheet: {
       backgroundColor: colors.background,
-      borderTopLeftRadius: radius.lg,
-      borderTopRightRadius: radius.lg,
+      borderTopLeftRadius: radius.hero,
+      borderTopRightRadius: radius.hero,
       padding: spacing.lg,
       maxHeight: '80%',
     },

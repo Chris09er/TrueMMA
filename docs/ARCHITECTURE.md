@@ -70,16 +70,25 @@ UI/org to develop against:
   (used by the `development` build profile / dev-client APK) both point
   at the **stage** Supabase project — originally left pointing at prod
   from before this pipeline existed, switched deliberately so on-device
-  testing can't accidentally read/write real production data. Note this
+  testing can't accidentally read/write real production data.
+  `SUPABASE_SERVICE_ROLE_KEY` in local `.env` is the **stage** service-role key
+  (a `sb_secret_...` key — verified 2026-07-20: it authorizes against the stage
+  project and 401s against prod), matching the stage `EXPO_PUBLIC_SUPABASE_URL`
+  above, so a local sync run can't touch prod either. (An earlier note here said
+  it was still the prod key — that was superseded when the stage key was put in
+  place, see [Known open items](#known-open-items). Anything needing the prod
+  service-role key — e.g. deleting a prod test user — fetches it on demand via
+  `supabase projects api-keys --project-ref mytdfwceuzgqopndqmjt --reveal`.)
+  Note this
   is orthogonal to the `dev`/`stage`/`main` **git branches**: pushing to
   `dev` triggers no CI at all (`deploy-migrations.yml`/
   `publish-ota-update.yml` only watch `stage`/`main`); a dev-client APK
   reflects whatever's on disk live via Metro (`npx expo start`), not any
-  git or CI state. `SUPABASE_SERVICE_ROLE_KEY` in local `.env` is **still
-  the prod key** — only the sync scripts read it, not the app, but fetch
-  the stage key too (`supabase projects api-keys --project-ref
-  qvjgsbeugllobgwabebv --reveal`, or the stage project's dashboard) before
-  running `npm run sync:balldontlie`/`sync:live` locally against stage.
+  git or CI state. `SUPABASE_SERVICE_ROLE_KEY` in local `.env` is the
+  **stage** key (see the dev-branch bullet above) — only the sync scripts read
+  it, not the app, so `npm run sync:balldontlie`/`sync:live` run locally target
+  stage. Fetch it (if ever re-provisioning) via `supabase projects api-keys
+  --project-ref qvjgsbeugllobgwabebv --reveal` or the stage dashboard.
 - **`stage` branch** — a real, persistent test environment: its own
   Supabase project (`true-mma-stage`, ref `qvjgsbeugllobgwabebv`,
   eu-central-1, **free tier**), its own EAS build profile (`preview` in
@@ -130,6 +139,20 @@ and diverge only through new files in `supabase/migrations/`.
   On Windows/Git Bash, prefix `docker cp`/`docker exec` calls that take
   container paths with `MSYS_NO_PATHCONV=1`, or the path gets rewritten
   into a Windows path and the command fails confusingly.
+  - **`config.toml` is declarative-only, NOT pushed by the pipeline** —
+    `deploy-migrations.yml` runs `supabase db push` (migrations) but never
+    `supabase config push`. So the `[auth.*]` blocks (rate limits, email
+    settings, etc.) do **not** reach remote; the live auth config is whatever
+    the dashboard holds. This is a footgun: several `config.toml` values had
+    drifted from the deliberate live state (`email_sent = 2` vs live 100,
+    `double_confirm_changes = true` vs live off, email `max_frequency = "1s"`
+    vs live 60s) — harmless while nobody runs `config push`, but a single such
+    run would silently revert those production decisions. Reconciled 2026-07-21
+    so the file mirrors live. **If you ever add `config push` to the pipeline,
+    re-audit every `[auth.*]` value against the dashboard first.** Reading live
+    auth config: `GET https://api.supabase.com/v1/projects/{ref}/config/auth`
+    with a `supabase login` PAT (Bearer) — there is no MCP tool and it is not in
+    Postgres, so this is the only way to audit rate limits.
 - `supabase db pull`/`db diff` need a local Docker-backed shadow
   database (Postgres running in a container) — Docker Desktop is now a
   project prerequisite for anyone doing schema work with the CLI. Plain
@@ -144,12 +167,19 @@ and diverge only through new files in `supabase/migrations/`.
   Management API rather than requiring the raw DB password.
 - **Supabase MCP server, added 2026-07-20** (`.mcp.json`, project-scoped): two
   entries, `supabase` (stage, `qvjgsbeugllobgwabebv`, full read/write) and
-  `supabase-prod` (production, `mytdfwceuzgqopndqmjt`, `read_only=true`) —
-  deliberately separate so an agent's default production access is read-only.
+  `supabase-prod` (production, `mytdfwceuzgqopndqmjt`) — deliberately separate.
   Lets an agent query logs/tables/migrations/linter-advisors and run SQL
   directly instead of routing through manual dashboard copy-paste. No secrets
   in the file itself; each server needs a one-time interactive `claude /mcp`
-  authentication per machine.
+  authentication per machine. **2026-07-20: `read_only=true` was removed from
+  the `supabase-prod` URL to make production read/write** (that URL param was the
+  only gate — there is no dashboard-side MCP read-only toggle). Caveat that bit
+  us once: a running session binds the server URL at start, so a `/mcp reconnect`
+  does **not** pick up the edited URL — a full Claude Code restart is required
+  before the write scope applies (a prod `deploy_edge_function` still errored
+  `Cannot deploy … in read-only mode` after only a reconnect, which is why that
+  day's prod redeploy went via the CLI). Until a restart is done, prod writes
+  must use the Supabase CLI.
 
 **GitHub Actions:**
 - Two GitHub **Environments** exist (`production`, `stage`), each with
@@ -219,21 +249,153 @@ Tables (Supabase Postgres), all with RLS enabled:
 | `fighters` | Fighter roster + record + tale-of-the-tape | none (read-only) |
 | `events` | Event calendar entries + status + broadcast segment times | none (read-only) |
 | `fights` | Matchups within an event, incl. results + card segment | none (read-only) |
-| `push_subscriptions` | Device push token ↔ followed fighter, optional `user_id` | **insert/select/delete** (anon, or own rows if logged in) |
-| `organization_follows` | Device push token ↔ followed league/org, optional `user_id` — same shape as `push_subscriptions` | **insert/select/delete** (anon, or own rows if logged in) |
 | `fight_votes` | Device id ↔ picked fighter per fight ("who wins?") | **insert/select/update** (anon, no login concept at all) |
 | `profiles` | Login-only: nickname + optional `timezone_override` per account (`id` = `auth.users.id`) | own row only |
-| `event_follows` | Login-only: user ↔ followed event (profile visibility) | own rows only |
-| `fighter_favorites` / `event_favorites` | Login-only: user ↔ favorited fighter/event | own rows only |
+| `saved_fighters` / `saved_events` / `saved_organizations` | **Gruppe C (bell→heart merge).** Unified "save = list + notify". `device_id`-anchored, with `user_id`/`push_token` as attributes | **RPC only** (base tables fully locked, no policies) |
+| `notification_prefs` | **Gruppe C Phase 6+.** Per-device, per-category push preferences (5 booleans; result defaults off). No row = start/announce types on, result off | **RPC only** (base table fully locked, no policies) |
 
-`push_subscriptions` and `organization_follows` are the exceptions to "app
-is read-only" for anonymous users — they're how the fighter-follow and
-league-follow bells register/unregister without requiring login.
-`fight_votes` goes further still: it has no login-gated path at all, keyed
-purely on a locally-generated device id (`src/lib/voting.ts`), independent
-of the push token so voting never triggers the OS notification-permission
-prompt. See [Notifications](#notifications), [Login / Profile](#login--profile),
-and [Voting](#voting).
+The five legacy favorite/follow tables (`push_subscriptions`,
+`organization_follows`, `event_follows`, `fighter_favorites`, `event_favorites`)
+were **dropped in `016`** after the Gruppe C cutover was verified on a real
+build — superseded by the `saved_*` tables above. **On stage; prod still has
+them until `015`–`017` are promoted.**
+
+### Gruppe C — the `saved_*` model (bell→heart merge)
+
+Gruppe C collapses the split "favorite (heart, list-only) vs. follow (bell,
+push)" into a single heart per object = *saved to the list AND notifications on
+by default*, tunable **per category** under Einstellungen (see
+[Notification preferences](#notification-preferences--per-category)). The six legacy rows above
+(`push_subscriptions`, `organization_follows`, `event_follows`,
+`fighter_favorites`, `event_favorites`) are replaced by three `saved_*` tables,
+one per object type.
+
+**Identity model.** The row is anchored on **`device_id`** — the only
+identifier that always exists (the same locally-generated `true-mma:device-id`
+that `fight_votes` uses; no OS notification permission required). This is the
+key improvement over the legacy split, where the three concepts had three
+*different* anchors and anonymous favorites could only live in local
+AsyncStorage. `user_id` and `push_token` are mutable **attributes** of the row:
+`user_id` set from `auth.uid()` on login (cross-device), `push_token` set when
+notification permission is granted. The push audience for any object is
+`push_token is not null AND` the saving device's category preference. Unique on
+`(device_id, object_id)`. The rows carry **no** notify flags of their own — those
+were dropped in `015`, see below.
+
+**Access.** Base tables are fully RLS-locked (RLS on, no policies, no
+anon/authenticated grants — same treatment as the `push_*` bookkeeping tables).
+All reads and writes go through SECURITY DEFINER RPCs (`save_*` / `unsave_*` /
+`attach_push_token` / `claim_saves_for_user` / `list_saved_*` /
+`get_notification_prefs` / `set_notification_prefs`),
+so a client can never SELECT another device's `push_token`. `device_id` and
+`push_token` are client-self-reported (the accepted anon trust model from
+`fight_votes` / `push_subscriptions`), but `user_id` is derived server-side from
+`auth.uid()` and cannot be spoofed into another account.
+
+**Rollout order (non-breaking).** Migration `013` (Phase 1) created the tables +
+RPCs. Migration `014` (Phase 2, applied to stage) rewired the push path:
+`notify_fighter_added_to_fight()` and `send_league_start_pushes()` now read
+`saved_*` filtered on `push_token is not null AND notify_<type>`, and
+`send_league_start_pushes()` gained a **third, brand-new audience** — savers of
+the specific event (`event_start`, tagged via a widened
+`push_send_batches.source` CHECK). Events had *no* server push before; only
+org-level league-start existed. An org+event+fighter overlap can now fire up to
+three "Es geht los!" messages at once — the same accepted duplicate the
+org+fighter overlap already produced in `009`, now three-way, no cross-audience
+dedup. Dead-token (DeviceNotRegistered) cleanup moved into
+`retire_dead_push_token()`: it **deletes anonymous rows** (that device is gone)
+but only **NULLs the token on logged-in rows** so a user's cross-device saved
+list survives an uninstall — a deliberate change from the old "the follow row
+was the subscription, delete it" behaviour, since a `saved_*` row is now also a
+list entry.
+
+After `014`, **nothing read the five legacy tables** (`push_subscriptions`,
+`organization_follows`, `event_follows`, `fighter_favorites`, `event_favorites`),
+and once the cutover was verified on a real build they were **dropped in `016`**
+(on stage; prod pending promotion). Data was **not** migrated — a clean cutover
+was chosen because both envs held only a handful of test rows (prod: 4 rows, one
+test user; stage: 3).
+
+**Client (Phase 3+4+5) — done.** The five legacy client libs collapsed into one
+[`src/lib/saves.ts`](../src/lib/saves.ts): `device_id` (shared with `voting.ts`
+via the new [`src/lib/deviceId.ts`](../src/lib/deviceId.ts)) is the anchor,
+`attach_push_token` runs when notification permission is granted, and
+`claim_saves_for_user` runs on login (from `auth.tsx`). The split
+heart/bell components are replaced by a single
+[`SaveHeart`](../src/components/SaveHeart.tsx) (kind = fighter/event/org, plus a
+`label` variant for the inline org save in the event detail) — one tap saves +
+turns notifications on, with a one-time "Erst-Klick-Hinweis" before the very
+first OS permission prompt. Saving is device-anchored and never blocked by a
+denied permission (the row stays in the list, push just doesn't fire). The
+profile Favoriten tab is one unified list of three saved sections; local event
+reminders are **retired** in favour of the new `event_start` server push.
+
+**Verified on a real build (2026-07-23).** Driven from the dev client over Metro
+— no new native build was needed, since Gruppe C added no native module. All
+three push audiences were confirmed arriving on a physical Android device:
+`fighter_follow` (by inserting a test fight for a saved fighter, then deleting
+it), plus `league_start` and `event_start` (by temporarily moving a saved event
+and a saved org's event into the `events_pending_league_start_push` window and
+restoring them afterwards). `save → attach_push_token` was confirmed stamping
+the `ExponentPushToken` onto the device's rows.
+
+### Notification preferences — per category
+
+Migration `015` moved notification preferences from **per object** to **per
+category**. Phase 1 had put a `notify_*` flag on every `saved_*` row, which put
+a switch on every saved entry; in use that was the wrong altitude — the list
+became a wall of toggles and nobody wants to answer "notify me about a new
+fight?" once per fighter. There are now **four** switches in total, under
+Einstellungen:
+
+| Category | Switches | Gates |
+| --- | --- | --- |
+| Kämpfer | `notify_new_fight`, `notify_fight_start`, `notify_fight_result` | `fighter_follow`, `fight_result` |
+| Veranstaltungen | `notify_event_start` | `event_start` |
+| Ligen | `notify_league_start` | `league_start` |
+
+`notify_fight_result` (added in `017`) is the one switch that **defaults OFF** —
+a result is a spoiler, so a device with no prefs row must not receive it. Its
+gate coalesces to `false` and `get_notification_prefs()` returns `false` for the
+unset case, the mirror image of the `coalesce(..., true)` the other four use. It
+fires from a dedicated `on_fight_result` trigger (`AFTER UPDATE ON fights WHEN
+old.result_method IS NULL AND new.result_method IS NOT NULL`, so exactly once
+when a result first lands, covering win/draw/NC), tagged `fight_result`, audience
+= saved fighters of either fighter (deduped on `push_token`).
+
+Stored in **`notification_prefs`**, one row per device, `device_id`-anchored
+exactly like `saved_*` (push is delivered to a device, so the device owns the
+preference) and claimed onto the account on login by the extended
+`claim_saves_for_user()`, so the setting survives a reinstall.
+
+A single prefs row was chosen over fanning a category switch out across every
+`saved_*` row: with fan-out, a newly saved object arrives with the column
+default `true` and then contradicts a category the user had switched off, so the
+client would need extra sync logic forever. With one prefs row there is nothing
+to drift — the audience queries read the pref directly and a new save inherits it
+automatically.
+
+**Absence means all-on.** A device that never opened the settings has no prefs
+row. Every audience query therefore `LEFT JOIN`s `notification_prefs` and wraps
+the flag in `coalesce(..., true)`, matching both the column default and
+`get_notification_prefs()`'s fallback. This is what let `015` land without a
+backfill — already-saved devices kept receiving push across the migration.
+
+Consequently the per-row `notify_*` columns, the three `set_*_notify` RPCs and
+the notify columns in the `list_saved_*` return types were all dropped in `015`.
+
+Gruppe C is complete on dev/stage (schema, client, per-category prefs incl. the
+default-off result push, legacy tables dropped). Remaining: promote `015`–`017`
+to prod, and refresh `docs/ecosystem-overview.html` once the flow reaches prod.
+
+The `saved_*` tables (via their RPCs) are the exception to "app is read-only"
+for anonymous users — a `SaveHeart` tap writes a device-anchored row without
+login. `fight_votes` works the same way, keyed purely on the same
+locally-generated device id (now shared via `src/lib/deviceId.ts`, imported by
+both `voting.ts` and `saves.ts`), independent of the push token so saving/voting
+never *requires* the OS notification-permission prompt (a save triggers it only
+to arm push, and stands even if denied). See [Notifications](#notifications),
+[Login / Profile](#login--profile), and [Voting](#voting).
 
 `fighters.primary_organization_id` (added 2026-07-19) is a best-effort
 "which org is this fighter currently in" column, populated by the sync
@@ -308,9 +470,9 @@ else (UFC + 9 other leagues) is populated by
     filtered server-side by org — calendar mode's org list is the full,
     unfiltered `organizations`, not `listOrganizations`, since "does this
     league have an event this month" isn't the same question), tapping
-    a day filters the list below to that day. Per-event reminder bell +
-    favorite heart (only bell rendered for events where `isEventUpcoming()`
-    is true, heart always). A pulsing
+    a day filters the list below to that day. Per-event `SaveHeart` (one heart
+    = save + notify, see the [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge)).
+    A pulsing
     red `LiveBadge` (`src/components/`, RN's built-in
     `Animated` API — no new dependency) renders on any card where
     `isEventLive()` is true (also used in `EventDetailScreen`'s header);
@@ -339,10 +501,16 @@ else (UFC + 9 other leagues) is populated by
     lowest-`card_position` fight within `card_segment === 'prelims'`),
     title-fight tag, scheduled rounds, and (for past fights) the result
     incl. `result_method_detail` when balldontlie has it (more specific
-    than `result_method`, e.g. exact submission type). A live badge next
+    than `result_method`, e.g. exact submission type). Completed fights show
+    a per-fighter **WIN/LOSS/DRAW/NC pill** next to each record (`fightOutcome`
+    + `ResultBadge`, added 2026-07-23 — replaced the old winner-name colouring;
+    WIN is the filled cobalt accent, LOSS/DRAW/NC are muted outlines, no
+    green/red trade dress. DRAW/NC are read from `result_method`
+    "Draw"/"No Contest" since those have no `result_winner_id`). A live badge next
     to a cancelled-banner-style slot in the header (see above); an
-    `OrganizationFollowBell` next to the org name (added 2026-07-19, see
-    [Notifications](#notifications)); and, for any fight with no result
+    inline org `SaveHeart` next to the org name (save league = notify on its
+    event starts, see [Gruppe C](#gruppe-c--the-saved_-model-bellheart-merge));
+    and, for any fight with no result
     yet, a vote UI (see [Voting](#voting)).
   - `FighterListScreen` — search, a single "Filter" button opening the
     shared `FilterModal` (see [App structure → Components](#app-structure))
@@ -357,7 +525,7 @@ else (UFC + 9 other leagues) is populated by
     the women's-section chip label strips the prefix for display, the
     stored/matched value keeps it). All three still derive their options
     client-side from the already-loaded fighter list. Pull-to-refresh,
-    per-fighter follow bell. Tapping a fighter opens `FighterDetailScreen`
+    per-fighter `SaveHeart`. Tapping a fighter opens `FighterDetailScreen`
     (used to jump straight to Tapology/Sherdog — now shows an in-app
     profile first, external links are explicit buttons there).
   - `FighterDetailScreen` — photo/name/nickname/nationality, W-L-D record
@@ -365,7 +533,7 @@ else (UFC + 9 other leagues) is populated by
     if `record_no_contests > 0`), a "Tale of the Tape" card (weight class,
     height/reach converted from balldontlie's inches to cm, stance, date
     of birth, birth place — section only renders the rows that have data),
-    Tapology/Sherdog link buttons, follow bell, upcoming fight (if any,
+    Tapology/Sherdog link buttons, `SaveHeart`, upcoming fight (if any,
     via `isEventUpcoming`) and full fight history (opponent, event,
     win/loss by comparing `result_winner_id`), fed by `getFighterFights()`
     in `queries.ts` (fetches both `fighter1_id`/`fighter2_id` sides via
@@ -380,22 +548,39 @@ else (UFC + 9 other leagues) is populated by
     long-press-copy, no new dependency) above the mailto button, and
     guards `Linking.openURL` with `Linking.canOpenURL` first, falling back
     to an alert instead of failing silently if no mail client is
-    configured.
-  - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
-    flow. Logged-in: nickname, change email/password,
-    followed fighters/events/**organizations** (added 2026-07-19) and
-    favorited fighters/events (reusing the same bell/heart components to
-    unfollow/unfavorite directly from the list), logout. **Settings gear
-    icon (2026-07-20, replaces the old standalone `LanguageScreen` tab)** —
-    top-right on `ProfileScreen`, shown in both logged-in and logged-out
-    states, opens `SettingsModal` (built on the shared `FilterModal` shell):
-    language picker (`SUPPORTED_LOCALES`, flag emoji per entry), a
-    System/Light/Dark appearance picker (`useTheme().themeOverride` +
-    `setThemeOverride()`, persisted to AsyncStorage — see `theme.tsx`
-    below), and — only when logged in, since it's stored server-side on the
-    user's profile — the timezone-override picker (moved out of the main
-    scroll view into the modal). See [Login / Profile](#login--profile) and
-    [Favorites](#favorites).
+    configured. A footer links to **Datenschutz / Impressum**, which open
+    `LegalScreen` — the `ContactTab` is a small native stack
+    (`ContactStackParamList`: `Contact` + `Legal { doc: 'privacy' | 'imprint' }`,
+    added 2026-07-23) so these are real pushed screens, not a modal. Their
+    content is a **placeholder** (see translations' `legal` section) — a text
+    swap before release, no structural change.
+  - `ProfileScreen` — a three-tab segmented switcher (Konto / Merkliste /
+    Einstellungen), **shown in both the logged-in and logged-out states**
+    (`SectionSwitcher`, shared). Konto: logged-out shows the auth form
+    (login/signup + forgot-password OTP + magic-link + OAuth, `AuthPanel`),
+    logged-in shows nickname, change email/password, logout. Favoriten: one
+    unified saved list — saved leagues / fighters / events, each row a
+    `SaveHeart` (tap to unsave) and nothing else; the notification switches live
+    under Einstellungen as four per-category toggles
+    (`NotificationPrefsSection`, replaced by an "enable notifications" hint when
+    the device has no push permission yet — see
+    [Notification preferences](#notification-preferences--per-category)).
+    **The Favoriten tab is identical logged-out and logged-in**
+    (`FavoritesList` + `useMerkliste`, shared) and needs no auth branch: the
+    `list_saved_*` RPCs union this device's rows with the logged-in user's rows,
+    so both states call the same `getSavedFighters`/`getSavedEvents`/
+    `getSavedOrganizations`, resolving the returned ids via
+    `getFightersByIds`/`getEventsByIds`/`getOrganizationsByIds`. See the
+    [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge).
+    Einstellungen (`SettingsSection`,
+    replaced the old standalone `LanguageScreen` tab 2026-07-20; the
+    switcher-tab layout replaced the earlier settings-gear `SettingsModal`):
+    a System/Light/Dark appearance picker (`useTheme().themeOverride` +
+    `setThemeOverride()`, persisted to AsyncStorage — see `theme.tsx` below)
+    and a language picker (`SUPPORTED_LOCALES`, flag per entry) in both
+    states, plus the timezone-override picker only when logged in (stored
+    server-side on the user's profile). See [Login / Profile](#login--profile)
+    and [Favorites](#favorites).
 - **Shared lib** (`src/lib/`):
   - `theme.tsx` (renamed from `theme.ts` 2026-07-20 — see [Known open
     items](#known-open-items) for the visual redesign this is part of) —
@@ -441,17 +626,19 @@ else (UFC + 9 other leagues) is populated by
   - `dateFormat.ts` — single `formatEventDate()` used by both event screens.
   - `queries.ts` — all Supabase reads, plus `isEventUpcoming()` (the single
     source of truth for "is this event in the future" — used by both list
-    and detail screens so the reminder bell's visibility never disagrees
+    and detail screens so the live-badge/"upcoming" logic never disagrees
     between them).
   - `types.ts` — DB row shapes as consumed by the app. `EventDetail` is
     `Omit<EventListItem, 'organization_id'>`, not a separate literal.
-  - `notifications.ts` / `pushSubscriptions.ts` — see below.
+  - `saves.ts` / `deviceId.ts` — see the
+    [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge)
+    and [Notifications](#notifications).
 - **Components** (`src/components/`): `BellIconButton` (shared
-  presentational icon-button, `icon`/`offsetRight` props), `EventReminderBell`,
-  `FighterFollowBell` (each wraps `BellIconButton`, shows an `Alert` after
-  a successful toggle explaining what enabling/disabling the reminder
-  does), `EventFavoriteHeart`, `FighterFavoriteHeart` (same pattern, see
-  [Favorites](#favorites)).
+  presentational icon-button, `icon`/`offsetRight` props — still used by
+  `SaveHeart` for the card-corner/inline heart), `SaveHeart` (the single
+  save-heart for fighters/events/orgs; `kind`/`id`/`active`/`label` props, wraps
+  `BellIconButton` or, with `label`, an inline text+icon button — see
+  [Gruppe C](#gruppe-c--the-saved_-model-bellheart-merge)).
   - **Filter system (redesigned 2026-07-20, replaces the old `FilterButton`
     below).** Three components, each for a distinct interaction that used
     to look identical: `SegmentedControl` (exclusive small mode switches —
@@ -494,52 +681,100 @@ else (UFC + 9 other leagues) is populated by
   - `SettingsModal` (2026-07-20) — built on the shared `FilterModal` shell,
     see [Login / Profile](#login--profile) for what it contains and why
     `LanguageScreen` was removed in favor of it.
-  - `OrganizationFollowBell` (2026-07-20) — now shows a success `Alert` on
-    toggle explaining the effect ("you'll be notified when an event from
-    this league starts"), matching the pattern `EventReminderBell` and
-    `FighterFollowBell` already had; it was the one bell missing this
-    explanation. Note the fighter-follow bell's explanation is accurate to
-    its *current* behavior (notifies when the fighter is booked for a new
-    fight) — notifying when that fighter's fight actually **starts** is a
-    distinct, not-yet-built feature (see [Known open
-    items](#known-open-items)), don't reword the alert to promise it before
-    the trigger exists.
+  - The former split bell/heart components (`EventReminderBell`,
+    `FighterFollowBell`, `OrganizationFollowBell`, `EventFavoriteHeart`,
+    `FighterFavoriteHeart`) were **removed** in the Gruppe C client merge and
+    replaced by the single `SaveHeart`. The old per-toggle "you'll be notified
+    when…" alerts are gone; the behaviour is now explained once via the
+    first-tap hint, and tuned per object by the profile notify switches. The
+    fighter save now covers **both** notify types (new-fight *and* fight-start,
+    each a toggle) — the earlier caveat that fight-start wasn't built no longer
+    applies (see the [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge)).
+
+## Design system (Blue Alloy)
+
+The full visual redesign (branch `dev`, 2026-07) replaced the ad-hoc styling
+with one token-driven system. Binding spec: `docs/DESIGN_HANDOFF.md` with the
+approved reference images in `docs/design-references/`. Direction is **Blue
+Alloy**, shipped in a Dark and a fully equivalent Light theme — nothing else
+("Steel"/"Onyx" in the old Profile mock are superseded, ignore them).
+
+- **Tokens (`src/lib/theme.tsx`).** `ThemeProvider` picks `dark`/`light` from
+  the OS by default, overridable and persisted (`true-mma:themeOverride`).
+  Screens read tokens via `useTheme()`; the exported `colors` is dark-only and
+  used **only** in the brief pre-mount window before the provider exists.
+  `ColorTokens` carries surfaces, text, cobalt `accent`, `focus`/`link`, the
+  reserved metallic `alloy`/`alloyMuted` (logo & rare premium accents only —
+  not general text), a `live` red for the on-air badge, and two static
+  gradients (`backgroundGradient`, `accentGradient`). Also here: `spacing`
+  (8-pt grid + `xs:4`), `radius` (control 10 / card 14 / hero 20),
+  `minTapTarget` 44, `pressedStyle`, the Barlow/Inter `fontFamily` +
+  `typography` scale, and `tabularNums` (spread onto times/dates/records).
+- **Primitives (`src/components/ui/`, barrel `index.ts`).** `Screen`,
+  `ScreenHeader`, `Card`, `Button`, `SearchInput`, `FilterIconButton`,
+  `SectionHeader`, `EmptyState`, `ErrorState`, `Skeleton*`, `StatTable`, and
+  `LogoMark`. Import from the barrel so screens share one surface. Bespoke
+  filter UIs still use `src/components/FilterModal.tsx` (a bottom-sheet shell:
+  scrolls, and closes on backdrop tap — the sheet is a `Pressable` that
+  swallows inner taps) with `FilterChip`.
+- **Header pattern (unified 2026-07-23).** Tab screens: `LogoMark` left,
+  centered uppercase page title, optional action right. Detail screens: back
+  button left, centered title, actions right (no logo — the back button owns
+  the left slot; EventDetail's old centered logo became a "Veranstaltung/
+  Event" title). `ScreenHeader` gives left/right equal flex so the centre
+  stays centred regardless of action count.
+- **LogoMark (`src/components/ui/LogoMark.tsx`).** The final brand mark as a
+  pure vector on a 100×100 viewBox (crisp at the 22–30px it ships at): a
+  silver flat-top octagon, a centred silver slab "T", and an inner contour
+  split cobalt-left / red-right to echo the blue and red corners of an MMA
+  bout. No raster logo asset ships. The app-icon PNGs (`assets/…`) are a
+  separate, manually-produced set that mirrors this mark on `#050C1C`.
+- **Data-carrying dates.** `formatEventDateTime` (`src/lib/dateFormat.ts`)
+  renders weekday + date + time, timezone-aware via the user's override; used
+  on the event list, the detail header, and the card "starts" times so all
+  three agree once an override is set.
+- **Long German + large system fonts.** Copy is DE-first; layouts must wrap,
+  not clip. The primary test device runs a large accessibility font — verify
+  wrapping and contrast in both themes on a real build, not just the emulator.
 
 ## Notifications
 
-Two independent mechanisms, because they have fundamentally different
-constraints:
+Since the Gruppe C merge, **all** notifications are real server push, keyed off
+the unified `saved_*` tables (one row = saved + notify). The client side is a
+single lib, `src/lib/saves.ts` (device token resolved via
+`Notifications.getExpoPushTokenAsync`, stamped onto the device's rows with
+`attach_push_token` when permission is granted); the audience/table/trigger
+details live in the [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge).
+The four push types below differ only in their trigger mechanics:
 
-1. **Event reminders** (`src/lib/notifications.ts`) — **local** device
-   notifications via `expo-notifications`, scheduled on-device for a
-   specific event's start time, tracked in AsyncStorage
-   (`true-mma:event-reminder:<eventId>` → notification id). No backend
-   involved. Works in Expo Go.
-2. **Fighter-follow push** (`src/lib/pushSubscriptions.ts`) — **real**
-   push notifications, since the app needs to notify a user even when it's
-   closed, triggered by a database change (a new fight involving a
-   followed fighter). This requires:
-   - A device push token (`Notifications.getExpoPushTokenAsync`), stored
-     in `push_subscriptions` keyed by `(push_token, fighter_id)`.
+1. **Event-start push** (`saved_events`, gated by the device's
+   `notify_event_start` pref) — **replaced the
+   old local device reminders.** Events had no server push before Gruppe C; a
+   saved event now fires via the `event_start` audience of
+   `send_league_start_pushes()` (the timer path in item 3), so it no longer
+   depends on the app having scheduled a local `expo-notifications` trigger.
+2. **Fighter-follow push** (`saved_fighters`) — **real** push notifications,
+   since the app needs to notify a user even when it's closed, triggered by a
+   database change (a new fight involving a saved fighter). This requires:
+   - A device push token (`Notifications.getExpoPushTokenAsync`), stored on the
+     device's `saved_fighters` rows (`push_token`), audience filtered on
+     `push_token is not null` AND the device's `notify_new_fight` pref.
    - A Postgres trigger (`notify_fighter_added_to_fight`, uses the
      `pg_net` extension) that fires `AFTER INSERT ON fights` and POSTs
      directly to Expo's push API (`https://exp.host/--/api/v2/push/send`)
-     for every matching subscription — **no Supabase Edge Function**, kept
-     entirely in SQL to avoid needing the Supabase CLI. See
-     `push_subscriptions` in [Data model](#data-model) for the SQL.
+     for every matching saved row — **no Supabase Edge Function**, kept
+     entirely in SQL to avoid needing the Supabase CLI.
    - **Expo Go cannot receive real push notifications since SDK 54** — a
-     development build (EAS) is required to test this path. Local
-     reminders are unaffected.
-   - **Also fires on fight start** (2026-07-20, `dev` only — see [Known open
-     items](#known-open-items)), piggybacked onto `send_league_start_pushes()`
-     below rather than its own trigger, since "did this event start" is
-     already that function's job and there's no per-fight start time to key
-     a separate trigger off anyway.
-3. **League-follow push** (`src/lib/organizationFollows.ts`, added
-   2026-07-19) — same push-token/anonymous-follow shape as fighter-follow,
-   but fires when a followed organization's event actually **starts**, not
-   when it's created, so it can't be a simple `AFTER INSERT` trigger. It
-   needs something that ticks on a timer.
+     development build (EAS) is required to test this path.
+   - **Also fires on fight start** (`notify_fight_start`), piggybacked onto
+     `send_league_start_pushes()` below rather than its own trigger, since "did
+     this event start" is already that function's job and there's no per-fight
+     start time to key a separate trigger off anyway.
+3. **League-follow push** (`saved_organizations`, gated by the device's
+   `notify_league_start` pref) — fires
+   when a saved organization's event actually **starts**, not when it's created,
+   so it can't be a simple `AFTER INSERT` trigger. It needs something that ticks
+   on a timer.
 
    **Driven by `pg_cron` inside Supabase since 2026-07-19**
    (`supabase/migrations/006_league_start_push_pg_cron.sql`). It originally
@@ -593,6 +828,18 @@ constraints:
    unreachable longer than that window the push is correctly *dropped*
    rather than sent late. That divergence is intentional — don't "fix" it by
    unifying the two buffers.
+4. **Fight-result push** (`saved_fighters`, gated by `notify_fight_result` —
+   the one push that **defaults OFF**, since the body is a spoiler) — added in
+   `017`. Unlike the fighter-follow push (item 2, `AFTER INSERT`), this fires
+   from an `AFTER UPDATE ON fights` trigger (`on_fight_result`) gated on the
+   `result_method` null→non-null transition, so it fires exactly once when a
+   result first lands — covering win (`result_winner_id` set), draw and
+   no-contest (winner null, `result_method` carries it). Historical fights
+   inserted with a result already present don't fire (INSERT, not UPDATE), and a
+   later correction to an already-scored fight doesn't re-fire. Audience = saved
+   fighters of either fighter, deduped on `push_token`, tagged `fight_result`.
+   Results arrive via the balldontlie upsert (`sync-balldontlie` /
+   `sync-live-event`), which is what performs the UPDATE.
 
 **Chunking and delivery receipts, added 2026-07-19
 (`supabase/migrations/008_push_chunking_and_receipts.sql`).** Both push paths
@@ -620,10 +867,12 @@ separately:
 - **`request_push_receipts()` / `reconcile_push_receipts()`** — ≥20 minutes
   after a ticket was created (Expo recommends waiting ≥15 min), batches
   ticket ids (≤1000 per Expo's `/getReceipts` limit) and polls it, updating
-  `push_tickets.receipt_status`. A `DeviceNotRegistered` receipt deletes
-  every `push_subscriptions`/`organization_follows` row with that
-  `push_token` — checked on both tables regardless of which path the ticket
-  came from, since a stale token is stale everywhere.
+  `push_tickets.receipt_status`. A `DeviceNotRegistered` receipt calls
+  `retire_dead_push_token()` (Gruppe C, `014`), which **deletes** anonymous
+  `saved_*` rows with that `push_token` but only **NULLs the token** on
+  logged-in rows so a user's cross-device saved list survives an uninstall —
+  applied across all three `saved_*` tables, since a stale token is stale
+  everywhere.
 - **`push_maintenance()`** runs the three reconcile/request functions above
   in order, guarded by its own `pg_try_advisory_lock` (independent of
   `send_league_start_pushes`'s lock — different concern). Registered as a
@@ -659,18 +908,17 @@ separately:
   yet verified against a real uninstalled app** — same caveat the
   league-start push already carries for real end-to-end delivery.
 
-`resolvePushToken()` in `pushSubscriptions.ts` deliberately never prompts
-for permission just to *check* follow-state (`isFollowingFighter`) — only
-an explicit `followFighter()` call (interactive) may trigger the OS
-permission dialog. Concurrent callers share one in-flight token-resolution
-promise.
+`resolvePushToken()` in `saves.ts` deliberately never prompts for permission
+just to *read* state — only an explicit `save()` (interactive) may trigger the
+OS permission dialog, via `ensurePushTokenAttached(true)`. Concurrent callers
+share one in-flight token-resolution promise.
 
 ## Login / Profile
 
-Login is **optional** — every existing feature (browsing, fighter-follow,
-event reminders) keeps working fully anonymously, same as before. Login is
-additive: it gives a user a "Profil" tab (`ProfileScreen`) where they can
-see what they follow across devices, pick a nickname, and manage their
+Login is **optional** — every existing feature (browsing, saving fighters/
+events/leagues) keeps working fully anonymously, same as before. Login is
+additive: it gives a user a "Profil" tab (`ProfileScreen`) where their saved
+merkliste syncs across devices, and they can pick a nickname and manage their
 email/password. No feature is gated behind login (yet) — see [Known open
 items](#known-open-items) if that changes.
 
@@ -695,20 +943,31 @@ items](#known-open-items) if that changes.
   Password" email template references `{{ .Token }}` (the OTP code)
   instead of the default magic-link `{{ .ConfirmationURL }}` — without
   that, users get a link instead of a code and the in-app flow breaks.
-- **Anonymous → account linking:** fighter-follow (`push_subscriptions`)
-  keeps working without login, keyed by push token as before, now with an
-  additional nullable `user_id`. On sign-in, `claimAnonymousFollows()`
-  (`src/lib/pushSubscriptions.ts`) attaches this device's already-existing
-  anonymous rows (`user_id is null`, matching push token) to the newly
-  logged-in account, so follows made before login aren't lost or
-  duplicated.
-- **Event follows:** event reminders themselves stay 100% local
-  (`expo-notifications` + AsyncStorage, unaffected by login). A separate
-  `event_follows` table (login-only, no anonymous rows) exists purely so a
-  followed event is visible in the profile; `EventReminderBell` writes to
-  it as a best-effort side effect alongside the local schedule/cancel call
-  — the local reminder is always the source of truth for the bell's
-  on/off state.
+- **Email change (OTP, same pattern as reset), fixed 2026-07-20:**
+  `updateEmail()` (`auth.tsx`) calls `updateUser({ email })`, which does *not*
+  apply the change immediately — Auth sends a 6-digit code to the **new**
+  address, and `confirmEmailChange(newEmail, token)` verifies it with
+  `verifyOtp({ type: 'email_change', email: newEmail })`. `ProfileScreen`'s
+  change-email section switches to a code-entry sub-state (`pendingEmail`) after
+  the code is sent, mirroring the signup/reset/magic-link code flows, with a
+  Cancel that restores the original address. This flow **requires the auth-email
+  hook to handle `email_change`** (added the same day, see [Auth
+  emails](#auth-emails)) and **requires "Secure email change" /
+  `double_confirm_changes` to be OFF** on both Supabase projects: with it ON,
+  Auth demands confirmation from *both* the old and new address (two separate
+  mails), which the single-code in-app UI can't complete. `supabase/config.toml`
+  currently still has `double_confirm_changes = true` (a CLI default, local-only)
+  — the dashboard value on stage/prod is the one that matters and must be set to
+  OFF there, same manual per-project sync caveat as the SMTP/template config.
+  Before this fix the feature was broken outright on every environment (the hook
+  500'd on the unhandled `email_change` type).
+- **Anonymous → account linking:** saving works without login, keyed by the
+  device id (`saved_*.device_id`). On sign-in, `claimSavesForUser()`
+  (`src/lib/saves.ts` → `claim_saves_for_user` RPC) attaches this device's
+  anonymous rows (`user_id is null`, matching `device_id`) to the newly
+  logged-in account — `user_id` is derived server-side from `auth.uid()`, never
+  passed by the client — so saves made before login aren't lost or duplicated
+  and become the account's cross-device list.
 - **Nickname:** stored in `profiles` (`id` = `auth.users.id`, one row per
   account, auto-created by an `on_auth_user_created` trigger on signup),
   optional, editable anytime from the profile screen. Minimal data
@@ -869,8 +1128,8 @@ which is a hard requirement, not just a "nice to have for scale."
   the project once via the exact same failure mode (a fix landing on one
   project's dashboard being silently assumed to apply everywhere).
 
-**Multilingual auth emails via Edge Function — live on stage, not yet working
-on production, 2026-07-20.** The dashboard templates above are per-*project*,
+**Multilingual auth emails via Edge Function — live on stage, and fixed on
+production 2026-07-20 (was a stale SMTP-password secret).** The dashboard templates above are per-*project*,
 not per-*user* — there's no way to send German to a German-locale user and
 English to an English-locale user through them. This is the project's
 **first Supabase Edge Function** (previously deliberately avoided — push
@@ -930,109 +1189,99 @@ relationship on top of the new architecture surface.
   `"hook":"https://qvjgsbeugllobgwabebv.supabase.co/functions/v1/send-auth-email"`,
   `"msg":"Hook ran successfully"`, `"success":true` — the function reached
   real IONOS SMTP and sent successfully.
-- **Production: still failing, unresolved as of 2026-07-20.** Every signup
-  against production returns `500 unexpected_failure` /
-  `"Unexpected status code returned from hook: 500"` — Auth confirms it's
-  calling the right hook URL and getting a real HTTP 500 back (not a
-  connection failure), so the function itself boots and runs; the failure is
-  somewhere inside its own logic (most likely the SMTP send, though this is
-  unconfirmed). Debugging steps tried, none resolved it:
-  - Re-deploying with Docker running (a `supabase functions deploy` run
-    without Docker uses a raw-upload path instead of "Bundling Function",
-    which seemed like a plausible culprit — ruled out, still 500 after a
-    clean bundled deploy).
-  - Re-running `secrets set IONOS_SMTP_PASSWORD` twice with a freshly-typed
-    (not pasted-from-clipboard) value.
-  - Raising production's email-send rate limit from 2/hour (found
-    unexpectedly low mid-investigation, see Known open items) to 100 — ruled
-    out a `429` being mistaken for the real error, but the underlying `500`
-    persists independently.
-  - Added `console.log`/`console.error` calls at every error path and inside
-    the SMTP-config check, to get real diagnostic output into the Function's
-    own log viewer (previously empty, since the function only put error
-    detail in its HTTP response body, which Auth's hook-relay never
-    forwards). **Not yet actually seen** — both the Supabase MCP `get_logs`
-    tool and the dashboard's own Function logs UI kept showing stale entries
-    from before this logging was added, even several minutes after a fresh
-    test; unclear whether this is a genuine multi-minute log-pipeline delay
-    or the new deploy hadn't gone live yet. Needs a fresh look next session —
-    check the Function logs for the new `console.log`/`console.error` output
-    first, that should immediately reveal the real cause.
-  - Stage and production are meant to use identical IONOS credentials (same
-    mailbox, `noreply@true-mma.com`) — since stage works, production's
-    failure is most likely a data-entry slip specific to that project's
-    secret value, not a code or architecture problem.
+- **Production: fixed 2026-07-20 — it was the `IONOS_SMTP_PASSWORD` secret
+  after all.** Every signup used to return `500 unexpected_failure` /
+  `"Unexpected status code returned from hook: 500"`; Auth confirmed it was
+  calling the right hook URL and getting a real HTTP 500 back (not a connection
+  failure), so the function booted and ran and the failure was inside its own
+  logic. The `execution_time_ms` on the failing calls (~730–810 ms) was the
+  tell: a template-lookup 500 returns in milliseconds, whereas ~800 ms is a
+  real TLS handshake + AUTH to `smtp.ionos.de:465` that then fails — i.e. the
+  SMTP send, exactly the earlier `535 "Authentication credentials invalid"`
+  signature. Re-setting `IONOS_SMTP_PASSWORD` on production
+  (`npx supabase secrets set IONOS_SMTP_PASSWORD=... --project-ref
+  mytdfwceuzgqopndqmjt`) and re-running a real signup against production
+  returned **`POST /auth/v1/signup` → 200** — the same endpoint that had been
+  cascading to 500 on every prior attempt, so a 200 there is a reliable proof
+  the hook ran. (Confirmation of the *sent mail* via the Function's own
+  `console.log` output was still pending at fix time — the Supabase log
+  pipeline lags several minutes and the MCP `get_logs` edge-function stream
+  only surfaces the request-level line, not stdout — but the endpoint-level
+  200 is conclusive on its own.) Earlier ruled-out theories are kept for the
+  record: a non-bundled Docker-less deploy, a mistaken `429` rate-limit (prod's
+  limit was found silently at 2/hour and raised to 100, see Known open items),
+  and the template-lookup path. **Lesson: `execution_time_ms` on an Edge
+  Function 500 distinguishes "failed instantly in its own logic" from "failed
+  in an outbound network call" — check it before assuming the cause.**
+  Debugging steps that had been tried before the fix: re-deploying with Docker
+  running; adding `console.log`/`console.error` at every error path (still in
+  the code — the credential-length check at
+  `send-auth-email/index.ts` is the one diagnostic worth *removing* once this
+  is confirmed stable, see Known open items).
+- **`email_change` added to the hook 2026-07-20.** A review found the profile
+  screen's "change email" feature was broken on **both** stage and production:
+  `updateUser({ email })` makes Auth emit an `email_change` mail, which the
+  hook's original narrow scope (`signup`/`recovery`/`magiclink` only) had no
+  template for, so it 500'd and the change failed outright. The hook now
+  handles `email_change` (and aliases `email_change_current`/
+  `email_change_new` to the same template, so toggling "Secure email change" in
+  the dashboard can never silently reintroduce an unhandled type). See [Login /
+  Profile](#login--profile)'s email-change flow for the app side and the
+  `double_confirm_changes` caveat. **Deployed to both environments 2026-07-20**
+  — stage via the MCP `deploy_edge_function` (v5), production via the CLI
+  (`supabase functions deploy send-auth-email --no-verify-jwt --project-ref
+  mytdfwceuzgqopndqmjt`); the CLI path was used for prod because the prod MCP
+  was still read-only at deploy time (see the MCP note below). "Secure email
+  change" / `double_confirm_changes` was also set OFF on both dashboards the
+  same day, so the single-code in-app flow can complete.
 - Email content is currently plain text, not branded HTML — visual design is
   explicitly deferred, not a blocker for the mechanism working.
 
-## Favorites
+## Favorites (now "saves")
 
-Separate concept from follows/reminders (see [Notifications](#notifications)
-and [Login / Profile](#login--profile)) — a heart icon next to the bell on
-fighters and events. Favoriting pins an entry to the top of its list and
-shows it in the profile; it has nothing to do with push/local
-notifications.
+Favoriting and following were **merged** in Gruppe C — there is no longer a
+separate favorite concept. One `SaveHeart` per fighter/event/org both pins the
+entry to the top of its list / into the profile Favoriten tab **and** turns its
+push notifications on (tunable per category under Einstellungen, see
+[Notification preferences](#notification-preferences--per-category)).
+The full model — the `device_id` anchor,
+the `saved_*` tables and RPCs, anonymous → account claiming, and push audiences
+— is documented under the
+[Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge). The old
+fully-local AsyncStorage favorites and the `fighter_favorites`/`event_favorites`
+tables are retired (legacy tables not yet dropped).
 
-- **No push-token anchor for anonymous users, unlike follows:**
-  `push_subscriptions` can have an anonymous row because the device push
-  token is a stable anonymous identity to key rows on. Favorites have no
-  equivalent, so anonymous favoriting (`src/lib/favorites.ts`) is **fully
-  local** — a plain array of ids in AsyncStorage
-  (`true-mma:favorites:fighters` / `:events`) — until login, at which
-  point reads/writes switch to the `fighter_favorites`/`event_favorites`
-  tables (`user_id` + `fighter_id`/`event_id`, unique constraint, RLS
-  scoped to `auth.uid() = user_id`, no anonymous rows at all — see
-  `supabase/migrations/002_favorites.sql`).
-- **Claim on login:** `claimLocalFavorites(userId)`, called from
-  `src/lib/auth.tsx`'s `SIGNED_IN` handler alongside
-  `claimAnonymousFollows()`, upserts the locally-stored ids into the
-  account tables so favorites made before login aren't lost. Local storage
-  is left in place afterwards (harmless if the user logs out again).
-- **UI:** `FighterFavoriteHeart`/`EventFavoriteHeart` (`src/components/`)
-  mirror `FighterFollowBell`/`EventReminderBell`, built on the same
-  `BellIconButton`, now generalized with an `icon` prop (heart vs. bell
-  glyph) and an `offsetRight` prop so both icons can sit side by side on
-  one card. `FighterListScreen`/`EventListScreen` sort favorited entries
-  to the top of the list (stable sort, existing order preserved within
-  each group) using a favorite-id `Set` kept in sync via each heart's
-  `onToggle` callback, refreshed from `getFighterFavoriteIds()`/
-  `getEventFavoriteIds()` on load and pull-to-refresh.
+- **List sort:** `FighterListScreen`/`EventListScreen` still sort saved entries
+  to the top (stable sort, order preserved within each group) using a saved-id
+  `Set` kept in sync via each `SaveHeart`'s `onToggle`, refreshed from
+  `getSavedIds('fighter')` / `getSavedIds('event')` on load and pull-to-refresh.
 
 ## Voting
 
-Added 2026-07-19: anonymous community voting on upcoming fights ("who
-wins?"), one vote per device — no login required, and deliberately
-independent of the push-token identity used for follows (voting must never
-trigger the OS notification-permission prompt).
+Anonymous "who wins?" community vote on undecided fights. Added 2026-07-19,
+**removed** during the Blue Alloy redesign (client `src/lib/voting.ts` deleted
+2026-07-23), then **re-added 2026-07-23** on explicit product request (the
+Blue Alloy handoff's "No win-pick/voting controls" line is knowingly
+overridden here). `src/lib/voting.ts` was restored unchanged from history.
 
-- **Identity:** `getDeviceId()` (`src/lib/voting.ts`) generates a random
-  id once, cached in AsyncStorage (`true-mma:device-id`) — not
-  `expo-crypto`'s `randomUUID`, deliberately, to avoid pulling in a native
-  module just for this.
-- **Schema:** `fight_votes` (`fight_id`, `device_id`, `picked_fighter_id`,
-  unique on `(fight_id, device_id)`) — see [Data model](#data-model). RLS
-  allows anonymous insert/select/update outright (same trust model already
-  accepted for `push_subscriptions`'s anonymous rows: client self-reports
-  its own identifier, low-sensitivity data, no server-verifiable anti-abuse
-  beyond the per-device uniqueness constraint). Concretely, the `update`
-  policy is `using (true)` with no `device_id` scoping, so vote counts are
-  fully attacker-mutable: anyone with the anon key can not only stuff the
-  tally with forged `device_id`s (the uniqueness constraint only stops
-  duplicates, not distinct fakes) but also **overwrite existing rows created
-  by other devices** in a single `PATCH`. Accepted for MVP — these are
-  anonymous, non-PII "who wins?" tallies with no server-verifiable device
-  identity to scope against — but treat the counts as indicative, not
-  trustworthy. If they ever need to be trustworthy, casting has to move
-  behind a `security definer` RPC / service-role path.
-- **Fetching:** `getEventVotes()` batches one query per event load (all
-  fight ids via `.in()`) rather than one query per fight card, then counts
-  votes per fighter client-side — small enough per event that a dedicated
-  aggregation view wasn't worth adding.
-- **UI (`EventDetailScreen`):** only shown for fights with no result yet
-  (`result_winner_id == null`) and not cancelled. Before voting: two
-  pressable picks. After voting: a two-segment percentage bar, the picked
-  side highlighted. `castVote()` upserts on `(fight_id, device_id)`, so
-  changing a pick just overwrites the previous vote.
+- **UI** (`EventDetailScreen`, `FightVoteRow`): shown only for votable fights
+  — both fighters known, `status` neither `completed` nor `cancelled` (see
+  `isVotable`). Before voting: two "Tippe {name}" buttons. After voting: a
+  two-segment split bar with each fighter's share, the voted side highlighted
+  in `accent`. Votes are fetched once per event (`getEventVotes`, batched) and
+  cast optimistically (`castVote`, local tally update then persist).
+- **Identity:** a locally-generated `device_id` (`true-mma:device-id` in
+  AsyncStorage), deliberately **independent of the push token** so voting never
+  triggers the OS notification-permission prompt.
+- **Trust model — unchanged and still permissive:** the `fight_votes` table
+  (`fight_id`, `device_id`, `picked_fighter_id`, unique on
+  `(fight_id, device_id)`) has anonymous insert/select/update with
+  `update using (true)` and no `device_id` scoping, so counts are
+  attacker-mutable and only ever indicative. **Open item:** the earlier
+  removal note recommended moving casting behind a `security definer` RPC /
+  service-role path before any real reliance on the numbers — that hardening
+  was **not** done on re-add (restored as-was); revisit before the counts are
+  ever presented as trustworthy.
 
 ## balldontlie sync
 
@@ -1241,6 +1490,25 @@ after seeding data doesn't create duplicate organizations) →
   rebuild needed.
 - Run `npx expo install --check` (or `--fix`) after any dependency change
   to catch drift from the SDK's expected versions before it causes this.
+- **Stale `android/` after an identity/config change — the "flags don't
+  render" trap (2026-07-21, cost hours):** `android/` is gitignored, so it can
+  silently drift from `app.json`. After the mma-pocket → true-mma rename it kept
+  the OLD dev-client scheme `exp+mma-pocket` (the app actually registers
+  `exp+true-mma`, from the slug) and an old identity in its `AndroidManifest.xml`,
+  which broke `expo run:android`'s auto-launch and skewed the fingerprint. A
+  local dev build also **embeds a JS bundle** (the expo-updates fallback) and
+  expo-updates checks its channel on every launch, so a device can run **stale
+  embedded/OTA code while you edit local files that never appear** — the country
+  flags were fine all along; the device was just on an old bundle.
+  **Rules:** (1) after ANY change to app.json/app.config.js identity or native
+  config, run `npx expo prebuild --clean` and rebuild — never trust a long-lived
+  `android/`. (2) When verifying a *local* JS change on the device, first prove
+  fresh code is running with an unmissable sentinel (e.g. a temp placeholder
+  string) and confirm Metro logged a fresh `Android Bundled (N modules)` request
+  from the device — before diagnosing anything render-level. (3) Device↔Metro:
+  use `adb reverse tcp:8081 tcp:8081` + a `localhost` URL; the host LAN IP:8081
+  is firewall-blocked here (`okhttp Callback failure`). The full playbook lives
+  in the auto-memory `reference_local_dev_build_on_device`.
 - **EAS Update (OTA), set up 2026-07-19:** `expo-updates` installed (a
   native module — requires a fresh `eas build --profile development` once,
   same as any native module addition, see the rebuild-triggers note
@@ -1423,6 +1691,28 @@ brand assets.
 
 ## Known open items
 
+- **API data-provider evaluation — in progress, undecided (opened 2026-07-22).**
+  balldontlie's coverage is the incumbent pain point: measured live (not quoted)
+  via `scripts/evaluate-api-providers.ts` (`npm run eval:apis`), its *entire*
+  history is **361 league-carrying events across 9 leagues, 1993–2026** (UFC 189
+  · PFL 76 · LFA 37 · DWCS 20 · CW 16 · ONE 10 · RIZIN 7 · Bellator 3 · Invicta 3),
+  OKTAGON = 0 — too thin on history, leagues, and per-event depth (its event
+  record carries only a `league` object, no fight-level stats). The evaluation
+  script probes candidate providers with the same "count it, don't trust the
+  marketing" discipline the [balldontlie sync](#balldontlie-sync) section
+  hard-won: for each provider whose key is set (`APISPORTS_KEY`,
+  `SPORTSDATAIO_KEY`, plus the `BALLDONTLIE_API_KEY` baseline) it reports real
+  league breadth + counts, history depth, and a dump of the raw record fields
+  (to compare data *depth*, e.g. round/strike stats), respecting free-tier caps
+  via per-provider request budgets. **Next step:** obtain free/trial keys
+  (API-Sports free 100 req/day — dashboard.api-football.com; SportsDataIO trial),
+  re-run, and decide. Goal = maximum league coverage; no single league is
+  mandatory. Note the app never calls any provider directly (sync-into-Supabase
+  architecture, low request volume), so a hard-quota/flat-fee provider is
+  strongly preferred for cost control over a metered/sales-contract one. Nothing
+  in the system has changed yet — when a switch (or an additive second source,
+  e.g. an Apify historical backfill) is decided, update the map
+  ([ecosystem-overview.html](ecosystem-overview.html)) and this handbook together.
 - ~~`main` had never received any of the dev/stage/main pipeline's work~~ —
   **resolved 2026-07-19.** First promotion since the pipeline was set up:
   PR #11 merged all 21 commits from `stage` into `main` in one go (sync-cost
@@ -1675,12 +1965,14 @@ brand assets.
   preference server-side. Open design questions, deliberately left for a
   future session rather than guessed at now: scope (per-fight mute, a
   followed-fighter-only mute, or a global "hide all results" toggle?),
-  whether it should also suppress spoilers in push-notification text
-  (fighter-follow push currently sends the opponent's name the moment a
-  fight is announced, not a result — but a future "fight ended" push would
-  need this considered), and how it interacts with `FighterDetailScreen`'s
-  fight history (which shows W/L for every past fight) versus
-  `EventDetailScreen`'s per-fight result line.
+  whether it should also suppress spoilers in push-notification text — this
+  is now live, not hypothetical: the **fight-result push** (`017`, see
+  [Notification preferences](#notification-preferences--per-category)) puts the
+  outcome directly in the notification body. It ships **default OFF** precisely
+  because there is no spoiler toggle yet, so a result push is strictly opt-in;
+  if/when spoiler protection lands it should gate that push's text too. Also
+  open: how it interacts with `FighterDetailScreen`'s fight history (which shows
+  W/L for every past fight) versus `EventDetailScreen`'s per-fight result line.
 - **Full visual/UX redesign — in progress, started 2026-07-20.** Agreed
   process: critical analysis → mood/color → typography → component system →
   screen-by-screen, nothing final without discussion (see [App
@@ -1759,6 +2051,57 @@ brand assets.
   `SegmentedControl` and the org `FilterChip`s, no crash. Not yet done: a
   logo and app icon (must be store-review-distinguishable from
   UFC/OKTAGON, plus font/icon-license checks for commercial use).
+  **Country flags, weight-class abbreviations, and fighter sorting — built
+  2026-07-20, committed on `dev` only, not yet hands-on-verified and not yet
+  promoted.**
+  - **Flags:** `src/components/Flag.tsx` renders a country flag via
+    `react-native-svg`'s `SvgXml` from `country-flag-icons`' 3x2 SVG strings;
+    `src/lib/countryFlags.ts` maps balldontlie's free-text country names
+    (`fighters.nationality`, `events.country` — plain English names like
+    `USA`/`Brazil`/`England`, not ISO codes) to flag keys, covering all ~120
+    distinct DB values plus common alternate spellings, case-insensitive
+    fallback, and renders nothing (never errors) on an unmapped name. Uses the
+    real **`GB_ENG`/`GB_SCT`/`GB_WLS`/`GB_NIR`** constituent flags for
+    England/Scotland/Wales/Northern Ireland, not the Union Jack — worth having
+    for a British-Isles-heavy roster. The whole 3x2 set (~265 flags) is
+    imported via `import * as` so a fighter from a new country gets a flag with
+    no code change beyond a name-map entry; deliberate bundle-size-over-
+    per-country-imports trade-off (SVG strings compress well, and this keeps
+    the feature self-healing as the roster grows). Shown on: fighter-list rows,
+    fighter-detail header, `EventDetailScreen`'s fight-card matchup (next to
+    each fighter name), the event location line (list + detail), and the
+    nationality **filter chips** (via `FilterChip`'s generic optional `leading`
+    prop, so the chips match the flags on the rows they filter). Not shown
+    (deliberately, to avoid clutter): the fighter-detail fight-history opponent
+    rows — the opponent name is already a tap-link to their detail, which
+    carries the flag in its header.
+  - **Library choice:** `country-flag-icons` (mainstream, MIT, ~weekly
+    releases) as a pure SVG-string data source + Expo's first-party
+    `react-native-svg` for rendering — chosen over the dedicated RN flag
+    components (`react-native-svg-circle-country-flags`/
+    `react-native-country-flag` both unmaintained since 2023,
+    `react-native-country-flag-icons` a v1.0.0 single-author package), to avoid
+    a stale/immature dependency for a project that's otherwise careful about
+    supply-chain surface.
+  - **Weight-class abbreviations:** `abbreviateWeightClass()` and the now-
+    exported `weightClassRank()` in `queries.ts` share the same free-text
+    substring match as `sortWeightClasses()`/`WEIGHT_CLASS_ORDER` (women's get
+    a `W` prefix, unrecognized values fall through to the full name). Shown as a
+    compact badge on fighter-list cards (the division wasn't surfaced there at
+    all before) and on the fight-card weight line; `TaleOfTheTape` and the
+    filter chips keep the full names on purpose (room + scannability).
+  - **Fighter sorting:** name / weight class / record / nationality, added as a
+    `Sortieren nach` section in the existing `FilterModal` (single-select
+    chips) rather than a new UI pattern. Favorited fighters still pin to the
+    top; the sort key orders within, with name as a deterministic tiebreaker.
+    Purely client-side over the already-loaded list — no query change. (Event
+    list stays chronological; sorting only makes sense for fighters.)
+  - **`react-native-svg@15.12.1` is the redesign's second native dependency**
+    (after `expo-linear-gradient`) — same caveat: it renders in Expo Go
+    (bundled in the SDK) but **needs a fresh `eas build --profile development`
+    before it appears in an existing custom dev client**. Not yet verified on a
+    real device/emulator. `country-flag-icons` itself is pure JS (no native
+    surface).
 - **Fighter-follow push on fight start — built 2026-07-20, promoted to
   stage (PR #12) and main (PR #13) the same day.** Migration
   `009_fighter_fight_start_push.sql` extends `send_league_start_pushes()`
@@ -1821,9 +2164,18 @@ brand assets.
     dashboard settings on both stage and prod (local `config.toml` only
     affects local dev).
   - ~~Multilingual auth emails~~ — Edge Function **live on stage** (verified
-    working end-to-end), **still failing on production** with an unresolved
-    generic 500 — see the "Multilingual auth emails via Edge Function" note
-    above for the full debugging trail and what to check first next session.
+    working end-to-end) and **now fixed on production too (2026-07-20)**: the
+    generic 500 was a stale `IONOS_SMTP_PASSWORD` secret; re-setting it made a
+    real prod signup return `POST /auth/v1/signup` → 200. See the "Multilingual
+    auth emails via Edge Function" note above (Auth emails section) for the
+    `execution_time_ms` diagnosis. The credential-length `console.log`
+    diagnostic has since been removed (replaced by a non-sensitive "creds
+    missing" `console.error` guard). ~~**Still to do:** (1) redeploy the function
+    to stage+prod to ship the new `email_change` template *and* the log cleanup;
+    (2) set "Secure email change" OFF on both dashboards.~~ **Both done
+    2026-07-20:** the function was redeployed to stage (MCP) and prod (CLI), and
+    "Secure email change" was switched OFF on both dashboards — the email-change
+    flow is now live end-to-end on both environments.
   - ~~Signup confirmation link-based~~ — **done 2026-07-20**: `confirmSignup()`
     + `resendSignupConfirmation()` (`src/lib/auth.tsx`) and a new
     `signup-confirm` mode in `ProfileScreen.tsx` (code-entry UI, resend button
@@ -1849,6 +2201,12 @@ brand assets.
     preference is on; no-op for anonymous users or anyone who hasn't enabled
     it), and a toggle in `SettingsModal`/`ProfileScreen` (only shown when
     logged in **and** the device actually reports usable biometric hardware).
+    `BiometricGate` uses a three-state machine (`checking`/`locked`/`open`,
+    hardened 2026-07-20): while the async enabled-check runs it renders a blank
+    cover, never the app content, so a protected app can't flash its content on
+    cold start or foreground before the lock engages; and the lock screen has a
+    logout escape hatch (plus the device-PIN fallback) so a user who can't
+    authenticate is never trapped.
     This gates access to an *already-persisted* session — it is not a new
     sign-in method and never talks to Supabase.
   - ~~Google/Apple social login~~ — **code written 2026-07-20, untested and
@@ -1892,3 +2250,29 @@ brand assets.
   a full review of every rate limit (not just email) on both stage and prod
   dashboards, to confirm each is intentional rather than a leftover/accidental
   value — nobody had reviewed these as a standing setting before this.
+- **Automated runtime-error monitoring — built 2026-07-20, committed on `dev`,
+  not yet validated live or promoted.** The project's repeated failure mode has
+  been *silence* (the production auth-email 500 ran for hours unnoticed), so
+  this complements the interactive advisor-check habit with actual runtime
+  signals. `scripts/check-supabase-logs.ts` (`npm run check:logs`) scans **both**
+  projects over the last ~24h via the Management API log-analytics endpoint
+  (`/v1/projects/{ref}/analytics/endpoints/logs.all`) for edge-function 5xx,
+  auth `level = 'error'`, and Postgres `ERROR`/`FATAL`, using the single
+  account-level `SUPABASE_ACCESS_TOKEN` (no per-project service-role key needed).
+  `.github/workflows/monitor-supabase.yml` runs it twice daily; the scan's
+  non-zero exit on any error (or on a check that can't run — it fails loudly, it
+  never silently passes) fails the workflow, and GitHub emails the repo admins
+  about the failed scheduled run (the v1 alert path — no extra secret/vendor;
+  upgrade to an open-or-update GitHub issue if the daily "still broken" mails get
+  noisy). **Caveats / still to do:** (1) the log-analytics endpoint is an
+  unstable Management API surface and its BigQuery-style nested-field SQL is
+  best-effort — needs one live `SUPABASE_ACCESS_TOKEN=... npm run check:logs` run
+  to confirm the queries return the expected shape before a green result can be
+  trusted (the token isn't available in the local shell — the CLI keeps it in
+  the OS keychain, not a file); (2) the workflow can't fire until it's on `main`
+  (the standard new-workflow constraint); (3) scope is Supabase-side only —
+  **Expo/client crash telemetry is deliberately out of v1** (needs a crash
+  reporter like Sentry: a new vendor + GDPR surface, a separate decision). The
+  `pg_cron` push health (`league_start_push_health()`) stays a service-role-only
+  interactive check for now — it's not in the token-only script, though pg_cron
+  failures would also surface via the Postgres ERROR scan.

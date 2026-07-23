@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, type TextStyle } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeMode = 'dark' | 'light';
@@ -7,77 +7,109 @@ export type ThemeOverride = ThemeMode | 'system';
 
 const THEME_STORAGE_KEY = 'true-mma:themeOverride';
 
+// --- Blue Alloy design tokens (see docs/DESIGN_HANDOFF.md) -----------------
+// Single brand direction: Blue Alloy, shipping in a Dark and a fully
+// equivalent Light theme. The dark hex values are taken verbatim from the
+// handoff; the light palette is derived to be an equivalent Blue Alloy.
 export type ColorTokens = {
   background: string;
   surface: string;
   surfaceAlt: string;
+  /** Hairline separators. Same value as `divider`; both names kept so screens
+   * reading `border` and new components reading `divider` share one token. */
   border: string;
+  divider: string;
   textPrimary: string;
   textSecondary: string;
-  /** Primary brand accent ("Chrome & Indigo") — active/interactive state. */
+  /** Primary interactive cobalt — active/interactive state (handoff #2367C9). */
   accent: string;
-  /** Secondary accent — links, lower-emphasis highlights. */
+  /** Lower-emphasis accent for secondary highlights. */
   accentSecondary: string;
-  /** Deliberately a different hue from `accent` so an active filter never reads as an error state. */
-  danger: string;
-  /** "On air" red for the live badge — kept separate from `danger` since live is urgent, not negative. */
-  live: string;
+  /** Focus ring / link blue (handoff #63A0FF on dark). */
+  focus: string;
   link: string;
   /**
+   * Metallic "alloy" tones — RESERVED for the logo and rare premium accents
+   * (handoff #D8DEE7 / #7D8A9B). Do not use as general text/surface colors.
+   */
+  alloy: string;
+  alloyMuted: string;
+  /** Error/validation red. Deliberately not brand-red trade dress. */
+  danger: string;
+  /** "On air" red for the live badge — urgent, not negative; kept separate. */
+  live: string;
+  /**
+   * Subtle, static deep-navy background gradient (two stops, top -> bottom)
+   * used as the global screen background treatment. Restrained by design.
+   */
+  backgroundGradient: [string, string];
+  /**
    * Two-stop diagonal gradient for filled-accent surfaces (active
-   * SegmentedControl segment, active FilterChip, title-fight tag, vote-bar
-   * fill) — a lighter sheen into a deeper steel-blue, for a brushed-metal
-   * feel instead of a flat fill. Use sparingly (feedback: "ohne zu
-   * aufregend zu werden") — not every accent-colored element needs it, the
-   * flat `accent` value still exists for smaller/text-level uses.
+   * SegmentedControl segment, active FilterChip, promoted tag) — a lighter
+   * cobalt sheen into deeper steel-blue for a brushed-metal feel. Use
+   * sparingly; the flat `accent` still exists for smaller/text-level uses.
    */
   accentGradient: [string, string];
 };
 
 const darkColors: ColorTokens = {
-  background: '#0b0d14',
-  surface: '#14171f',
-  surfaceAlt: '#1c202b',
-  border: '#2a2f3d',
-  textPrimary: '#f3f4f7',
-  textSecondary: '#99a0b3',
-  accent: '#4f8cff',
-  accentSecondary: '#9aa5b8',
-  danger: '#ff4d6d',
-  live: '#ff3b3b',
-  link: '#9aa5b8',
-  accentGradient: ['#8fb3ff', '#3a5bc7'],
+  background: '#050C1C',
+  surface: '#0B1830',
+  surfaceAlt: '#10213B',
+  border: '#263954',
+  divider: '#263954',
+  textPrimary: '#F2F6FC',
+  textSecondary: '#94A2B6',
+  accent: '#2367C9',
+  accentSecondary: '#7D8A9B',
+  focus: '#63A0FF',
+  link: '#63A0FF',
+  alloy: '#D8DEE7',
+  alloyMuted: '#7D8A9B',
+  danger: '#E5484D',
+  live: '#F04438',
+  backgroundGradient: ['#0F2547', '#050C1C'],
+  accentGradient: ['#3A7BE0', '#1B4F9E'],
 };
 
 const lightColors: ColorTokens = {
-  background: '#f5f6fa',
-  surface: '#ffffff',
-  surfaceAlt: '#eceef4',
-  border: '#dde1ea',
-  textPrimary: '#12141c',
-  textSecondary: '#5b6272',
-  accent: '#3a5bff',
-  accentSecondary: '#5c6b85',
-  danger: '#e0335a',
-  live: '#e02020',
-  link: '#5c6b85',
-  accentGradient: ['#6b8bff', '#28469e'],
+  background: '#F4F7FC',
+  surface: '#FFFFFF',
+  surfaceAlt: '#EAF0F8',
+  border: '#D3DCEA',
+  divider: '#D3DCEA',
+  textPrimary: '#0B1830',
+  textSecondary: '#5A6A82',
+  accent: '#2160C0',
+  accentSecondary: '#5A6A82',
+  focus: '#2367C9',
+  link: '#2160C0',
+  alloy: '#8593A6',
+  alloyMuted: '#5A6A82',
+  danger: '#C4362F',
+  live: '#D13A2E',
+  backgroundGradient: ['#FFFFFF', '#E4ECF8'],
+  accentGradient: ['#3A7BE0', '#1F5DBB'],
 };
 
 export const palettes: Record<ThemeMode, ColorTokens> = { dark: darkColors, light: lightColors };
 
+// 8-point spacing grid (handoff): 8, 12, 16, 24, 32. `xs` (4) is retained for
+// sub-grid micro-gaps (icon/text pairs), everything larger sits on the grid.
 export const spacing = {
   xs: 4,
   sm: 8,
   md: 12,
   lg: 16,
   xl: 24,
+  xxl: 32,
 };
 
+// Semantic radii (handoff): controls 10, cards 14, hero 20.
 export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 20,
+  control: 10,
+  card: 14,
+  hero: 20,
 };
 
 // iOS HIG (44pt) / Material (48dp) minimum — tappables should size against
@@ -96,11 +128,15 @@ export const fontFamily = {
   bodySemiBold: 'Inter_600SemiBold',
 };
 
+// Type scale from the handoff. Barlow Condensed for display/headings/fighter
+// names; Inter for body, labels, dates, tables, records.
 export const typography = {
-  display: { fontFamily: fontFamily.displayBold, fontSize: 28, lineHeight: 32 },
-  title: { fontFamily: fontFamily.displaySemiBold, fontSize: 22, lineHeight: 26 },
-  cardTitle: { fontFamily: fontFamily.displaySemiBold, fontSize: 17, lineHeight: 22 },
-  body: { fontFamily: fontFamily.bodyRegular, fontSize: 15, lineHeight: 20 },
+  display: { fontFamily: fontFamily.displayBold, fontSize: 32, lineHeight: 36 },
+  // "section" heading (handoff 24/28) — key kept as `title` for continuity.
+  title: { fontFamily: fontFamily.displaySemiBold, fontSize: 24, lineHeight: 28 },
+  cardTitle: { fontFamily: fontFamily.displaySemiBold, fontSize: 19, lineHeight: 23 },
+  body: { fontFamily: fontFamily.bodyRegular, fontSize: 16, lineHeight: 24 },
+  compact: { fontFamily: fontFamily.bodyRegular, fontSize: 14, lineHeight: 20 },
   meta: { fontFamily: fontFamily.bodyRegular, fontSize: 13, lineHeight: 18 },
   label: {
     fontFamily: fontFamily.bodySemiBold,
@@ -111,6 +147,10 @@ export const typography = {
   },
   caption: { fontFamily: fontFamily.bodySemiBold, fontSize: 11, lineHeight: 14, letterSpacing: 0.5 },
 };
+
+// Spread onto numeric Text (times, dates, records, rankings, data columns) so
+// digits share a fixed width and columns line up (handoff: tabular numerals).
+export const tabularNums: TextStyle = { fontVariant: ['tabular-nums'] };
 
 // Fixed to the dark palette — only for the brief window before `App.tsx`
 // has loaded fonts and mounted `ThemeProvider` (no context/useColorScheme
@@ -163,7 +203,8 @@ export function useTheme() {
 
 // Theme-aware replacement for the legacy `commonStyles` export — same
 // shape/usage (`commonStyles.center` / `.error` / `.empty`), so migrating a
-// screen is just swapping the import for this hook call.
+// screen is just swapping the import for this hook call. Superseded
+// incrementally by the EmptyState/ErrorState components in the redesign.
 export function useCommonStyles() {
   const { colors: themeColors } = useTheme();
   return useMemo(

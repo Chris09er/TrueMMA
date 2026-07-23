@@ -1,192 +1,66 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList, RootTabParamList } from '../navigation';
 import { getFighterById, getFighterFights, isEventUpcoming } from '../lib/queries';
 import type { Fighter, FightWithEvent } from '../lib/types';
-import { pressedStyle, radius, spacing, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
+import { pressedStyle, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
-import FighterFollowBell from '../components/FighterFollowBell';
-import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
+import Flag from '../components/Flag';
+import SaveHeart from '../components/SaveHeart';
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  Screen,
+  ScreenHeader,
+  SectionHeader,
+  StatTable,
+  type StatRow,
+} from '../components/ui';
 
 type Props = NativeStackScreenProps<FightersStackParamList, 'FighterDetail'>;
 type Styles = ReturnType<typeof makeStyles>;
+type Loc = ReturnType<typeof useLocale>['t'];
 
-function inchesToCm(inches: number): number {
-  return Math.round(inches * 2.54);
-}
+const inchesToCm = (inches: number) => Math.round(inches * 2.54);
+const formatHeight = (inches: number) => `${Math.floor(inches / 12)}' ${inches % 12}"`;
 
 function formatRecord(fighter: Fighter): string | null {
-  const { record_wins: wins, record_losses: losses, record_draws: draws, record_no_contests: nc } = fighter;
-  if (wins === null && losses === null && draws === null) return null;
-  const base = `${wins ?? 0}-${losses ?? 0}-${draws ?? 0}`;
+  const { record_wins: w, record_losses: l, record_draws: d, record_no_contests: nc } = fighter;
+  if (w === null && l === null && d === null) return null;
+  const base = `${w ?? 0}-${l ?? 0}-${d ?? 0}`;
   return nc ? `${base} (${nc} NC)` : base;
 }
 
-export default function FighterDetailScreen({ route }: Props) {
-  const { fighterId, fighterName } = route.params;
-  const { t, locale } = useLocale();
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const commonStyles = useCommonStyles();
-  const [fighter, setFighter] = useState<Fighter | null>(null);
-  const [fights, setFights] = useState<FightWithEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    Promise.all([getFighterById(fighterId), getFighterFights(fighterId)])
-      .then(([fighterData, fightsData]) => {
-        setFighter(fighterData);
-        setFights(fightsData);
-      })
-      .catch(() => setError(t.common.error))
-      .finally(() => setLoading(false));
-  }, [fighterId, t]);
-
-  if (loading) {
-    return <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />;
-  }
-
-  if (error) {
-    return <Text style={commonStyles.error}>{error}</Text>;
-  }
-
-  const upcomingFights = fights
-    .filter((fight) => fight.event && isEventUpcoming(fight.event.event_date))
-    .sort((a, b) => new Date(a.event!.event_date).getTime() - new Date(b.event!.event_date).getTime());
-  const pastFights = fights.filter((fight) => fight.event && !isEventUpcoming(fight.event.event_date));
-
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <FighterFollowBell fighterId={fighterId} />
-        <FighterFavoriteHeart fighterId={fighterId} />
-        {fighter?.photo_url && <Image source={{ uri: fighter.photo_url }} style={styles.photo} />}
-        <Text style={styles.name}>{fighter?.name ?? fighterName}</Text>
-        {(fighter?.nickname || fighter?.nationality) && (
-          <Text style={styles.meta}>
-            {[fighter?.nickname && `"${fighter.nickname}"`, fighter?.nationality].filter(Boolean).join(' · ')}
-          </Text>
-        )}
-        {fighter && formatRecord(fighter) && <Text style={styles.record}>{formatRecord(fighter)}</Text>}
-        <View style={styles.linkRow}>
-          {fighter?.tapology_url && (
-            <Pressable
-              style={({ pressed }) => [styles.linkButton, pressed && pressedStyle]}
-              onPress={() => Linking.openURL(fighter.tapology_url!)}
-            >
-              <Text style={styles.linkButtonText}>{t.fighterDetail.tapologyButton}</Text>
-            </Pressable>
-          )}
-          {fighter?.sherdog_url && (
-            <Pressable
-              style={({ pressed }) => [styles.linkButton, pressed && pressedStyle]}
-              onPress={() => Linking.openURL(fighter.sherdog_url!)}
-            >
-              <Text style={styles.linkButtonText}>{t.fighterDetail.sherdogButton}</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
-
-      {fighter && <TaleOfTheTape fighter={fighter} locale={locale} t={t} styles={styles} />}
-
-      {upcomingFights.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t.fighterDetail.upcomingFight}</Text>
-          {upcomingFights.map((fight) => (
-            <FightRow key={fight.id} fight={fight} fighterId={fighterId} locale={locale} t={t} styles={styles} />
-          ))}
-        </View>
-      )}
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t.fighterDetail.fightHistory}</Text>
-        {pastFights.length === 0 ? (
-          <Text style={commonStyles.empty}>{t.fighterDetail.noFightHistory}</Text>
-        ) : (
-          pastFights.map((fight) => (
-            <FightRow key={fight.id} fight={fight} fighterId={fighterId} locale={locale} t={t} styles={styles} />
-          ))
-        )}
-      </View>
-    </ScrollView>
-  );
-}
-
-function TaleOfTheTape({
-  fighter,
-  locale,
-  t,
-  styles,
-}: {
-  fighter: Fighter;
-  locale: string;
-  t: ReturnType<typeof useLocale>['t'];
-  styles: Styles;
-}) {
-  const rows: { label: string; value: string }[] = [];
-  if (fighter.weight_class) rows.push({ label: t.fighterDetail.weightClass, value: fighter.weight_class });
-  if (fighter.height_inches) {
-    rows.push({ label: t.fighterDetail.height, value: `${inchesToCm(fighter.height_inches)} cm` });
-  }
-  if (fighter.reach_inches) {
-    rows.push({ label: t.fighterDetail.reach, value: `${inchesToCm(fighter.reach_inches)} cm` });
-  }
-  if (fighter.stance) rows.push({ label: t.fighterDetail.stance, value: fighter.stance });
-  if (fighter.date_of_birth) {
-    rows.push({
-      label: t.fighterDetail.dateOfBirth,
-      value: new Date(fighter.date_of_birth).toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US'),
-    });
-  }
-  if (fighter.birth_place) rows.push({ label: t.fighterDetail.birthPlace, value: fighter.birth_place });
-
-  if (rows.length === 0) return null;
-
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{t.fighterDetail.taleOfTheTape}</Text>
-      <View style={styles.tapeCard}>
-        {rows.map((row) => (
-          <View key={row.label} style={styles.tapeRow}>
-            <Text style={styles.tapeLabel}>{row.label}</Text>
-            <Text style={styles.tapeValue}>{row.value}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function FightRow({
+function FightHistoryRow({
   fight,
   fighterId,
   locale,
   t,
   styles,
+  isFirst,
 }: {
   fight: FightWithEvent;
   fighterId: string;
   locale: string;
-  t: ReturnType<typeof useLocale>['t'];
+  t: Loc;
   styles: Styles;
+  isFirst: boolean;
 }) {
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const opponent = fight.fighter1?.id === fighterId ? fight.fighter2 : fight.fighter1;
   const isWinner = fight.result_winner_id === fighterId;
   const hasResult = fight.result_winner_id !== null;
-
   return (
-    <View style={styles.fightRow}>
+    <View style={[styles.historyRow, !isFirst && styles.historyDivider]}>
       <Text
-        style={[styles.fightOpponent, opponent && styles.fightRowLink]}
+        style={styles.opponent}
         onPress={
           opponent
             ? () =>
@@ -201,7 +75,7 @@ function FightRow({
       </Text>
       {fight.event && (
         <Text
-          style={[styles.fightEventMeta, styles.fightRowLink]}
+          style={styles.historyMeta}
           onPress={() =>
             navigation.navigate('EventsTab', {
               screen: 'EventDetail',
@@ -213,7 +87,7 @@ function FightRow({
         </Text>
       )}
       {hasResult && (
-        <Text style={[styles.fightResult, isWinner ? styles.fightResultWin : styles.fightResultLoss]}>
+        <Text style={[styles.result, isWinner ? styles.resultWin : styles.resultLoss]}>
           {isWinner ? t.fighterDetail.resultWin : t.fighterDetail.resultLoss}
           {fight.result_method_detail || fight.result_method
             ? ` · ${fight.result_method_detail ?? fight.result_method}`
@@ -225,126 +99,220 @@ function FightRow({
   );
 }
 
+export default function FighterDetailScreen({ route, navigation }: Props) {
+  const { fighterId, fighterName } = route.params;
+  const { t, locale } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [fighter, setFighter] = useState<Fighter | null>(null);
+  const [fights, setFights] = useState<FightWithEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    setLoading(true);
+    setError(null);
+    Promise.all([getFighterById(fighterId), getFighterFights(fighterId)])
+      .then(([fighterData, fightsData]) => {
+        setFighter(fighterData);
+        setFights(fightsData);
+      })
+      .catch(() => setError(t.common.error))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, [fighterId, t]);
+
+  const header = (
+    <ScreenHeader
+      left={
+        <Ionicons
+          name="chevron-back"
+          size={26}
+          color={colors.textPrimary}
+          onPress={() => navigation.goBack()}
+          style={styles.backIcon}
+        />
+      }
+      title={t.fighterDetail.title}
+      right={<SaveHeart inline kind="fighter" id={fighterId} />}
+    />
+  );
+
+  if (loading) {
+    return (
+      <Screen>
+        {header}
+        <ActivityIndicator style={styles.centered} color={colors.textPrimary} />
+      </Screen>
+    );
+  }
+  if (error) {
+    return (
+      <Screen>
+        {header}
+        <ErrorState message={error} retryLabel={t.common.retry} onRetry={load} />
+      </Screen>
+    );
+  }
+
+  const record = fighter ? formatRecord(fighter) : null;
+
+  // Stats not stored on the fighter — derived from completed fights.
+  const completed = fights.filter((f) => f.event && f.result_method != null);
+  const orderedDesc = [...completed].sort(
+    (a, b) => new Date(b.event!.event_date).getTime() - new Date(a.event!.event_date).getTime()
+  );
+  const wins = fighter?.record_wins ?? completed.filter((f) => f.result_winner_id === fighterId).length;
+  const koWins = completed.filter(
+    (f) => f.result_winner_id === fighterId && /\b(ko|tko)\b/i.test(f.result_method ?? '')
+  ).length;
+  const subWins = completed.filter(
+    (f) => f.result_winner_id === fighterId && /submission/i.test(f.result_method ?? '')
+  ).length;
+  let winStreak = 0;
+  for (const f of orderedDesc) {
+    if (f.result_winner_id === fighterId) winStreak += 1;
+    else break;
+  }
+  const pct = (n: number) => (wins > 0 ? `${Math.round((n / wins) * 100)}%` : undefined);
+
+  const statRows: StatRow[] = [];
+  if (fighter?.weight_class) {
+    statRows.push({
+      label: t.fighterDetail.weightClass,
+      value: fighter.weight_class,
+      trailing: fighter.weight_lbs ? `${fighter.weight_lbs} LB` : undefined,
+    });
+  }
+  if (fighter?.height_inches) {
+    statRows.push({ label: t.fighterDetail.height, value: formatHeight(fighter.height_inches), trailing: `${inchesToCm(fighter.height_inches)} CM` });
+  }
+  if (fighter?.reach_inches) {
+    statRows.push({ label: t.fighterDetail.reach, value: `${fighter.reach_inches}"`, trailing: `${inchesToCm(fighter.reach_inches)} CM` });
+  }
+  if (fighter?.stance) statRows.push({ label: t.fighterDetail.stance, value: fighter.stance });
+  if (fighter?.date_of_birth) {
+    statRows.push({
+      label: t.fighterDetail.dateOfBirth,
+      value: new Date(fighter.date_of_birth).toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      }),
+    });
+  }
+  if (completed.length > 0) {
+    statRows.push({ label: t.fighterDetail.koWins, value: String(koWins), trailing: pct(koWins) });
+    statRows.push({ label: t.fighterDetail.submissionWins, value: String(subWins), trailing: pct(subWins) });
+    statRows.push({ label: t.fighterDetail.winStreak, value: String(winStreak) });
+  }
+
+  const upcomingFights = fights
+    .filter((fight) => fight.event && isEventUpcoming(fight.event.event_date))
+    .sort((a, b) => new Date(a.event!.event_date).getTime() - new Date(b.event!.event_date).getTime());
+  const pastFights = fights.filter((fight) => fight.event && !isEventUpcoming(fight.event.event_date));
+
+  return (
+    <Screen>
+      {header}
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <View style={styles.identity}>
+          <View style={styles.nameRow}>
+            <Flag country={fighter?.nationality} height={20} />
+            <Text style={styles.name} numberOfLines={2}>
+              {fighter?.name ?? fighterName}
+            </Text>
+          </View>
+          {record && <Text style={styles.record}>{record}</Text>}
+          {fighter?.weight_class && <Text style={styles.weightClassLabel}>{fighter.weight_class.toUpperCase()}</Text>}
+          {fighter?.nickname && <Text style={styles.nickname}>&ldquo;{fighter.nickname}&rdquo;</Text>}
+        </View>
+
+        {statRows.length > 0 && <StatTable rows={statRows} />}
+
+        {(fighter?.tapology_url || fighter?.sherdog_url) && (
+          <View style={styles.linkRow}>
+            {fighter?.tapology_url && (
+              <Button
+                variant="secondary"
+                label={t.fighterDetail.tapologyButton}
+                onPress={() => Linking.openURL(fighter.tapology_url!)}
+              />
+            )}
+            {fighter?.sherdog_url && (
+              <Button
+                variant="secondary"
+                label={t.fighterDetail.sherdogButton}
+                onPress={() => Linking.openURL(fighter.sherdog_url!)}
+              />
+            )}
+          </View>
+        )}
+
+        {upcomingFights.length > 0 && (
+          <>
+            <SectionHeader title={t.fighterDetail.upcomingFight} />
+            <Card style={styles.historyCard}>
+              {upcomingFights.map((fight, i) => (
+                <FightHistoryRow
+                  key={fight.id}
+                  fight={fight}
+                  fighterId={fighterId}
+                  locale={locale}
+                  t={t}
+                  styles={styles}
+                  isFirst={i === 0}
+                />
+              ))}
+            </Card>
+          </>
+        )}
+
+        <SectionHeader title={t.fighterDetail.fightHistory} />
+        {pastFights.length === 0 ? (
+          <EmptyState title={t.fighterDetail.noFightHistory} />
+        ) : (
+          <Card style={styles.historyCard}>
+            {pastFights.map((fight, i) => (
+              <FightHistoryRow
+                key={fight.id}
+                fight={fight}
+                fighterId={fighterId}
+                locale={locale}
+                t={t}
+                styles={styles}
+                isFirst={i === 0}
+              />
+            ))}
+          </Card>
+        )}
+      </ScrollView>
+    </Screen>
+  );
+}
+
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    content: {
-      padding: spacing.lg,
-    },
-    header: {
-      alignItems: 'center',
-      marginBottom: spacing.xl,
-      position: 'relative',
-    },
-    photo: {
-      width: 96,
-      height: 96,
-      borderRadius: 48,
-      marginBottom: spacing.md,
-      backgroundColor: colors.surface,
-    },
-    name: {
-      fontSize: 22,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      textAlign: 'center',
-    },
-    meta: {
-      fontSize: 14,
-      color: colors.textSecondary,
-      marginTop: 4,
-      textAlign: 'center',
-    },
-    record: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: colors.accent,
-      marginTop: 6,
-    },
-    tapeCard: {
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      overflow: 'hidden',
-    },
-    tapeRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    tapeLabel: {
-      fontSize: 13,
-      color: colors.textSecondary,
-    },
-    tapeValue: {
-      fontSize: 13,
-      fontWeight: '600',
-      color: colors.textPrimary,
-    },
-    linkRow: {
-      flexDirection: 'row',
-      gap: spacing.sm,
-      marginTop: spacing.lg,
-    },
-    linkButton: {
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radius.md,
-      paddingVertical: 10,
-      paddingHorizontal: spacing.md,
-    },
-    linkButtonText: {
-      color: colors.textPrimary,
-      fontWeight: '600',
-      fontSize: 13,
-    },
-    section: {
-      marginBottom: spacing.xl,
-    },
-    sectionTitle: {
-      fontSize: 16,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      marginBottom: spacing.sm,
-    },
-    fightRow: {
-      padding: 14,
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    fightOpponent: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: colors.textPrimary,
-    },
-    fightEventMeta: {
-      fontSize: 13,
-      color: colors.textSecondary,
-      marginTop: 2,
-    },
-    fightRowLink: {
-      textDecorationLine: 'underline',
-    },
-    fightResult: {
-      fontSize: 12,
-      marginTop: 6,
-      fontWeight: '700',
-    },
-    fightResultWin: {
-      color: colors.accent,
-    },
-    fightResultLoss: {
-      color: colors.textSecondary,
-    },
+    backIcon: { minWidth: 44, minHeight: 44, textAlign: 'center', textAlignVertical: 'center', lineHeight: 44 },
+    centered: { marginTop: 40 },
+    scroll: { padding: spacing.lg, paddingBottom: spacing.xxl },
+
+    identity: { marginBottom: spacing.lg },
+    nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    name: { ...typography.display, color: colors.textPrimary, flexShrink: 1 },
+    record: { ...typography.title, ...tabularNums, color: colors.textPrimary, marginTop: spacing.xs },
+    weightClassLabel: { ...typography.label, color: colors.textSecondary, marginTop: spacing.xs },
+    nickname: { ...typography.body, color: colors.textSecondary, fontStyle: 'italic', marginTop: spacing.xs },
+
+    linkRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
+
+    historyCard: { padding: 0 },
+    historyRow: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+    historyDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider },
+    opponent: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary },
+    historyMeta: { ...typography.meta, color: colors.focus, marginTop: 2 },
+    result: { ...typography.caption, marginTop: spacing.xs },
+    resultWin: { color: colors.accent },
+    resultLoss: { color: colors.textSecondary },
   });

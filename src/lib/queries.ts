@@ -181,41 +181,36 @@ export async function getEventDetail(eventId: string): Promise<EventDetail> {
   return data as unknown as EventDetail;
 }
 
-export async function getFollowedFighters(userId: string): Promise<Fighter[]> {
-  const { data, error } = await supabase
-    .from('push_subscriptions')
-    .select(`fighters(${FIGHTER_COLUMNS})`)
-    .eq('user_id', userId)
-    .not('fighter_id', 'is', null);
-
+// Fetch full fighter/event/organization records for a set of ids — used to
+// resolve the saved_* rows (which the list RPCs return as bare ids) into the
+// objects the profile lists render. Returns [] for an empty id list without
+// hitting the network.
+export async function getFightersByIds(ids: string[]): Promise<Fighter[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase.from('fighters').select(FIGHTER_COLUMNS).in('id', ids);
   if (error) throw error;
-  return ((data ?? []) as unknown as { fighters: Fighter | null }[])
-    .map((row) => row.fighters)
-    .filter((fighter): fighter is Fighter => fighter !== null);
+  return (data ?? []) as unknown as Fighter[];
 }
 
-export async function getFollowedEvents(userId: string): Promise<EventListItem[]> {
+export async function getEventsByIds(ids: string[]): Promise<EventListItem[]> {
+  if (ids.length === 0) return [];
   const { data, error } = await supabase
-    .from('event_follows')
-    .select(`events(${EVENT_LIST_COLUMNS})`)
-    .eq('user_id', userId);
-
+    .from('events')
+    .select(EVENT_LIST_COLUMNS)
+    .in('id', ids)
+    .order('event_date', { ascending: true });
   if (error) throw error;
-  return ((data ?? []) as unknown as { events: EventListItem | null }[])
-    .map((row) => row.events)
-    .filter((event): event is EventListItem => event !== null);
+  return (data ?? []) as unknown as EventListItem[];
 }
 
-export async function getFollowedOrganizations(userId: string): Promise<Organization[]> {
+export async function getOrganizationsByIds(ids: string[]): Promise<Organization[]> {
+  if (ids.length === 0) return [];
   const { data, error } = await supabase
-    .from('organization_follows')
-    .select('organizations(id, name, short_name, logo_url)')
-    .eq('user_id', userId);
-
+    .from('organizations')
+    .select('id, name, short_name, logo_url')
+    .in('id', ids);
   if (error) throw error;
-  return ((data ?? []) as unknown as { organizations: Organization | null }[])
-    .map((row) => row.organizations)
-    .filter((org): org is Organization => org !== null);
+  return sortOrganizations((data ?? []) as Organization[]);
 }
 
 export async function getFighterFights(fighterId: string): Promise<FightWithEvent[]> {
@@ -231,30 +226,6 @@ export async function getFighterFights(fighterId: string): Promise<FightWithEven
     if (!b.event) return -1;
     return new Date(b.event.event_date).getTime() - new Date(a.event.event_date).getTime();
   });
-}
-
-export async function getFavoritedFighters(userId: string): Promise<Fighter[]> {
-  const { data, error } = await supabase
-    .from('fighter_favorites')
-    .select(`fighters(${FIGHTER_COLUMNS})`)
-    .eq('user_id', userId);
-
-  if (error) throw error;
-  return ((data ?? []) as unknown as { fighters: Fighter | null }[])
-    .map((row) => row.fighters)
-    .filter((fighter): fighter is Fighter => fighter !== null);
-}
-
-export async function getFavoritedEvents(userId: string): Promise<EventListItem[]> {
-  const { data, error } = await supabase
-    .from('event_favorites')
-    .select(`events(${EVENT_LIST_COLUMNS})`)
-    .eq('user_id', userId);
-
-  if (error) throw error;
-  return ((data ?? []) as unknown as { events: EventListItem | null }[])
-    .map((row) => row.events)
-    .filter((event): event is EventListItem => event !== null);
 }
 
 // balldontlie's card_position (fight_order) restarts at 1 separately for
@@ -303,10 +274,44 @@ const WEIGHT_CLASS_ORDER = [
   'heavyweight',
 ];
 
-function weightClassRank(weightClass: string): number {
+// Exported so the fighter list can sort by division (light-to-heavy). Accepts
+// null (a fighter with no weight_class) and unrecognized values, both of which
+// rank last so they sort to the bottom.
+export function weightClassRank(weightClass: string | null): number {
+  if (!weightClass) return WEIGHT_CLASS_ORDER.length;
   const normalized = weightClass.toLowerCase();
   const rank = WEIGHT_CLASS_ORDER.findIndex((known) => normalized.includes(known));
   return rank === -1 ? WEIGHT_CLASS_ORDER.length : rank;
+}
+
+// Short division codes for dense contexts (fighter cards, fight cards). Keyed
+// by the same substring match as weightClassRank/WEIGHT_CLASS_ORDER, so it
+// tolerates balldontlie's free-text weight_class. Women's divisions get a "W"
+// prefix (matching how the fighter filter already splits them, see
+// FighterListScreen). Order matters: "light heavyweight" must be checked before
+// "heavyweight" since the latter is a substring of the former.
+const WEIGHT_CLASS_ABBREV: [string, string][] = [
+  ['strawweight', 'SW'],
+  ['flyweight', 'FLW'],
+  ['bantamweight', 'BW'],
+  ['featherweight', 'FW'],
+  ['lightweight', 'LW'],
+  ['welterweight', 'WW'],
+  ['middleweight', 'MW'],
+  ['light heavyweight', 'LHW'],
+  ['heavyweight', 'HW'],
+  ['catchweight', 'CW'],
+  ['openweight', 'OW'],
+];
+
+export function abbreviateWeightClass(weightClass: string | null): string | null {
+  if (!weightClass) return null;
+  const normalized = weightClass.toLowerCase();
+  const isWomen = normalized.includes('women');
+  for (const [term, abbr] of WEIGHT_CLASS_ABBREV) {
+    if (normalized.includes(term)) return isWomen ? `W${abbr}` : abbr;
+  }
+  return weightClass; // unrecognized (e.g. a typo or a future division) — show as-is
 }
 
 export function sortWeightClasses(weightClasses: string[]): string[] {

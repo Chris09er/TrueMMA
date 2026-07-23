@@ -11,6 +11,7 @@
     "@react-navigation/native": "^7.3.8",
     "@react-navigation/native-stack": "^7.17.10",
     "@supabase/supabase-js": "^2.110.3",
+    "country-flag-icons": "^1.6.20",
     "expo": "~54.0.36",
     "expo-apple-authentication": "~8.0.8",
     "expo-auth-session": "~7.0.11",
@@ -27,7 +28,8 @@
     "react-native": "0.81.5",
     "react-native-calendars": "^1.1314.0",
     "react-native-safe-area-context": "~5.6.0",
-    "react-native-screens": "~4.16.0"
+    "react-native-screens": "~4.16.0",
+    "react-native-svg": "15.12.1"
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
@@ -43,7 +45,9 @@
     "web": "expo start --web",
     "sync:balldontlie": "tsx scripts/sync-balldontlie.ts",
     "sync:live": "tsx scripts/sync-live-event.ts",
-    "check:i18n": "tsx scripts/check-i18n-parity.ts"
+    "check:i18n": "tsx scripts/check-i18n-parity.ts",
+    "check:logs": "tsx scripts/check-supabase-logs.ts",
+    "eval:apis": "tsx scripts/evaluate-api-providers.ts"
   },
   "overrides": {
     "expo-font": "14.0.12"

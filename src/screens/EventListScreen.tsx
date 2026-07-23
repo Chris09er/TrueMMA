@@ -4,57 +4,72 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
+  SectionList,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Calendar, type DateData } from 'react-native-calendars';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { EventsStackParamList } from '../navigation';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import {
   getEventsInRange,
   getOrganizations,
   getPastEvents,
-  getTodayEvents,
   getUpcomingEvents,
   isEventLive,
-  isEventUpcoming,
 } from '../lib/queries';
-import { getEventFavoriteIds } from '../lib/favorites';
+import { getSavedIds } from '../lib/saves';
 import type { EventListItem, Organization } from '../lib/types';
-import { pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens } from '../lib/theme';
-import { formatEventDate } from '../lib/dateFormat';
+import { pressedStyle, radius, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
+import { formatEventDateTime } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
-import EventReminderBell from '../components/EventReminderBell';
-import EventFavoriteHeart from '../components/EventFavoriteHeart';
+import Flag from '../components/Flag';
+import SaveHeart from '../components/SaveHeart';
+import LiveBadge from '../components/LiveBadge';
 import FilterChip from '../components/FilterChip';
 import FilterModal, { FilterSection } from '../components/FilterModal';
-import SegmentedControl from '../components/SegmentedControl';
-import LiveBadge from '../components/LiveBadge';
+import {
+  Card,
+  EmptyState,
+  ErrorState,
+  FilterIconButton,
+  LogoMark,
+  Screen,
+  ScreenHeader,
+  SearchInput,
+  SectionHeader,
+  SkeletonCard,
+} from '../components/ui';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventList'>;
-type Timeframe = 'today' | 'upcoming' | 'past';
 type ViewMode = 'list' | 'calendar';
+type Section = { title: string; data: EventListItem[] };
 
 function currentYearMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const monthKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}`;
+
 export default function EventListScreen({ navigation }: Props) {
   const { t, locale } = useLocale();
   const { timezoneOverride } = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const commonStyles = useCommonStyles();
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
-  const [timeframe, setTimeframe] = useState<Timeframe>('upcoming');
+
+  const [showPast, setShowPast] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [search, setSearch] = useState('');
   const [events, setEvents] = useState<EventListItem[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -64,38 +79,57 @@ export default function EventListScreen({ navigation }: Props) {
   const [monthEvents, setMonthEvents] = useState<EventListItem[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
+
+  // Reset to the default "Veranstaltungen" home view: upcoming list, no
+  // calendar, no day/org filter, empty search. Wired to both a tap on the
+  // brand logo and a press on the already-focused Events tab.
+  const resetToHome = useCallback(() => {
+    setViewMode('list');
+    setSelectedDate(null);
+    setShowPast(false);
+    setSearch('');
+    setSelectedOrgId(undefined);
+    setFilterModalVisible(false);
+  }, []);
+
+  useEffect(() => {
+    const parent = navigation.getParent<BottomTabNavigationProp<RootTabParamList>>();
+    const unsubscribe = parent?.addListener('tabPress', () => {
+      // Only reset when the list is already the focused screen (tab tapped
+      // while here) — e.g. switching back from the calendar to the default
+      // list. When coming from EventDetail, the navigator's own pop-to-top
+      // already returns here.
+      if (navigation.isFocused()) resetToHome();
+    });
+    return unsubscribe;
+  }, [navigation, resetToHome]);
+
+  const loadEvents = useCallback(async () => {
+    setError(null);
+    try {
+      const fetcher = showPast ? getPastEvents : getUpcomingEvents;
+      setEvents(await fetcher());
+    } catch {
+      setError(t.common.error);
+    }
+  }, [showPast, t]);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([loadEvents(), getSavedIds('event').then(setFavoriteIds)]).finally(() => setLoading(false));
+  }, [loadEvents]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   useEffect(() => {
     getOrganizations().then(setOrganizations).catch(() => {});
   }, []);
 
-  const loadEvents = useCallback(async () => {
-    setError(null);
-    try {
-      const fetcher = timeframe === 'today' ? getTodayEvents : timeframe === 'upcoming' ? getUpcomingEvents : getPastEvents;
-      // Unfiltered by org — the org filter is applied client-side (see
-      // visibleEvents) so the filter chips can show/hide per timeframe
-      // without a refetch, and so a league with no events in this
-      // timeframe simply doesn't appear as an option.
-      setEvents(await fetcher());
-    } catch {
-      setError(t.common.error);
-    }
-  }, [timeframe, t]);
-
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([loadEvents(), getEventFavoriteIds().then(setFavoriteIds)]).finally(() => setLoading(false));
-  }, [loadEvents]);
-
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([
-      getOrganizations().then(setOrganizations).catch(() => {}),
-      loadEvents(),
-      getEventFavoriteIds().then(setFavoriteIds),
-    ]);
+    await Promise.all([loadEvents(), getSavedIds('event').then(setFavoriteIds)]);
     setRefreshing(false);
   }, [loadEvents]);
 
@@ -108,22 +142,19 @@ export default function EventListScreen({ navigation }: Props) {
     });
   }, []);
 
-  const loadMonthEvents = useCallback(
-    async (yearMonth: string) => {
-      setCalendarLoading(true);
-      try {
-        const [year, month] = yearMonth.split('-').map(Number);
-        const start = new Date(year, month - 1, 1).toISOString();
-        const end = new Date(year, month, 1).toISOString();
-        setMonthEvents(await getEventsInRange(start, end, selectedOrgId));
-      } catch {
-        setMonthEvents([]);
-      } finally {
-        setCalendarLoading(false);
-      }
-    },
-    [selectedOrgId]
-  );
+  const loadMonthEvents = useCallback(async (yearMonth: string) => {
+    setCalendarLoading(true);
+    try {
+      const [year, month] = yearMonth.split('-').map(Number);
+      const start = new Date(year, month - 1, 1).toISOString();
+      const end = new Date(year, month, 1).toISOString();
+      setMonthEvents(await getEventsInRange(start, end));
+    } catch {
+      setMonthEvents([]);
+    } finally {
+      setCalendarLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (viewMode === 'calendar') loadMonthEvents(calendarMonth);
@@ -146,45 +177,69 @@ export default function EventListScreen({ navigation }: Props) {
     return monthEvents.filter((event) => event.event_date.slice(0, 10) === selectedDate);
   }, [monthEvents, selectedDate]);
 
-  // Only orgs that actually have an event in the current timeframe — an
-  // empty filter option is just a disappointment waiting to happen.
-  const listOrganizations = useMemo(() => {
-    const idsWithEvents = new Set(events.map((event) => event.organization_id));
-    return organizations.filter((org) => idsWithEvents.has(org.id));
-  }, [organizations, events]);
-
-  // If the selected org has no events in the newly-active timeframe (e.g.
-  // switching from "Kommende" to "Heute"), drop the now-invisible filter
-  // instead of silently filtering everything out.
-  useEffect(() => {
-    if (viewMode !== 'list' || !selectedOrgId) return;
-    if (!listOrganizations.some((org) => org.id === selectedOrgId)) {
-      setSelectedOrgId(undefined);
-    }
-  }, [viewMode, listOrganizations, selectedOrgId]);
-
   const visibleEvents = useMemo(() => {
     const query = search.trim().toLowerCase();
-    let filtered = selectedOrgId ? events.filter((event) => event.organization_id === selectedOrgId) : events;
-    if (query) filtered = filtered.filter((event) => event.name.toLowerCase().includes(query));
-    // Stable sort — favorited events first, existing (date) order preserved within each group.
-    return [...filtered].sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)));
-  }, [events, search, selectedOrgId, favoriteIds]);
+    return events.filter((event) => {
+      if (selectedOrgId && event.organization_id !== selectedOrgId) return false;
+      if (query && !event.name.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [events, search, selectedOrgId]);
 
-  const activeFilterCount = selectedOrgId === undefined ? 0 : 1;
-  const filterOrganizations = viewMode === 'calendar' ? organizations : listOrganizations;
+  const activeFilterCount = selectedOrgId ? 1 : 0;
+
+  const sections = useMemo<Section[]>(() => {
+    const monthLabel = (d: Date) =>
+      d.toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-US', { month: 'long', year: 'numeric' });
+
+    if (showPast) {
+      const byMonth = new Map<string, { title: string; data: EventListItem[]; sort: number }>();
+      for (const e of visibleEvents) {
+        const d = new Date(e.event_date);
+        const k = monthKey(d);
+        if (!byMonth.has(k)) byMonth.set(k, { title: monthLabel(d), data: [], sort: d.getTime() });
+        byMonth.get(k)!.data.push(e);
+      }
+      return [...byMonth.values()].sort((a, b) => b.sort - a.sort).map(({ title, data }) => ({ title, data }));
+    }
+
+    const startToday = startOfLocalDay(new Date()).getTime();
+    const endToday = startToday + 86_400_000;
+    const endWeek = startToday + 7 * 86_400_000;
+    const today: EventListItem[] = [];
+    const week: EventListItem[] = [];
+    const later = new Map<string, { title: string; data: EventListItem[]; sort: number }>();
+    for (const e of visibleEvents) {
+      const ts = new Date(e.event_date).getTime();
+      if (ts < endToday) today.push(e);
+      else if (ts < endWeek) week.push(e);
+      else {
+        const d = new Date(e.event_date);
+        const k = monthKey(d);
+        if (!later.has(k)) later.set(k, { title: monthLabel(d), data: [], sort: d.getTime() });
+        later.get(k)!.data.push(e);
+      }
+    }
+    const out: Section[] = [];
+    if (today.length) out.push({ title: t.eventList.today, data: today });
+    if (week.length) out.push({ title: t.eventList.thisWeek, data: week });
+    for (const { title, data } of [...later.values()].sort((a, b) => a.sort - b.sort)) out.push({ title, data });
+    return out;
+  }, [visibleEvents, showPast, locale, t]);
 
   const renderEventCard = (item: EventListItem) => {
-    const upcoming = isEventUpcoming(item.event_date);
     return (
-      <Pressable
-        style={({ pressed }) => [styles.eventCard, pressed && pressedStyle]}
+      <Card
+        style={styles.card}
         onPress={() => navigation.navigate('EventDetail', { eventId: item.id, eventName: item.name })}
       >
-        {upcoming && (
-          <EventReminderBell eventId={item.id} eventName={item.name} eventDateIso={item.event_date} />
-        )}
-        <EventFavoriteHeart eventId={item.id} onToggle={(active) => handleFavoriteToggle(item.id, active)} />
+        <SaveHeart
+          kind="event"
+          id={item.id}
+          active={favoriteIds.has(item.id)}
+          onToggle={(active) => handleFavoriteToggle(item.id, active)}
+          offsetRight={10}
+        />
         <Text style={styles.eventOrg}>{item.organizations?.short_name ?? ''}</Text>
         {isEventLive(item) && (
           <View style={styles.liveBadgeSlot}>
@@ -192,59 +247,48 @@ export default function EventListScreen({ navigation }: Props) {
           </View>
         )}
         <Text style={[styles.eventName, styles.eventNameWithIcons]}>{item.name}</Text>
-        <Text style={styles.eventMeta}>{formatEventDate(item.event_date, locale, 'short', timezoneOverride ?? undefined)}</Text>
-        <Text style={styles.eventMeta}>{[item.venue, item.city, item.country].filter(Boolean).join(', ')}</Text>
-      </Pressable>
+        <Text style={styles.eventDate}>
+          {formatEventDateTime(item.event_date, locale, 'short', timezoneOverride ?? undefined)}
+        </Text>
+        {(item.venue || item.city || item.country) && (
+          <View style={styles.locationRow}>
+            <Flag country={item.country} height={12} />
+            <Text style={styles.eventMeta}>{[item.venue, item.city, item.country].filter(Boolean).join(', ')}</Text>
+          </View>
+        )}
+      </Card>
     );
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.controlsRow}>
-        <SegmentedControl
-          segments={[
-            { value: 'list', label: t.eventList.viewList },
-            { value: 'calendar', label: t.eventList.viewCalendar },
-          ]}
-          value={viewMode}
-          onChange={setViewMode}
-        />
+  const timeframeToggle = (
+    <View style={styles.segment}>
+      {[
+        { past: false, label: t.eventList.upcoming },
+        { past: true, label: t.eventList.past },
+      ].map((seg) => {
+        const active = showPast === seg.past;
+        return (
+          <Pressable
+            key={seg.label}
+            onPress={() => setShowPast(seg.past)}
+            style={({ pressed }) => [styles.segmentItem, active && styles.segmentItemActive, pressed && pressedStyle]}
+          >
+            <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{seg.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
+  const listHeader = (
+    <View style={styles.controls}>
+      <View style={styles.searchRow}>
+        <View style={styles.searchFlex}>
+          <SearchInput value={search} onChangeText={setSearch} placeholder={t.eventList.searchPlaceholder} />
+        </View>
+        <FilterIconButton count={activeFilterCount} onPress={() => setFilterModalVisible(true)} label={t.eventList.filter} />
       </View>
-
-      {viewMode === 'list' && (
-        <>
-          <View style={styles.controlsRow}>
-            <SegmentedControl
-              segments={[
-                { value: 'past', label: t.eventList.past },
-                { value: 'today', label: t.eventList.today },
-                { value: 'upcoming', label: t.eventList.upcoming },
-              ]}
-              value={timeframe}
-              onChange={setTimeframe}
-            />
-          </View>
-
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder={t.eventList.searchPlaceholder}
-            placeholderTextColor={colors.textSecondary}
-            style={styles.searchInput}
-          />
-        </>
-      )}
-
-      <View style={styles.controlsRow}>
-        <Pressable
-          style={({ pressed }) => [styles.filterOpenButton, pressed && pressedStyle]}
-          onPress={() => setFilterModalVisible(true)}
-        >
-          <Text style={styles.filterOpenButtonText}>
-            {activeFilterCount > 0 ? `${t.eventList.filter} (${activeFilterCount})` : t.eventList.filter}
-          </Text>
-        </Pressable>
-      </View>
+      {timeframeToggle}
 
       <FilterModal
         visible={filterModalVisible}
@@ -255,40 +299,81 @@ export default function EventListScreen({ navigation }: Props) {
         resetLabel={t.eventList.filterReset}
         onReset={() => setSelectedOrgId(undefined)}
       >
-        <FilterSection title={t.eventList.filterOrganization}>
-          <FilterChip
-            label={t.eventList.filterAll}
-            active={selectedOrgId === undefined}
-            onPress={() => setSelectedOrgId(undefined)}
-          />
-          {filterOrganizations.map((org) => (
+        {organizations.length > 0 && (
+          <FilterSection title={t.eventList.filterOrganization}>
             <FilterChip
-              key={org.id}
-              label={org.short_name}
-              active={selectedOrgId === org.id}
-              onPress={() => setSelectedOrgId(org.id)}
+              label={t.eventList.filterAll}
+              active={selectedOrgId === undefined}
+              onPress={() => setSelectedOrgId(undefined)}
             />
-          ))}
-        </FilterSection>
+            {organizations.map((org) => (
+              <FilterChip
+                key={org.id}
+                label={org.short_name}
+                active={selectedOrgId === org.id}
+                onPress={() => setSelectedOrgId(org.id)}
+              />
+            ))}
+          </FilterSection>
+        )}
       </FilterModal>
+    </View>
+  );
+
+  const brandHeader = (
+    <ScreenHeader
+      left={
+        <Pressable
+          onPress={resetToHome}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t.tabs.events}
+          style={({ pressed }) => pressed && pressedStyle}
+        >
+          <LogoMark size={26} />
+        </Pressable>
+      }
+      title={t.tabs.events.toUpperCase()}
+      right={
+        <Pressable
+          onPress={() => setViewMode((mode) => (mode === 'calendar' ? 'list' : 'calendar'))}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t.eventList.viewCalendar}
+          style={({ pressed }) => [styles.iconButton, pressed && pressedStyle]}
+        >
+          <MaterialCommunityIcons
+            name={viewMode === 'calendar' ? 'format-list-bulleted' : 'calendar-month-outline'}
+            size={24}
+            color={colors.textPrimary}
+          />
+        </Pressable>
+      }
+    />
+  );
+
+  return (
+    <Screen>
+      {brandHeader}
 
       {viewMode === 'calendar' ? (
         <FlatList
           data={dayEvents}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={styles.listContent}
           ListHeaderComponent={
             <>
               <Calendar
                 current={`${calendarMonth}-01`}
+                enableSwipeMonths
                 markedDates={markedDates}
                 onDayPress={(day: DateData) => setSelectedDate(day.dateString)}
                 onMonthChange={(month: DateData) =>
                   setCalendarMonth(`${month.year}-${String(month.month).padStart(2, '0')}`)
                 }
                 theme={{
-                  backgroundColor: colors.background,
-                  calendarBackground: colors.background,
+                  backgroundColor: 'transparent',
+                  calendarBackground: colors.surface,
                   textSectionTitleColor: colors.textSecondary,
                   dayTextColor: colors.textPrimary,
                   todayTextColor: colors.accent,
@@ -297,130 +382,102 @@ export default function EventListScreen({ navigation }: Props) {
                   textDisabledColor: colors.border,
                   dotColor: colors.accent,
                   selectedDayBackgroundColor: colors.accent,
-                  selectedDayTextColor: colors.background,
+                  selectedDayTextColor: '#FFFFFF',
                 }}
                 style={styles.calendar}
               />
-              {calendarLoading && <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />}
+              {calendarLoading && <ActivityIndicator style={styles.centered} color={colors.textPrimary} />}
               {!calendarLoading && !selectedDate && (
-                <Text style={commonStyles.empty}>{t.eventList.calendarSelectDay}</Text>
+                <Text style={styles.calendarHint}>{t.eventList.calendarSelectDay}</Text>
               )}
               {!calendarLoading && selectedDate && dayEvents.length === 0 && (
-                <Text style={commonStyles.empty}>{t.eventList.calendarEmptyDay}</Text>
+                <Text style={styles.calendarHint}>{t.eventList.calendarEmptyDay}</Text>
               )}
             </>
           }
           renderItem={({ item }) => renderEventCard(item)}
         />
-      ) : (
+      ) : loading ? (
+        <View style={styles.skeletonWrap}>
+          {listHeader}
+          <View style={styles.skeletonList}>
+            {[0, 1, 2, 3].map((i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </View>
+        </View>
+      ) : error ? (
         <>
-          {loading && <ActivityIndicator style={commonStyles.center} color={colors.textPrimary} />}
-          {!loading && error && <Text style={commonStyles.error}>{error}</Text>}
-          {!loading && !error && (
-            <FlatList
-              data={visibleEvents}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.list}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={handleRefresh}
-                  tintColor={colors.textPrimary}
-                  colors={[colors.accent]}
-                />
-              }
-              ListEmptyComponent={
-                <Text style={commonStyles.empty}>
-                  {timeframe === 'today'
-                    ? t.eventList.emptyToday
-                    : timeframe === 'upcoming'
-                      ? t.eventList.empty
-                      : t.eventList.emptyPast}
-                </Text>
-              }
-              renderItem={({ item }) => renderEventCard(item)}
-            />
-          )}
+          {listHeader}
+          <ErrorState message={error} retryLabel={t.common.retry} onRetry={load} />
         </>
+      ) : (
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          stickySectionHeadersEnabled={false}
+          ListHeaderComponent={listHeader}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.textPrimary}
+              colors={[colors.accent]}
+            />
+          }
+          renderSectionHeader={({ section }) => <SectionHeader title={section.title} />}
+          ListEmptyComponent={
+            <EmptyState icon="calendar-blank-outline" title={showPast ? t.eventList.emptyPast : t.eventList.empty} />
+          }
+          renderItem={({ item }) => renderEventCard(item)}
+        />
       )}
-    </View>
+    </Screen>
   );
 }
 
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    controlsRow: {
-      paddingHorizontal: spacing.md,
-      paddingTop: spacing.md,
-    },
-    searchInput: {
-      marginHorizontal: spacing.md,
-      marginTop: spacing.sm,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 10,
-      borderRadius: radius.md,
+    iconButton: { minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
+
+    controls: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.md },
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    searchFlex: { flex: 1 },
+    segment: {
+      flexDirection: 'row',
       backgroundColor: colors.surface,
-      borderWidth: 1,
+      borderRadius: radius.control,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
-      color: colors.textPrimary,
+      padding: 3,
+      gap: 3,
     },
-    filterOpenButton: {
-      alignSelf: 'flex-start',
-      paddingHorizontal: 14,
-      minHeight: 44,
-      justifyContent: 'center',
-      borderRadius: radius.lg,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    filterOpenButtonText: {
-      ...typography.body,
-      fontFamily: typography.label.fontFamily,
-      color: colors.textPrimary,
-    },
+    segmentItem: { flex: 1, minHeight: 38, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    segmentItemActive: { backgroundColor: colors.accent },
+    segmentText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.textSecondary },
+    segmentTextActive: { color: '#FFFFFF' },
+
+    listContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+    skeletonWrap: { paddingBottom: spacing.lg },
+    skeletonList: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
+    card: { marginTop: spacing.md, position: 'relative' },
+    eventOrg: { ...typography.label, color: colors.textSecondary, marginBottom: spacing.xs },
+    liveBadgeSlot: { marginBottom: spacing.xs },
+    eventName: { ...typography.cardTitle, marginBottom: spacing.xs, color: colors.textPrimary },
+    eventNameWithIcons: { paddingRight: 56 },
+    eventDate: { ...typography.meta, ...tabularNums, color: colors.textSecondary, marginBottom: spacing.sm },
+    locationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+    eventMeta: { ...typography.meta, color: colors.textSecondary, flexShrink: 1 },
+
     calendar: {
-      marginHorizontal: spacing.md,
+      borderRadius: radius.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      marginTop: spacing.md,
       marginBottom: spacing.md,
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
+      overflow: 'hidden',
     },
-    list: {
-      padding: spacing.md,
-      gap: 10,
-    },
-    eventCard: {
-      padding: 14,
-      borderRadius: radius.md,
-      backgroundColor: colors.surface,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-      position: 'relative',
-    },
-    eventOrg: {
-      ...typography.label,
-      color: colors.textSecondary,
-      marginBottom: 4,
-    },
-    liveBadgeSlot: {
-      marginBottom: 4,
-    },
-    eventName: {
-      ...typography.cardTitle,
-      marginBottom: 4,
-      color: colors.textPrimary,
-    },
-    eventNameWithIcons: {
-      paddingRight: 56,
-    },
-    eventMeta: {
-      ...typography.meta,
-      color: colors.textSecondary,
-    },
+    centered: { marginTop: 40 },
+    calendarHint: { ...typography.body, color: colors.textSecondary, textAlign: 'center', padding: spacing.lg },
   });

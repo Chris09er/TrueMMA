@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
@@ -11,31 +11,47 @@ import { pressedStyle, spacing, useTheme, type ColorTokens } from '../lib/theme'
 // ProfileScreen.tsx / SettingsModal.tsx) — a local unlock gate in front of
 // the already-persisted Supabase session, not a sign-in method. No-op for
 // anonymous users and for anyone who hasn't turned it on.
+//
+// Three states rather than a bare boolean, deliberately: `checking` renders a
+// blank cover (never the app content) while the async enabled-check runs, so a
+// protected app can't briefly flash its content on cold start or on every
+// foreground before the lock engages — the whole point of a privacy lock.
+type GateState = 'checking' | 'locked' | 'open';
+
 export default function BiometricGate({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const { t } = useLocale();
   const { colors } = useTheme();
   const styles = makeStyles(colors);
-  const [locked, setLocked] = useState(false);
+  const [state, setState] = useState<GateState>('checking');
   const appState = useRef(AppState.currentState);
 
-  const checkLock = async () => {
+  const evaluate = useCallback(async () => {
     if (!user) {
-      setLocked(false);
+      setState('open');
       return;
     }
     const enabled = await isBiometricLockEnabled();
-    if (enabled) setLocked(true);
-  };
+    setState(enabled ? 'locked' : 'open');
+  }, [user]);
 
+  // Re-evaluate whenever auth resolves or the user changes. While auth is still
+  // loading, stay in `checking` (blank cover) rather than assuming `open`.
   useEffect(() => {
-    if (!loading) checkLock();
-  }, [loading, user]);
+    if (loading) return;
+    setState('checking');
+    evaluate();
+  }, [loading, user, evaluate]);
 
+  // On return-to-foreground, re-lock if enabled. Only flips to `locked` (never
+  // back to `checking`), so a resume never blanks an already-open app for a
+  // logged-in user who doesn't have the lock on.
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
-      if (appState.current.match(/inactive|background/) && next === 'active') {
-        checkLock();
+      if (appState.current.match(/inactive|background/) && next === 'active' && user) {
+        isBiometricLockEnabled().then((enabled) => {
+          if (enabled) setState('locked');
+        });
       }
       appState.current = next;
     });
@@ -44,16 +60,26 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
 
   const unlock = async () => {
     const success = await authenticateWithBiometrics(t.profile.biometricPrompt);
-    if (success) setLocked(false);
+    if (success) setState('open');
   };
 
-  if (!locked) return <>{children}</>;
+  if (state === 'open') return <>{children}</>;
 
+  // `checking`: a neutral cover, no app content and no interactive elements —
+  // just prevents the content-flash while we determine whether to lock.
+  if (state === 'checking') return <View style={styles.container} />;
+
+  // `locked`: unlock prompt, plus a logout escape hatch so a user who can't
+  // authenticate (e.g. biometrics repeatedly failing) is never trapped with no
+  // way out. Device-PIN fallback is also allowed (see biometrics.ts).
   return (
     <View style={styles.container}>
       <Pressable onPress={unlock} style={({ pressed }) => [styles.button, pressed && pressedStyle]}>
         <Ionicons name="lock-closed-outline" size={32} color={colors.accent} />
         <Text style={styles.label}>{t.profile.unlockButton}</Text>
+      </Pressable>
+      <Pressable onPress={signOut} style={({ pressed }) => pressed && pressedStyle}>
+        <Text style={styles.logout}>{t.profile.logoutButton}</Text>
       </Pressable>
     </View>
   );
@@ -66,6 +92,7 @@ const makeStyles = (colors: ColorTokens) =>
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.background,
+      gap: spacing.xl,
     },
     button: {
       alignItems: 'center',
@@ -76,5 +103,10 @@ const makeStyles = (colors: ColorTokens) =>
       color: colors.textPrimary,
       fontWeight: '700',
       fontSize: 16,
+    },
+    logout: {
+      color: colors.textSecondary,
+      fontWeight: '600',
+      fontSize: 14,
     },
   });

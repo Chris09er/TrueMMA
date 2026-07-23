@@ -6,7 +6,12 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
-import type { EventsStackParamList, FightersStackParamList, RootTabParamList } from './src/navigation';
+import type {
+  ContactStackParamList,
+  EventsStackParamList,
+  FightersStackParamList,
+  RootTabParamList,
+} from './src/navigation';
 import { LocaleProvider, useLocale } from './src/lib/i18n';
 import { AuthProvider } from './src/lib/auth';
 import BiometricGate from './src/components/BiometricGate';
@@ -17,9 +22,11 @@ import FighterListScreen from './src/screens/FighterListScreen';
 import FighterDetailScreen from './src/screens/FighterDetailScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ContactScreen from './src/screens/ContactScreen';
+import LegalScreen from './src/screens/LegalScreen';
 
 const EventsStack = createNativeStackNavigator<EventsStackParamList>();
 const FightersStack = createNativeStackNavigator<FightersStackParamList>();
+const ContactStack = createNativeStackNavigator<ContactStackParamList>();
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
 function useHeaderScreenOptions() {
@@ -39,12 +46,12 @@ function EventsStackNavigator() {
       <EventsStack.Screen
         name="EventList"
         component={EventListScreen}
-        options={{ title: t.eventList.title }}
+        options={{ title: t.eventList.title, headerShown: false }}
       />
       <EventsStack.Screen
         name="EventDetail"
         component={EventDetailScreen}
-        options={({ route }) => ({ title: route.params.eventName })}
+        options={{ headerShown: false }}
       />
     </EventsStack.Navigator>
   );
@@ -58,14 +65,24 @@ function FightersStackNavigator() {
       <FightersStack.Screen
         name="FighterList"
         component={FighterListScreen}
-        options={{ title: t.fighterList.title }}
+        options={{ title: t.fighterList.title, headerShown: false }}
       />
       <FightersStack.Screen
         name="FighterDetail"
         component={FighterDetailScreen}
-        options={({ route }) => ({ title: route.params.fighterName })}
+        options={{ headerShown: false }}
       />
     </FightersStack.Navigator>
+  );
+}
+
+function ContactStackNavigator() {
+  const screenOptions = useHeaderScreenOptions();
+  return (
+    <ContactStack.Navigator screenOptions={screenOptions}>
+      <ContactStack.Screen name="Contact" component={ContactScreen} options={{ headerShown: false }} />
+      <ContactStack.Screen name="Legal" component={LegalScreen} options={{ headerShown: false }} />
+    </ContactStack.Navigator>
   );
 }
 
@@ -103,12 +120,12 @@ function RootTabs() {
       <Tab.Screen
         name="ProfileTab"
         component={ProfileScreen}
-        options={{ title: t.tabs.profile, headerShown: true, headerTitle: t.profile.title }}
+        options={{ title: t.tabs.profile, headerShown: false }}
       />
       <Tab.Screen
         name="ContactTab"
-        component={ContactScreen}
-        options={{ title: t.tabs.contact, headerShown: true, headerTitle: t.contact.title }}
+        component={ContactStackNavigator}
+        options={{ title: t.tabs.contact, headerShown: false }}
       />
     </Tab.Navigator>
   );

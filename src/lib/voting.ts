@@ -1,28 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+import { getDeviceId } from './deviceId';
 
-const DEVICE_ID_KEY = 'true-mma:device-id';
-
-let cachedDeviceId: string | null = null;
-
-// A device-scoped anonymous id, independent of the push token — voting must
-// not require the OS notification-permission prompt. Not cryptographically
-// strong, just needs to be unique per install; deliberately not using
-// expo-crypto's randomUUID to avoid pulling in a native module for this.
-export async function getDeviceId(): Promise<string> {
-  if (cachedDeviceId) return cachedDeviceId;
-
-  const existing = await AsyncStorage.getItem(DEVICE_ID_KEY);
-  if (existing) {
-    cachedDeviceId = existing;
-    return existing;
-  }
-
-  const generated = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  await AsyncStorage.setItem(DEVICE_ID_KEY, generated);
-  cachedDeviceId = generated;
-  return generated;
-}
+// getDeviceId now lives in ./deviceId (shared with saves.ts) — re-exported here
+// so existing callers that import it from voting.ts keep working.
+export { getDeviceId };
 
 export type FightVoteSummary = {
   fighter1Votes: number;
@@ -60,13 +41,15 @@ export async function getEventVotes(
   return result;
 }
 
+// Writes go through the security-definer RPC (migration 013), not a direct
+// table upsert — the client has no insert/update grant on fight_votes. The
+// RPC validates that the picked fighter is actually in the fight.
 export async function castVote(fightId: string, fighterId: string): Promise<void> {
   const deviceId = await getDeviceId();
-  const { error } = await supabase
-    .from('fight_votes')
-    .upsert(
-      { fight_id: fightId, device_id: deviceId, picked_fighter_id: fighterId },
-      { onConflict: 'fight_id,device_id' }
-    );
+  const { error } = await supabase.rpc('cast_fight_vote', {
+    p_fight_id: fightId,
+    p_device_id: deviceId,
+    p_fighter_id: fighterId,
+  });
   if (error) throw error;
 }

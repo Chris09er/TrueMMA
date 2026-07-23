@@ -1,0 +1,5 @@
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp?project_ref=qvjgsbeugllobgwabebv&features=docs%2Caccount%2Cdatabase%2Cdebugging%2Cdevelopment%2Cfunctions%2Cbranching%2Cstorage"
+
+[mcp_servers.supabase-prod]
+url = "https://mcp.supabase.com/mcp?project_ref=mytdfwceuzgqopndqmjt&features=docs%2Caccount%2Cdatabase%2Cdebugging%2Cdevelopment%2Cfunctions%2Cbranching%2Cstorage"
