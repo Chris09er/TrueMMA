@@ -369,7 +369,12 @@ else (UFC + 9 other leagues) is populated by
     lowest-`card_position` fight within `card_segment === 'prelims'`),
     title-fight tag, scheduled rounds, and (for past fights) the result
     incl. `result_method_detail` when balldontlie has it (more specific
-    than `result_method`, e.g. exact submission type). A live badge next
+    than `result_method`, e.g. exact submission type). Completed fights show
+    a per-fighter **WIN/LOSS/DRAW/NC pill** next to each record (`fightOutcome`
+    + `ResultBadge`, added 2026-07-23 — replaced the old winner-name colouring;
+    WIN is the filled cobalt accent, LOSS/DRAW/NC are muted outlines, no
+    green/red trade dress. DRAW/NC are read from `result_method`
+    "Draw"/"No Contest" since those have no `result_winner_id`). A live badge next
     to a cancelled-banner-style slot in the header (see above); an
     `OrganizationFollowBell` next to the org name (added 2026-07-19, see
     [Notifications](#notifications)); and, for any fight with no result
@@ -410,7 +415,12 @@ else (UFC + 9 other leagues) is populated by
     long-press-copy, no new dependency) above the mailto button, and
     guards `Linking.openURL` with `Linking.canOpenURL` first, falling back
     to an alert instead of failing silently if no mail client is
-    configured.
+    configured. A footer links to **Datenschutz / Impressum**, which open
+    `LegalScreen` — the `ContactTab` is a small native stack
+    (`ContactStackParamList`: `Contact` + `Legal { doc: 'privacy' | 'imprint' }`,
+    added 2026-07-23) so these are real pushed screens, not a modal. Their
+    content is a **placeholder** (see translations' `legal` section) — a text
+    swap before release, no structural change.
   - `ProfileScreen` — a three-tab segmented switcher (Konto / Merkliste /
     Einstellungen), **shown in both the logged-in and logged-out states**
     (`SectionSwitcher`, shared). Konto: logged-out shows the auth form
@@ -1116,25 +1126,32 @@ notifications.
   `onToggle` callback, refreshed from `getFighterFavoriteIds()`/
   `getEventFavoriteIds()` on load and pull-to-refresh.
 
-## Voting (removed)
+## Voting
 
-Added 2026-07-19, then **removed**: an anonymous "who wins?" community vote on
-upcoming fights. The UI was dropped during the Blue Alloy redesign (the
-design handoff mandates "No win-pick/voting controls"), and the now-orphaned
-client `src/lib/voting.ts` was deleted 2026-07-23. No app code references
-voting anymore.
+Anonymous "who wins?" community vote on undecided fights. Added 2026-07-19,
+**removed** during the Blue Alloy redesign (client `src/lib/voting.ts` deleted
+2026-07-23), then **re-added 2026-07-23** on explicit product request (the
+Blue Alloy handoff's "No win-pick/voting controls" line is knowingly
+overridden here). `src/lib/voting.ts` was restored unchanged from history.
 
-The `fight_votes` table (`fight_id`, `device_id`, `picked_fighter_id`, unique
-on `(fight_id, device_id)`) is **left in the database** — see [Data
-model](#data-model) — carrying a handful of legacy rows. It is not written or
-read by the app. Its RLS is deliberately permissive (anonymous
-insert/select/update, `update using (true)` with no `device_id` scoping), so
-the counts were always attacker-mutable and only ever meant as indicative.
-
-If voting ever returns, do not reuse this trust model: casting should move
-behind a `security definer` RPC / service-role path, and the identity should
-again avoid triggering the OS notification-permission prompt (it must stay
-independent of the push-token identity used for follows).
+- **UI** (`EventDetailScreen`, `FightVoteRow`): shown only for votable fights
+  — both fighters known, `status` neither `completed` nor `cancelled` (see
+  `isVotable`). Before voting: two "Tippe {name}" buttons. After voting: a
+  two-segment split bar with each fighter's share, the voted side highlighted
+  in `accent`. Votes are fetched once per event (`getEventVotes`, batched) and
+  cast optimistically (`castVote`, local tally update then persist).
+- **Identity:** a locally-generated `device_id` (`true-mma:device-id` in
+  AsyncStorage), deliberately **independent of the push token** so voting never
+  triggers the OS notification-permission prompt.
+- **Trust model — unchanged and still permissive:** the `fight_votes` table
+  (`fight_id`, `device_id`, `picked_fighter_id`, unique on
+  `(fight_id, device_id)`) has anonymous insert/select/update with
+  `update using (true)` and no `device_id` scoping, so counts are
+  attacker-mutable and only ever indicative. **Open item:** the earlier
+  removal note recommended moving casting behind a `security definer` RPC /
+  service-role path before any real reliance on the numbers — that hardening
+  was **not** done on re-add (restored as-was); revisit before the counts are
+  ever presented as trustworthy.
 
 ## balldontlie sync
 

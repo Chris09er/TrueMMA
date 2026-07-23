@@ -6,7 +6,12 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
-import type { EventsStackParamList, FightersStackParamList, RootTabParamList } from './src/navigation';
+import type {
+  ContactStackParamList,
+  EventsStackParamList,
+  FightersStackParamList,
+  RootTabParamList,
+} from './src/navigation';
 import { LocaleProvider, useLocale } from './src/lib/i18n';
 import { AuthProvider } from './src/lib/auth';
 import BiometricGate from './src/components/BiometricGate';
@@ -17,9 +22,11 @@ import FighterListScreen from './src/screens/FighterListScreen';
 import FighterDetailScreen from './src/screens/FighterDetailScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import ContactScreen from './src/screens/ContactScreen';
+import LegalScreen from './src/screens/LegalScreen';
 
 const EventsStack = createNativeStackNavigator<EventsStackParamList>();
 const FightersStack = createNativeStackNavigator<FightersStackParamList>();
+const ContactStack = createNativeStackNavigator<ContactStackParamList>();
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
 function useHeaderScreenOptions() {
@@ -69,6 +76,16 @@ function FightersStackNavigator() {
   );
 }
 
+function ContactStackNavigator() {
+  const screenOptions = useHeaderScreenOptions();
+  return (
+    <ContactStack.Navigator screenOptions={screenOptions}>
+      <ContactStack.Screen name="Contact" component={ContactScreen} options={{ headerShown: false }} />
+      <ContactStack.Screen name="Legal" component={LegalScreen} options={{ headerShown: false }} />
+    </ContactStack.Navigator>
+  );
+}
+
 function RootTabs() {
   const { t } = useLocale();
   const { colors: themeColors } = useTheme();
@@ -107,7 +124,7 @@ function RootTabs() {
       />
       <Tab.Screen
         name="ContactTab"
-        component={ContactScreen}
+        component={ContactStackNavigator}
         options={{ title: t.tabs.contact, headerShown: false }}
       />
     </Tab.Navigator>

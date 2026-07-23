@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Alert, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { ContactStackParamList } from '../navigation';
 import { useLocale } from '../lib/i18n';
-import { radius, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
+import { pressedStyle, radius, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
 import FilterChip from '../components/FilterChip';
 import { Button, LogoMark, Screen, ScreenHeader } from '../components/ui';
 
@@ -11,6 +14,7 @@ export default function ContactScreen() {
   const { t } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const navigation = useNavigation<NativeStackNavigationProp<ContactStackParamList>>();
 
   const topics = [
     { key: 'general', label: t.contact.topicGeneral },
@@ -66,6 +70,24 @@ export default function ContactScreen() {
         <Text style={styles.emailHint} selectable>
           {CONTACT_EMAIL}
         </Text>
+
+        <View style={styles.legalRow}>
+          <Pressable
+            onPress={() => navigation.navigate('Legal', { doc: 'privacy' })}
+            hitSlop={8}
+            style={({ pressed }) => pressed && pressedStyle}
+          >
+            <Text style={styles.legalLink}>{t.contact.privacyLink}</Text>
+          </Pressable>
+          <Text style={styles.legalSeparator}>·</Text>
+          <Pressable
+            onPress={() => navigation.navigate('Legal', { doc: 'imprint' })}
+            hitSlop={8}
+            style={({ pressed }) => pressed && pressedStyle}
+          >
+            <Text style={styles.legalLink}>{t.contact.imprintLink}</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </Screen>
   );
@@ -89,4 +111,13 @@ const makeStyles = (colors: ColorTokens) =>
       marginBottom: spacing.lg,
     },
     emailHint: { ...typography.meta, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.lg },
+    legalRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginTop: spacing.xl,
+    },
+    legalLink: { ...typography.meta, color: colors.link },
+    legalSeparator: { ...typography.meta, color: colors.textSecondary },
   });

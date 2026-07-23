@@ -7,7 +7,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import { abbreviateWeightClass, getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
 import type { CardSegment, EventDetail, Fight, Fighter } from '../lib/types';
-import { pressedStyle, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
+import { castVote, getEventVotes, type FightVoteSummary } from '../lib/voting';
+import { pressedStyle, radius, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDateTime } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
@@ -32,16 +33,49 @@ function formatRecord(fighter: Fighter | null): string | null {
   return nc ? `${base} (${nc} NC)` : base;
 }
 
+type FightOutcome = 'win' | 'loss' | 'draw' | 'nc';
+
+// A fighter's result in a *completed* fight. Winner/loser come straight from
+// result_winner_id; draws and no-contests have no winner and are read from
+// result_method (free text from balldontlie — "Draw" / "No Contest", matched
+// case-insensitively). Anything not yet completed returns null (no badge —
+// that fight is instead eligible for voting).
+function fightOutcome(fight: Fight, fighterId: string | undefined): FightOutcome | null {
+  if (!fighterId || fight.status !== 'completed') return null;
+  if (fight.result_winner_id) return fight.result_winner_id === fighterId ? 'win' : 'loss';
+  const method = (fight.result_method ?? '').toLowerCase();
+  if (method.includes('no contest')) return 'nc';
+  if (method.includes('draw')) return 'draw';
+  return null;
+}
+
+function ResultBadge({ outcome, styles, t }: { outcome: FightOutcome; styles: Styles; t: Loc }) {
+  const config: Record<FightOutcome, { box: object; text: object; label: string }> = {
+    win: { box: styles.badgeWin, text: styles.badgeWinText, label: t.eventDetail.resultWin },
+    loss: { box: styles.badgeLoss, text: styles.badgeLossText, label: t.eventDetail.resultLoss },
+    draw: { box: styles.badgeNeutral, text: styles.badgeNeutralText, label: t.eventDetail.resultDraw },
+    nc: { box: styles.badgeNeutral, text: styles.badgeNeutralText, label: t.eventDetail.resultNc },
+  };
+  const { box, text, label } = config[outcome];
+  return (
+    <View style={[styles.resultBadge, box]}>
+      <Text style={[styles.resultBadgeText, text]}>{label}</Text>
+    </View>
+  );
+}
+
 function FighterCell({
   fighter,
   align,
-  isWinner,
+  outcome,
   styles,
+  t,
 }: {
   fighter: Fighter | null;
   align: 'left' | 'right';
-  isWinner: boolean;
+  outcome: FightOutcome | null;
   styles: Styles;
+  t: Loc;
 }) {
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const right = align === 'right';
@@ -53,7 +87,7 @@ function FighterCell({
         <Flag country={fighter?.nationality} height={12} />
         <View style={styles.fighterNameWrap}>
           <Text
-            style={[styles.fighterName, right && styles.textRight, isWinner && styles.fighterNameWinner]}
+            style={[styles.fighterName, right && styles.textRight]}
             numberOfLines={2}
             onPress={
               fighter
@@ -69,14 +103,99 @@ function FighterCell({
           </Text>
         </View>
       </View>
-      {record && <Text style={[styles.record, right && styles.textRight]}>{record}</Text>}
+      {(outcome || record) && (
+        <View style={[styles.metaRow, right && styles.rowReverse]}>
+          {outcome && <ResultBadge outcome={outcome} styles={styles} t={t} />}
+          {record && <Text style={[styles.record, right && styles.textRight]}>{record}</Text>}
+        </View>
+      )}
     </View>
   );
 }
 
-function FightRow({ fight, t, styles }: { fight: Fight; t: Loc; styles: Styles }) {
+// A fight is open for voting while it hasn't been settled: both fighters
+// known, not cancelled, and not yet completed (a Draw/NC is completed, so it
+// drops out of voting the same as a decided fight).
+function isVotable(fight: Fight): boolean {
+  return !!fight.fighter1 && !!fight.fighter2 && fight.status !== 'completed' && fight.status !== 'cancelled';
+}
+
+function FightVoteRow({
+  fight,
+  summary,
+  onVote,
+  styles,
+  t,
+}: {
+  fight: Fight;
+  summary: FightVoteSummary;
+  onVote: (fightId: string, fighterId: string) => void;
+  styles: Styles;
+  t: Loc;
+}) {
+  if (!fight.fighter1 || !fight.fighter2) return null;
+  const fighter1 = fight.fighter1;
+  const fighter2 = fight.fighter2;
+
+  if (!summary.myVote) {
+    return (
+      <View style={styles.voteRow}>
+        <Pressable
+          style={({ pressed }) => [styles.voteButton, pressed && pressedStyle]}
+          onPress={() => onVote(fight.id, fighter1.id)}
+        >
+          <Text style={styles.voteButtonText} numberOfLines={1}>
+            {t.eventDetail.votePick} {fighter1.name}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.voteButton, pressed && pressedStyle]}
+          onPress={() => onVote(fight.id, fighter2.id)}
+        >
+          <Text style={styles.voteButtonText} numberOfLines={1}>
+            {t.eventDetail.votePick} {fighter2.name}
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const total = summary.fighter1Votes + summary.fighter2Votes;
+  const pct1 = total > 0 ? Math.round((summary.fighter1Votes / total) * 100) : 50;
+  const pct2 = 100 - pct1;
+
+  return (
+    <View style={styles.voteBarContainer}>
+      <View style={styles.voteBarLabelsRow}>
+        <Text style={[styles.voteBarLabel, summary.myVote === fighter1.id && styles.voteBarLabelActive]} numberOfLines={1}>
+          {fighter1.name} · {pct1}%
+        </Text>
+        <Text style={[styles.voteBarLabel, summary.myVote === fighter2.id && styles.voteBarLabelActive]} numberOfLines={1}>
+          {pct2}% · {fighter2.name}
+        </Text>
+      </View>
+      <View style={styles.voteBarTrack}>
+        <View style={[styles.voteBarFill1, { flex: Math.max(pct1, 1) }]} />
+        <View style={[styles.voteBarFill2, { flex: Math.max(pct2, 1) }]} />
+      </View>
+    </View>
+  );
+}
+
+function FightRow({
+  fight,
+  voteSummary,
+  onVote,
+  t,
+  styles,
+}: {
+  fight: Fight;
+  voteSummary: FightVoteSummary;
+  onVote: (fightId: string, fighterId: string) => void;
+  t: Loc;
+  styles: Styles;
+}) {
   const cancelled = fight.status === 'cancelled';
-  const winnerId = fight.result_winner_id;
   const hasBanner = fight.is_main_event || fight.is_title_fight || cancelled;
   const rounds = fight.scheduled_rounds ? `${fight.scheduled_rounds} ${t.eventDetail.rounds}` : null;
   const weight = abbreviateWeightClass(fight.weight_class);
@@ -102,12 +221,12 @@ function FightRow({ fight, t, styles }: { fight: Fight; t: Loc; styles: Styles }
         </View>
       )}
       <View style={styles.matchup}>
-        <FighterCell fighter={fight.fighter1} align="left" isWinner={fight.fighter1?.id === winnerId} styles={styles} />
+        <FighterCell fighter={fight.fighter1} align="left" outcome={fightOutcome(fight, fight.fighter1?.id)} styles={styles} t={t} />
         <View style={styles.centerMeta}>
           {weight && <Text style={styles.weightClass}>{weight}</Text>}
           {rounds && <Text style={styles.roundsText}>{rounds}</Text>}
         </View>
-        <FighterCell fighter={fight.fighter2} align="right" isWinner={fight.fighter2?.id === winnerId} styles={styles} />
+        <FighterCell fighter={fight.fighter2} align="right" outcome={fightOutcome(fight, fight.fighter2?.id)} styles={styles} t={t} />
       </View>
       {(fight.result_method_detail || fight.result_method) && (
         <Text style={styles.result}>
@@ -116,6 +235,7 @@ function FightRow({ fight, t, styles }: { fight: Fight; t: Loc; styles: Styles }
           {fight.result_time ? ` (${fight.result_time})` : ''}
         </Text>
       )}
+      {isVotable(fight) && <FightVoteRow fight={fight} summary={voteSummary} onVote={onVote} styles={styles} t={t} />}
     </View>
   );
 }
@@ -128,6 +248,7 @@ export default function EventDetailScreen({ route, navigation }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [fights, setFights] = useState<Fight[]>([]);
+  const [votes, setVotes] = useState<Map<string, FightVoteSummary>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -144,6 +265,40 @@ export default function EventDetailScreen({ route, navigation }: Props) {
   };
 
   useEffect(load, [eventId, t]);
+
+  // Separate from the main load — a vote-fetch failure must not block the
+  // fight card from rendering. Only the votable fights are queried.
+  useEffect(() => {
+    const votable = fights.filter(isVotable);
+    if (votable.length === 0) return;
+    getEventVotes(votable.map((f) => ({ id: f.id, fighter1_id: f.fighter1!.id, fighter2_id: f.fighter2!.id })))
+      .then(setVotes)
+      .catch(() => {});
+  }, [fights]);
+
+  // Optimistic: reflect the tap immediately (move this device's vote, adjust
+  // the tallies), then persist. A failed write just leaves the optimistic
+  // state — acceptable for a low-stakes community poll.
+  const handleVote = (fightId: string, fighterId: string) => {
+    const fight = fights.find((f) => f.id === fightId);
+    if (!fight?.fighter1 || !fight.fighter2) return;
+
+    setVotes((prev) => {
+      const next = new Map(prev);
+      const current = next.get(fightId) ?? { fighter1Votes: 0, fighter2Votes: 0, myVote: null };
+      let { fighter1Votes, fighter2Votes } = current;
+      if (current.myVote === fight.fighter1!.id) fighter1Votes -= 1;
+      if (current.myVote === fight.fighter2!.id) fighter2Votes -= 1;
+      if (fighterId === fight.fighter1!.id) fighter1Votes += 1;
+      if (fighterId === fight.fighter2!.id) fighter2Votes += 1;
+      next.set(fightId, { fighter1Votes, fighter2Votes, myVote: fighterId });
+      return next;
+    });
+
+    castVote(fightId, fighterId).catch(() => {});
+  };
+
+  const emptyVoteSummary: FightVoteSummary = { fighter1Votes: 0, fighter2Votes: 0, myVote: null };
 
   const formatTime = (iso: string) =>
     new Date(iso).toLocaleTimeString(locale === 'de' ? 'de-DE' : 'en-US', {
@@ -271,7 +426,14 @@ export default function EventDetailScreen({ route, navigation }: Props) {
                 </View>
               )}
               {group.fights.map((fight) => (
-                <FightRow key={fight.id} fight={fight} t={t} styles={styles} />
+                <FightRow
+                  key={fight.id}
+                  fight={fight}
+                  voteSummary={votes.get(fight.id) ?? emptyVoteSummary}
+                  onVote={handleVote}
+                  t={t}
+                  styles={styles}
+                />
               ))}
             </Card>
           ))
@@ -339,9 +501,53 @@ const makeStyles = (colors: ColorTokens) =>
     rowReverse: { flexDirection: 'row-reverse' },
     fighterNameWrap: { flexShrink: 1 },
     fighterName: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary },
-    fighterNameWinner: { color: colors.accent },
     textRight: { textAlign: 'right' },
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     record: { ...typography.meta, ...tabularNums, color: colors.textSecondary },
+
+    // WIN/LOSS/DRAW/NC result pills, shown next to the record on completed
+    // fights (replacing the old winner-name colouring). WIN is the filled
+    // cobalt accent; everything else is a muted outline so a card of results
+    // stays calm — no green/red trade dress, matching the Blue Alloy system.
+    resultBadge: {
+      borderRadius: 6,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
+    resultBadgeText: { ...typography.caption, fontSize: 10, letterSpacing: 0.5 },
+    badgeWin: { backgroundColor: colors.accent, borderColor: colors.accent },
+    badgeWinText: { color: '#FFFFFF' },
+    badgeLoss: { backgroundColor: 'transparent', borderColor: colors.border },
+    badgeLossText: { color: colors.textSecondary },
+    badgeNeutral: { backgroundColor: 'transparent', borderColor: colors.alloyMuted },
+    badgeNeutralText: { color: colors.alloy },
+
+    voteRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+    voteButton: {
+      flex: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      borderRadius: radius.control,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: 'center',
+    },
+    voteButtonText: { ...typography.caption, color: colors.textPrimary },
+    voteBarContainer: { marginTop: spacing.md },
+    voteBarLabelsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4, gap: spacing.sm },
+    voteBarLabel: { ...typography.caption, color: colors.textSecondary, flexShrink: 1 },
+    voteBarLabelActive: { color: colors.accent, fontFamily: typography.label.fontFamily },
+    voteBarTrack: {
+      flexDirection: 'row',
+      height: 8,
+      borderRadius: 4,
+      overflow: 'hidden',
+      backgroundColor: colors.border,
+    },
+    voteBarFill1: { backgroundColor: colors.accent },
+    voteBarFill2: { backgroundColor: colors.surfaceAlt },
 
     centerMeta: { alignItems: 'center', paddingHorizontal: spacing.sm },
     weightClass: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },

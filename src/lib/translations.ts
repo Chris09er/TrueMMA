@@ -48,6 +48,10 @@ export const translations = {
       prelims: 'Prelims',
       mainCard: 'Main Card',
       votePick: 'Tippe',
+      resultWin: 'WIN',
+      resultLoss: 'LOSS',
+      resultDraw: 'DRAW',
+      resultNc: 'NC',
       followOrganization: 'Liga folgen',
       unfollowOrganization: 'Liga entfolgen',
     },
@@ -112,6 +116,17 @@ export const translations = {
       emailButton: 'E-Mail schreiben',
       noMailClientTitle: 'Kein E-Mail-Programm gefunden',
       noMailClientBody: 'Bitte kopiere die Adresse oben manuell und schreib uns von einer anderen App aus.',
+      privacyLink: 'Datenschutz',
+      imprintLink: 'Impressum',
+    },
+    legal: {
+      privacyTitle: 'Datenschutz',
+      imprintTitle: 'Impressum',
+      placeholderNotice: 'Platzhalter',
+      privacyBody:
+        'Dies ist ein Platzhalter für die Datenschutzerklärung. Der finale Text wird vor der Veröffentlichung ergänzt und beschreibt, welche Daten erhoben werden, wie sie verarbeitet werden und welche Rechte du hast.',
+      imprintBody:
+        'Dies ist ein Platzhalter für das Impressum. Die gesetzlich erforderlichen Angaben (Anbieter, Kontakt, Verantwortliche) werden vor der Veröffentlichung ergänzt.',
     },
     notifications: {
       permissionDeniedTitle: 'Benachrichtigungen deaktiviert',
@@ -261,6 +276,10 @@ export const translations = {
       prelims: 'Prelims',
       mainCard: 'Main Card',
       votePick: 'Pick',
+      resultWin: 'WIN',
+      resultLoss: 'LOSS',
+      resultDraw: 'DRAW',
+      resultNc: 'NC',
       followOrganization: 'Follow league',
       unfollowOrganization: 'Unfollow league',
     },
@@ -325,6 +344,17 @@ export const translations = {
       emailButton: 'Send email',
       noMailClientTitle: 'No email app found',
       noMailClientBody: 'Please copy the address above manually and reach out from another app.',
+      privacyLink: 'Privacy',
+      imprintLink: 'Imprint',
+    },
+    legal: {
+      privacyTitle: 'Privacy Policy',
+      imprintTitle: 'Imprint',
+      placeholderNotice: 'Placeholder',
+      privacyBody:
+        'This is a placeholder for the privacy policy. The final text will be added before release and will describe what data is collected, how it is processed, and what rights you have.',
+      imprintBody:
+        'This is a placeholder for the imprint. The legally required details (provider, contact, responsible parties) will be added before release.',
     },
     notifications: {
       permissionDeniedTitle: 'Notifications disabled',

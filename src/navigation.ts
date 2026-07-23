@@ -10,9 +10,14 @@ export type FightersStackParamList = {
   FighterDetail: { fighterId: string; fighterName: string };
 };
 
+export type ContactStackParamList = {
+  Contact: undefined;
+  Legal: { doc: 'privacy' | 'imprint' };
+};
+
 export type RootTabParamList = {
   EventsTab: NavigatorScreenParams<EventsStackParamList> | undefined;
   FightersTab: NavigatorScreenParams<FightersStackParamList> | undefined;
   ProfileTab: undefined;
-  ContactTab: undefined;
+  ContactTab: NavigatorScreenParams<ContactStackParamList> | undefined;
 };
