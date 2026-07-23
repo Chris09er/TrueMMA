@@ -181,75 +181,8 @@ export async function getEventDetail(eventId: string): Promise<EventDetail> {
   return data as unknown as EventDetail;
 }
 
-export async function getFollowedFighters(userId: string): Promise<Fighter[]> {
-  const { data, error } = await supabase
-    .from('push_subscriptions')
-    .select(`fighters(${FIGHTER_COLUMNS})`)
-    .eq('user_id', userId)
-    .not('fighter_id', 'is', null);
-
-  if (error) throw error;
-  return ((data ?? []) as unknown as { fighters: Fighter | null }[])
-    .map((row) => row.fighters)
-    .filter((fighter): fighter is Fighter => fighter !== null);
-}
-
-export async function getFollowedEvents(userId: string): Promise<EventListItem[]> {
-  const { data, error } = await supabase
-    .from('event_follows')
-    .select(`events(${EVENT_LIST_COLUMNS})`)
-    .eq('user_id', userId);
-
-  if (error) throw error;
-  return ((data ?? []) as unknown as { events: EventListItem | null }[])
-    .map((row) => row.events)
-    .filter((event): event is EventListItem => event !== null);
-}
-
-export async function getFollowedOrganizations(userId: string): Promise<Organization[]> {
-  const { data, error } = await supabase
-    .from('organization_follows')
-    .select('organizations(id, name, short_name, logo_url)')
-    .eq('user_id', userId);
-
-  if (error) throw error;
-  return ((data ?? []) as unknown as { organizations: Organization | null }[])
-    .map((row) => row.organizations)
-    .filter((org): org is Organization => org !== null);
-}
-
-// Anonymous (logged-out) equivalents of the getFollowed* queries above:
-// fighter and org follows are anchored to the device push_token (user_id is
-// optional), so they resolve without an account. Event follows have no
-// push_token column and stay local — the profile reads them from the
-// scheduled reminders instead (see getReminderEventIds + getEventsByIds).
-export async function getFollowedFightersByToken(pushToken: string): Promise<Fighter[]> {
-  const { data, error } = await supabase
-    .from('push_subscriptions')
-    .select(`fighters(${FIGHTER_COLUMNS})`)
-    .eq('push_token', pushToken)
-    .not('fighter_id', 'is', null);
-
-  if (error) throw error;
-  return ((data ?? []) as unknown as { fighters: Fighter | null }[])
-    .map((row) => row.fighters)
-    .filter((fighter): fighter is Fighter => fighter !== null);
-}
-
-export async function getFollowedOrganizationsByToken(pushToken: string): Promise<Organization[]> {
-  const { data, error } = await supabase
-    .from('organization_follows')
-    .select('organizations(id, name, short_name, logo_url)')
-    .eq('push_token', pushToken);
-
-  if (error) throw error;
-  return ((data ?? []) as unknown as { organizations: Organization | null }[])
-    .map((row) => row.organizations)
-    .filter((org): org is Organization => org !== null);
-}
-
-// Fetch full fighter/event records for a set of ids — used to resolve
-// locally-stored anonymous favorites (and local reminder ids) into the
+// Fetch full fighter/event/organization records for a set of ids — used to
+// resolve the saved_* rows (which the list RPCs return as bare ids) into the
 // objects the profile lists render. Returns [] for an empty id list without
 // hitting the network.
 export async function getFightersByIds(ids: string[]): Promise<Fighter[]> {
@@ -270,6 +203,16 @@ export async function getEventsByIds(ids: string[]): Promise<EventListItem[]> {
   return (data ?? []) as unknown as EventListItem[];
 }
 
+export async function getOrganizationsByIds(ids: string[]): Promise<Organization[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('id, name, short_name, logo_url')
+    .in('id', ids);
+  if (error) throw error;
+  return sortOrganizations((data ?? []) as Organization[]);
+}
+
 export async function getFighterFights(fighterId: string): Promise<FightWithEvent[]> {
   const { data, error } = await supabase
     .from('fights')
@@ -283,30 +226,6 @@ export async function getFighterFights(fighterId: string): Promise<FightWithEven
     if (!b.event) return -1;
     return new Date(b.event.event_date).getTime() - new Date(a.event.event_date).getTime();
   });
-}
-
-export async function getFavoritedFighters(userId: string): Promise<Fighter[]> {
-  const { data, error } = await supabase
-    .from('fighter_favorites')
-    .select(`fighters(${FIGHTER_COLUMNS})`)
-    .eq('user_id', userId);
-
-  if (error) throw error;
-  return ((data ?? []) as unknown as { fighters: Fighter | null }[])
-    .map((row) => row.fighters)
-    .filter((fighter): fighter is Fighter => fighter !== null);
-}
-
-export async function getFavoritedEvents(userId: string): Promise<EventListItem[]> {
-  const { data, error } = await supabase
-    .from('event_favorites')
-    .select(`events(${EVENT_LIST_COLUMNS})`)
-    .eq('user_id', userId);
-
-  if (error) throw error;
-  return ((data ?? []) as unknown as { events: EventListItem | null }[])
-    .map((row) => row.events)
-    .filter((event): event is EventListItem => event !== null);
 }
 
 // balldontlie's card_position (fight_order) restarts at 1 separately for

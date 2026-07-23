@@ -11,8 +11,7 @@ import { pressedStyle, spacing, tabularNums, typography, useTheme, type ColorTok
 import { formatEventDate } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import Flag from '../components/Flag';
-import FighterFollowBell from '../components/FighterFollowBell';
-import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
+import SaveHeart from '../components/SaveHeart';
 import {
   Button,
   Card,
@@ -136,12 +135,7 @@ export default function FighterDetailScreen({ route, navigation }: Props) {
         />
       }
       title={t.fighterDetail.title}
-      right={
-        <>
-          <FighterFavoriteHeart inline fighterId={fighterId} />
-          <FighterFollowBell inline fighterId={fighterId} />
-        </>
-      }
+      right={<SaveHeart inline kind="fighter" id={fighterId} />}
     />
   );
 

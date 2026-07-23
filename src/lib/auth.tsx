@@ -6,9 +6,7 @@ import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { getQueryParams } from './oauthRedirect';
 import { supabase } from './supabase';
-import { claimAnonymousFollows } from './pushSubscriptions';
-import { claimLocalFavorites } from './favorites';
-import { claimAnonymousOrganizationFollows } from './organizationFollows';
+import { claimSavesForUser } from './saves';
 import { getProfile, updateTimezoneOverride } from './profile';
 import type { Locale } from './translations';
 
@@ -84,14 +82,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         getProfile(nextSession.user.id)
           .then((profile) => setTimezoneOverrideState(profile?.timezone_override ?? null))
           .catch(() => {});
-        claimAnonymousFollows(nextSession.user.id).catch((err) => {
-          console.error('claimAnonymousFollows failed:', err);
-        });
-        claimLocalFavorites(nextSession.user.id).catch((err) => {
-          console.error('claimLocalFavorites failed:', err);
-        });
-        claimAnonymousOrganizationFollows(nextSession.user.id).catch((err) => {
-          console.error('claimAnonymousOrganizationFollows failed:', err);
+        // Attaches this device's anonymous saved_* rows to the account
+        // (user_id derived server-side from auth.uid()) so they become the
+        // account's cross-device merkliste. No-op if nothing is saved.
+        claimSavesForUser().catch((err) => {
+          console.error('claimSavesForUser failed:', err);
         });
       }
     });

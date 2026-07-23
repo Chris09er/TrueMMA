@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -15,11 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation, type NavigationProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import type { RootTabParamList } from '../navigation';
-import EventReminderBell from '../components/EventReminderBell';
-import FighterFollowBell from '../components/FighterFollowBell';
-import EventFavoriteHeart from '../components/EventFavoriteHeart';
-import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
-import OrganizationFollowBell from '../components/OrganizationFollowBell';
+import SaveHeart from '../components/SaveHeart';
 import Flag from '../components/Flag';
 import FilterModal from '../components/FilterModal';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,19 +31,15 @@ import { getProfile, updateNickname } from '../lib/profile';
 import { PASSWORD_REQUIREMENTS, isPasswordValid } from '../lib/passwordPolicy';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { isBiometricLockAvailable, isBiometricLockEnabled, setBiometricLockEnabled } from '../lib/biometrics';
+import { getEventsByIds, getFightersByIds, getOrganizationsByIds } from '../lib/queries';
 import {
-  getEventsByIds,
-  getFavoritedEvents,
-  getFavoritedFighters,
-  getFightersByIds,
-  getFollowedEvents,
-  getFollowedFighters,
-  getFollowedFightersByToken,
-  getFollowedOrganizations,
-  getFollowedOrganizationsByToken,
-} from '../lib/queries';
-import { getEventFavoriteIds, getFighterFavoriteIds } from '../lib/favorites';
-import { getPushTokenIfPermitted, getReminderEventIds } from '../lib/notifications';
+  getSavedEvents,
+  getSavedFighters,
+  getSavedOrganizations,
+  setEventNotify,
+  setFighterNotify,
+  setOrganizationNotify,
+} from '../lib/saves';
 import { minTapTarget, pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens, type ThemeOverride } from '../lib/theme';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
@@ -362,102 +355,98 @@ function showAuthError(t: Translations, result: AuthResult) {
   }
 }
 
+type SavedFighterItem = { fighter: Fighter; notifyNewFight: boolean; notifyFightStart: boolean; hasPush: boolean };
+type SavedEventItem = { event: EventListItem; notifyEventStart: boolean; hasPush: boolean };
+type SavedOrganizationItem = { organization: Organization; notifyEventStart: boolean; hasPush: boolean };
+
 type MerklisteData = {
-  followedOrganizations: Organization[];
-  followedFighters: Fighter[];
-  followedEvents: EventListItem[];
-  favoritedFighters: Fighter[];
-  favoritedEvents: EventListItem[];
-  followsLoading: boolean;
-  favoritesLoading: boolean;
-  removeFavoritedFighter: (id: string) => void;
-  removeFavoritedEvent: (id: string) => void;
+  savedFighters: SavedFighterItem[];
+  savedEvents: SavedEventItem[];
+  savedOrganizations: SavedOrganizationItem[];
+  loading: boolean;
+  removeFighter: (id: string) => void;
+  removeEvent: (id: string) => void;
+  removeOrganization: (id: string) => void;
+  updateFighterNotify: (id: string, notifyNewFight: boolean, notifyFightStart: boolean) => void;
+  updateEventNotify: (id: string, notifyEventStart: boolean) => void;
+  updateOrganizationNotify: (id: string, notifyEventStart: boolean) => void;
 };
 
-// Loads the follows + favorites shown in the "Merkliste" tab, for either auth
-// state. Logged in (userId set) reads the server tables by user_id — those
-// rows sync across devices. Logged out (userId null) reads the exact same
-// concepts from where they live without an account: fighter/org follows by
-// device push_token, event follows from the local scheduled reminders, and
-// favorites from local storage. Same UI either way; only the storage differs.
+// Loads the unified saved_* merkliste shown in the "Merkliste" tab. There is no
+// longer a logged-in/logged-out branch: the list_saved_* RPCs return this
+// device's rows UNION the logged-in user's rows, so the same three calls work
+// in either state (the RPC reads auth.uid() and device_id itself). The `userId`
+// arg only drives a reload when the auth state flips. The RPCs return bare ids
+// plus notify flags; the objects are resolved via getFightersByIds etc.
 function useMerkliste(userId: string | null): MerklisteData {
-  const [followedOrganizations, setFollowedOrganizations] = useState<Organization[]>([]);
-  const [followedFighters, setFollowedFighters] = useState<Fighter[]>([]);
-  const [followedEvents, setFollowedEvents] = useState<EventListItem[]>([]);
-  const [favoritedFighters, setFavoritedFighters] = useState<Fighter[]>([]);
-  const [favoritedEvents, setFavoritedEvents] = useState<EventListItem[]>([]);
-  const [followsLoading, setFollowsLoading] = useState(true);
-  const [favoritesLoading, setFavoritesLoading] = useState(true);
+  const [savedFighters, setSavedFighters] = useState<SavedFighterItem[]>([]);
+  const [savedEvents, setSavedEvents] = useState<SavedEventItem[]>([]);
+  const [savedOrganizations, setSavedOrganizations] = useState<SavedOrganizationItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const loadFollows = useCallback(() => {
-    setFollowsLoading(true);
+  const load = useCallback(() => {
+    setLoading(true);
     (async () => {
-      if (userId) {
-        const [fighters, events, organizations] = await Promise.all([
-          getFollowedFighters(userId),
-          getFollowedEvents(userId),
-          getFollowedOrganizations(userId),
-        ]);
-        return { fighters, events, organizations };
-      }
-      const token = await getPushTokenIfPermitted();
-      const [fighters, organizations] = token
-        ? await Promise.all([getFollowedFightersByToken(token), getFollowedOrganizationsByToken(token)])
-        : [[] as Fighter[], [] as Organization[]];
-      const events = await getEventsByIds(await getReminderEventIds());
-      return { fighters, events, organizations };
-    })()
-      .then(({ fighters, events, organizations }) => {
-        setFollowedFighters(fighters);
-        setFollowedEvents(events);
-        setFollowedOrganizations(organizations);
-      })
-      .catch(() => {})
-      .finally(() => setFollowsLoading(false));
-  }, [userId]);
-
-  const loadFavorites = useCallback(() => {
-    setFavoritesLoading(true);
-    (async () => {
-      if (userId) {
-        const [fighters, events] = await Promise.all([getFavoritedFighters(userId), getFavoritedEvents(userId)]);
-        return { fighters, events };
-      }
-      const [fighterIds, eventIds] = await Promise.all([getFighterFavoriteIds(), getEventFavoriteIds()]);
-      const [fighters, events] = await Promise.all([
-        getFightersByIds([...fighterIds]),
-        getEventsByIds([...eventIds]),
+      const [fighterRows, eventRows, orgRows] = await Promise.all([
+        getSavedFighters(),
+        getSavedEvents(),
+        getSavedOrganizations(),
       ]);
-      return { fighters, events };
+      const [fighters, events, organizations] = await Promise.all([
+        getFightersByIds(fighterRows.map((r) => r.id)),
+        getEventsByIds(eventRows.map((r) => r.id)),
+        getOrganizationsByIds(orgRows.map((r) => r.id)),
+      ]);
+      const fighterById = new Map(fighters.map((f) => [f.id, f]));
+      const eventById = new Map(events.map((e) => [e.id, e]));
+      const orgById = new Map(organizations.map((o) => [o.id, o]));
+      return {
+        savedFighters: fighterRows
+          .filter((r) => fighterById.has(r.id))
+          .map((r) => ({
+            fighter: fighterById.get(r.id)!,
+            notifyNewFight: r.notifyNewFight,
+            notifyFightStart: r.notifyFightStart,
+            hasPush: r.hasPush,
+          })),
+        savedEvents: eventRows
+          .filter((r) => eventById.has(r.id))
+          .map((r) => ({ event: eventById.get(r.id)!, notifyEventStart: r.notifyEventStart, hasPush: r.hasPush })),
+        savedOrganizations: orgRows
+          .filter((r) => orgById.has(r.id))
+          .map((r) => ({ organization: orgById.get(r.id)!, notifyEventStart: r.notifyEventStart, hasPush: r.hasPush })),
+      };
     })()
-      .then(({ fighters, events }) => {
-        setFavoritedFighters(fighters);
-        setFavoritedEvents(events);
+      .then((res) => {
+        setSavedFighters(res.savedFighters);
+        setSavedEvents(res.savedEvents);
+        setSavedOrganizations(res.savedOrganizations);
       })
       .catch(() => {})
-      .finally(() => setFavoritesLoading(false));
+      .finally(() => setLoading(false));
   }, [userId]);
 
   // Reload every time the Profile tab regains focus, not just on mount — the
-  // tab screen stays mounted, so favoriting/following on a detail or list
-  // screen would otherwise not show here until an app restart.
-  useFocusEffect(
-    useCallback(() => {
-      loadFollows();
-      loadFavorites();
-    }, [loadFollows, loadFavorites])
-  );
+  // tab screen stays mounted, so saving on a detail or list screen would
+  // otherwise not show here until an app restart.
+  useFocusEffect(useCallback(() => load(), [load]));
 
   return {
-    followedOrganizations,
-    followedFighters,
-    followedEvents,
-    favoritedFighters,
-    favoritedEvents,
-    followsLoading,
-    favoritesLoading,
-    removeFavoritedFighter: (id) => setFavoritedFighters((prev) => prev.filter((f) => f.id !== id)),
-    removeFavoritedEvent: (id) => setFavoritedEvents((prev) => prev.filter((e) => e.id !== id)),
+    savedFighters,
+    savedEvents,
+    savedOrganizations,
+    loading,
+    removeFighter: (id) => setSavedFighters((prev) => prev.filter((x) => x.fighter.id !== id)),
+    removeEvent: (id) => setSavedEvents((prev) => prev.filter((x) => x.event.id !== id)),
+    removeOrganization: (id) => setSavedOrganizations((prev) => prev.filter((x) => x.organization.id !== id)),
+    updateFighterNotify: (id, notifyNewFight, notifyFightStart) =>
+      setSavedFighters((prev) =>
+        prev.map((x) => (x.fighter.id === id ? { ...x, notifyNewFight, notifyFightStart } : x))
+      ),
+    updateEventNotify: (id, notifyEventStart) =>
+      setSavedEvents((prev) => prev.map((x) => (x.event.id === id ? { ...x, notifyEventStart } : x))),
+    updateOrganizationNotify: (id, notifyEventStart) =>
+      setSavedOrganizations((prev) => prev.map((x) => (x.organization.id === id ? { ...x, notifyEventStart } : x))),
   };
 }
 
@@ -502,15 +491,16 @@ function FavoritesList({ data }: { data: MerklisteData }) {
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const { timezoneOverride } = useAuth();
   const {
-    followedOrganizations,
-    followedFighters,
-    followedEvents,
-    favoritedFighters,
-    favoritedEvents,
-    followsLoading,
-    favoritesLoading,
-    removeFavoritedFighter,
-    removeFavoritedEvent,
+    savedOrganizations,
+    savedFighters,
+    savedEvents,
+    loading,
+    removeFighter,
+    removeEvent,
+    removeOrganization,
+    updateFighterNotify,
+    updateEventNotify,
+    updateOrganizationNotify,
   } = data;
 
   const openFighter = (fighter: Fighter) =>
@@ -524,111 +514,158 @@ function FavoritesList({ data }: { data: MerklisteData }) {
       params: { eventId: event.id, eventName: event.name },
     });
 
+  // Optimistic: flip local state immediately, persist via the RPC in the
+  // background. A failed write just leaves the toggle where the user put it —
+  // it re-syncs on the next focus reload.
+  const changeFighterNotify = (id: string, notifyNewFight: boolean, notifyFightStart: boolean) => {
+    updateFighterNotify(id, notifyNewFight, notifyFightStart);
+    setFighterNotify(id, notifyNewFight, notifyFightStart).catch(() => {});
+  };
+  const changeEventNotify = (id: string, value: boolean) => {
+    updateEventNotify(id, value);
+    setEventNotify(id, value).catch(() => {});
+  };
+  const changeOrganizationNotify = (id: string, value: boolean) => {
+    updateOrganizationNotify(id, value);
+    setOrganizationNotify(id, value).catch(() => {});
+  };
+
   return (
     <>
-      <Text style={styles.sectionTitle}>{t.profile.followedOrganizationsTitle}</Text>
-      {followsLoading ? (
+      <Text style={styles.sectionTitle}>{t.profile.savedOrganizationsTitle}</Text>
+      {loading ? (
         <ActivityIndicator color={colors.accent} />
-      ) : followedOrganizations.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedOrganizations}</Text>
+      ) : savedOrganizations.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noSavedOrganizations}</Text>
       ) : (
-        followedOrganizations.map((org) => (
-          <View key={org.id} style={[styles.listCard, styles.listCardRow]}>
-            <Text style={styles.listCardTitleInline}>{org.short_name}</Text>
-            <OrganizationFollowBell organizationId={org.id} />
+        savedOrganizations.map((item) => (
+          <View key={item.organization.id} style={styles.listCard}>
+            <View style={styles.listCardHeader}>
+              <Text style={styles.listCardTitleInline}>{item.organization.short_name}</Text>
+              <SaveHeart
+                inline
+                kind="organization"
+                id={item.organization.id}
+                active
+                onToggle={(active) => !active && removeOrganization(item.organization.id)}
+              />
+            </View>
+            <NotifyToggles hasPush={item.hasPush}>
+              <NotifyToggle
+                label={t.profile.notifyEventStart}
+                value={item.notifyEventStart}
+                onChange={(v) => changeOrganizationNotify(item.organization.id, v)}
+              />
+            </NotifyToggles>
           </View>
         ))
       )}
 
-      <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
-      {followsLoading ? (
+      <Text style={styles.sectionTitle}>{t.profile.savedFightersTitle}</Text>
+      {loading ? (
         <ActivityIndicator color={colors.accent} />
-      ) : followedFighters.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedFighters}</Text>
+      ) : savedFighters.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noSavedFighters}</Text>
       ) : (
-        followedFighters.map((fighter) => (
-          <Pressable
-            key={fighter.id}
-            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
-            onPress={() => openFighter(fighter)}
-          >
-            <FighterFollowBell fighterId={fighter.id} />
-            <Text style={styles.listCardTitle}>{fighter.name}</Text>
-          </Pressable>
+        savedFighters.map((item) => (
+          <View key={item.fighter.id} style={styles.listCard}>
+            <View style={styles.listCardHeader}>
+              <Pressable style={styles.listCardHeaderTitle} onPress={() => openFighter(item.fighter)}>
+                <Text style={styles.listCardTitleInline}>{item.fighter.name}</Text>
+              </Pressable>
+              <SaveHeart
+                inline
+                kind="fighter"
+                id={item.fighter.id}
+                active
+                onToggle={(active) => !active && removeFighter(item.fighter.id)}
+              />
+            </View>
+            <NotifyToggles hasPush={item.hasPush}>
+              <NotifyToggle
+                label={t.profile.notifyNewFight}
+                value={item.notifyNewFight}
+                onChange={(v) => changeFighterNotify(item.fighter.id, v, item.notifyFightStart)}
+              />
+              <NotifyToggle
+                label={t.profile.notifyFightStart}
+                value={item.notifyFightStart}
+                onChange={(v) => changeFighterNotify(item.fighter.id, item.notifyNewFight, v)}
+              />
+            </NotifyToggles>
+          </View>
         ))
       )}
 
-      <Text style={styles.sectionTitle}>{t.profile.followedEventsTitle}</Text>
-      {followsLoading ? (
+      <Text style={styles.sectionTitle}>{t.profile.savedEventsTitle}</Text>
+      {loading ? (
         <ActivityIndicator color={colors.accent} />
-      ) : followedEvents.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedEvents}</Text>
+      ) : savedEvents.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noSavedEvents}</Text>
       ) : (
-        followedEvents.map((event) => (
-          <Pressable
-            key={event.id}
-            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
-            onPress={() => openEvent(event)}
-          >
-            <EventReminderBell eventId={event.id} eventName={event.name} eventDateIso={event.event_date} />
-            <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>
-              {formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}
-            </Text>
-          </Pressable>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.favoritedFightersTitle}</Text>
-      {favoritesLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : favoritedFighters.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFavoritedFighters}</Text>
-      ) : (
-        favoritedFighters.map((fighter) => (
-          <Pressable
-            key={fighter.id}
-            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
-            onPress={() => openFighter(fighter)}
-          >
-            <FighterFavoriteHeart
-              fighterId={fighter.id}
-              onToggle={(activeState) => !activeState && removeFavoritedFighter(fighter.id)}
-            />
-            <Text style={styles.listCardTitle}>{fighter.name}</Text>
-          </Pressable>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.favoritedEventsTitle}</Text>
-      {favoritesLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : favoritedEvents.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFavoritedEvents}</Text>
-      ) : (
-        favoritedEvents.map((event) => (
-          <Pressable
-            key={event.id}
-            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
-            onPress={() => openEvent(event)}
-          >
-            <EventFavoriteHeart
-              eventId={event.id}
-              onToggle={(activeState) => !activeState && removeFavoritedEvent(event.id)}
-            />
-            <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>
-              {formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}
-            </Text>
-          </Pressable>
+        savedEvents.map((item) => (
+          <View key={item.event.id} style={styles.listCard}>
+            <View style={styles.listCardHeader}>
+              <Pressable style={styles.listCardHeaderTitle} onPress={() => openEvent(item.event)}>
+                <Text style={styles.listCardTitleInline}>{item.event.name}</Text>
+                <Text style={styles.listCardMeta}>
+                  {formatEventDate(item.event.event_date, locale, undefined, timezoneOverride ?? undefined)}
+                </Text>
+              </Pressable>
+              <SaveHeart
+                inline
+                kind="event"
+                id={item.event.id}
+                active
+                onToggle={(active) => !active && removeEvent(item.event.id)}
+              />
+            </View>
+            <NotifyToggles hasPush={item.hasPush}>
+              <NotifyToggle
+                label={t.profile.notifyEventStart}
+                value={item.notifyEventStart}
+                onChange={(v) => changeEventNotify(item.event.id, v)}
+              />
+            </NotifyToggles>
+          </View>
         ))
       )}
     </>
   );
 }
 
+// Wraps the per-object notify switches. When the device has no push token yet
+// (permission not granted), the switches are meaningless — show a hint to
+// enable notifications instead.
+function NotifyToggles({ hasPush, children }: { hasPush: boolean; children: ReactNode }) {
+  const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  if (!hasPush) {
+    return <Text style={styles.notifyNote}>{t.profile.notifyNeedsPermission}</Text>;
+  }
+  return <View style={styles.notifyGroup}>{children}</View>;
+}
+
+function NotifyToggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View style={styles.notifyRow}>
+      <Text style={styles.notifyLabel}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ true: colors.accent, false: colors.border }}
+        thumbColor="#FFFFFF"
+      />
+    </View>
+  );
+}
+
 // The logged-out profile: the same three-tab switcher as the logged-in view.
-// Konto holds the auth form, Merkliste holds the anonymous follows/favorites,
+// Konto holds the auth form, Merkliste holds the anonymous saved_* list (same
+// component as logged-in — the RPCs union device + account rows),
 // Einstellungen holds theme/language.
 function LoggedOutView() {
   const { colors } = useTheme();
@@ -1474,8 +1511,14 @@ const makeStyles = (colors: ColorTokens) =>
     },
     listCardTitle: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary, paddingRight: 56 },
     listCardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    listCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
+    listCardHeaderTitle: { flex: 1 },
     listCardTitleInline: { ...typography.cardTitle, fontSize: 16, lineHeight: 20, color: colors.textPrimary },
     listCardMeta: { ...typography.meta, color: colors.textSecondary, marginTop: 2 },
+    notifyGroup: { marginTop: spacing.sm, gap: 2 },
+    notifyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 36 },
+    notifyLabel: { ...typography.body, color: colors.textSecondary },
+    notifyNote: { ...typography.meta, color: colors.textSecondary, marginTop: spacing.sm },
     logoutButton: { marginTop: spacing.xl, minHeight: minTapTarget, alignItems: 'center', justifyContent: 'center' },
     logoutButtonText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.danger },
 

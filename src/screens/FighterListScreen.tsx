@@ -3,13 +3,12 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'rea
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { FightersStackParamList } from '../navigation';
 import { abbreviateWeightClass, getFighters, getOrganizations, sortWeightClasses, weightClassRank } from '../lib/queries';
-import { getFighterFavoriteIds } from '../lib/favorites';
+import { getSavedIds } from '../lib/saves';
 import type { Fighter, Organization } from '../lib/types';
 import { pressedStyle, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
 import { useLocale } from '../lib/i18n';
 import Flag from '../components/Flag';
-import FighterFollowBell from '../components/FighterFollowBell';
-import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
+import SaveHeart from '../components/SaveHeart';
 import FilterChip from '../components/FilterChip';
 import FilterModal, { FilterSection } from '../components/FilterModal';
 import { EmptyState, ErrorState, FilterIconButton, LogoMark, Screen, ScreenHeader, SearchInput, SkeletonBlock } from '../components/ui';
@@ -50,7 +49,7 @@ export default function FighterListScreen({ navigation }: Props) {
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([loadFighters(), getFighterFavoriteIds().then(setFavoriteIds)]).finally(() => setLoading(false));
+    Promise.all([loadFighters(), getSavedIds('fighter').then(setFavoriteIds)]).finally(() => setLoading(false));
   }, [loadFighters]);
 
   useEffect(() => {
@@ -59,7 +58,7 @@ export default function FighterListScreen({ navigation }: Props) {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadFighters(), getFighterFavoriteIds().then(setFavoriteIds)]);
+    await Promise.all([loadFighters(), getSavedIds('fighter').then(setFavoriteIds)]);
     setRefreshing(false);
   }, [loadFighters]);
 
@@ -275,8 +274,13 @@ export default function FighterListScreen({ navigation }: Props) {
           )}
         </View>
         <View style={styles.rowActions}>
-          <FighterFavoriteHeart inline fighterId={item.id} onToggle={(active) => handleFavoriteToggle(item.id, active)} />
-          <FighterFollowBell inline fighterId={item.id} />
+          <SaveHeart
+            inline
+            kind="fighter"
+            id={item.id}
+            active={favoriteIds.has(item.id)}
+            onToggle={(active) => handleFavoriteToggle(item.id, active)}
+          />
         </View>
       </Pressable>
     );

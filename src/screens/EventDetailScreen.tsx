@@ -5,7 +5,7 @@ import type { NavigationProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList, RootTabParamList } from '../navigation';
-import { abbreviateWeightClass, getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
+import { abbreviateWeightClass, getEventDetail, getFightsForEvent, isEventLive } from '../lib/queries';
 import type { CardSegment, EventDetail, Fight, Fighter } from '../lib/types';
 import { castVote, getEventVotes, type FightVoteSummary } from '../lib/voting';
 import { pressedStyle, radius, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
@@ -13,10 +13,8 @@ import { formatEventDateTime } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 import Flag from '../components/Flag';
-import EventReminderBell from '../components/EventReminderBell';
-import EventFavoriteHeart from '../components/EventFavoriteHeart';
+import SaveHeart from '../components/SaveHeart';
 import LiveBadge from '../components/LiveBadge';
-import OrganizationFollowBell from '../components/OrganizationFollowBell';
 import { Card, EmptyState, ErrorState, Screen, ScreenHeader } from '../components/ui';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventDetail'>;
@@ -344,14 +342,7 @@ export default function EventDetailScreen({ route, navigation }: Props) {
         </Pressable>
       }
       title={t.eventDetail.screenTitle.toUpperCase()}
-      right={
-        <>
-          {event && isEventUpcoming(event.event_date) && (
-            <EventReminderBell inline eventId={eventId} eventName={event.name} eventDateIso={event.event_date} />
-          )}
-          <EventFavoriteHeart inline eventId={eventId} />
-        </>
-      }
+      right={<SaveHeart inline kind="event" id={eventId} />}
     />
   );
 
@@ -391,7 +382,11 @@ export default function EventDetailScreen({ route, navigation }: Props) {
           {event?.organizations?.short_name && (
             <View style={styles.orgRow}>
               <Text style={styles.orgName}>{event.organizations.short_name}</Text>
-              <OrganizationFollowBell organizationId={event.organization_id} />
+              <SaveHeart
+                kind="organization"
+                id={event.organization_id}
+                label={{ on: t.saves.savedOrganization, off: t.saves.saveOrganization }}
+              />
             </View>
           )}
           <Text style={styles.eventName}>{event?.name ?? eventName}</Text>

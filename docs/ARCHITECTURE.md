@@ -249,15 +249,15 @@ Tables (Supabase Postgres), all with RLS enabled:
 | `fighters` | Fighter roster + record + tale-of-the-tape | none (read-only) |
 | `events` | Event calendar entries + status + broadcast segment times | none (read-only) |
 | `fights` | Matchups within an event, incl. results + card segment | none (read-only) |
-| `push_subscriptions` | Device push token ↔ followed fighter, optional `user_id` | **insert/select/delete** (anon, or own rows if logged in) |
-| `organization_follows` | Device push token ↔ followed league/org, optional `user_id` — same shape as `push_subscriptions` | **insert/select/delete** (anon, or own rows if logged in) |
+| `push_subscriptions` | **Legacy (superseded by `saved_fighters`, not yet dropped).** Device push token ↔ followed fighter | — no longer read/written by the client |
+| `organization_follows` | **Legacy (superseded by `saved_organizations`, not yet dropped).** Device push token ↔ followed league/org | — no longer read/written by the client |
 | `fight_votes` | Device id ↔ picked fighter per fight ("who wins?") | **insert/select/update** (anon, no login concept at all) |
 | `profiles` | Login-only: nickname + optional `timezone_override` per account (`id` = `auth.users.id`) | own row only |
-| `event_follows` | Login-only: user ↔ followed event (profile visibility) | own rows only |
-| `fighter_favorites` / `event_favorites` | Login-only: user ↔ favorited fighter/event | own rows only |
-| `saved_fighters` / `saved_events` / `saved_organizations` | **Gruppe C (bell→heart merge), Phase 1.** Unified "save = list + notify". `device_id`-anchored, with `user_id`/`push_token` as attributes | **RPC only** (base tables fully locked, no policies) |
+| `event_follows` | **Legacy (superseded by `saved_events`, not yet dropped).** Login-only: user ↔ followed event | — no longer read/written by the client |
+| `fighter_favorites` / `event_favorites` | **Legacy (superseded by `saved_fighters`/`saved_events`, not yet dropped).** Login-only: user ↔ favorited fighter/event | — no longer read/written by the client |
+| `saved_fighters` / `saved_events` / `saved_organizations` | **Gruppe C (bell→heart merge).** Unified "save = list + notify". `device_id`-anchored, with `user_id`/`push_token` as attributes | **RPC only** (base tables fully locked, no policies) |
 
-### Gruppe C — the `saved_*` model (bell→heart merge, in progress)
+### Gruppe C — the `saved_*` model (bell→heart merge)
 
 Gruppe C collapses the split "favorite (heart, list-only) vs. follow (bell,
 push)" into a single heart per object = *saved to the list AND notifications on
@@ -304,26 +304,37 @@ list survives an uninstall — a deliberate change from the old "the follow row
 was the subscription, delete it" behaviour, since a `saved_*` row is now also a
 list entry.
 
-After `014`, **nothing reads the six legacy tables** (`push_subscriptions`,
+After `014`, **nothing reads the five legacy tables** (`push_subscriptions`,
 `organization_follows`, `event_follows`, `fighter_favorites`, `event_favorites`).
 They are intentionally **not yet dropped** — that is a separate follow-up once
-verified on a real build, so a rollback doesn't strand data. Still pending:
-Phase 3 (collapse the client libs into one `saves.ts`: device_id,
-token-on-permission, claim-on-login), Phase 4 (UI: bell out, one heart,
-first-tap hint), Phase 5 (profile per-type toggles), then the legacy-table drop.
-Data is **not** migrated — a clean cutover was chosen because both envs held only
-a handful of test rows (prod: 4 rows, one test user; stage: 3). Local event
-reminders are retired in favour of the new `event_start` server push as part of
-the Phase 3/4 client work.
+verified on a real build, so a rollback doesn't strand data. Data is **not**
+migrated — a clean cutover was chosen because both envs held only a handful of
+test rows (prod: 4 rows, one test user; stage: 3).
 
-`push_subscriptions` and `organization_follows` are the exceptions to "app
-is read-only" for anonymous users — they're how the fighter-follow and
-league-follow bells register/unregister without requiring login.
-`fight_votes` goes further still: it has no login-gated path at all, keyed
-purely on a locally-generated device id (`src/lib/voting.ts`), independent
-of the push token so voting never triggers the OS notification-permission
-prompt. See [Notifications](#notifications), [Login / Profile](#login--profile),
-and [Voting](#voting).
+**Client (Phase 3+4+5) — done.** The five legacy client libs collapsed into one
+[`src/lib/saves.ts`](../src/lib/saves.ts): `device_id` (shared with `voting.ts`
+via the new [`src/lib/deviceId.ts`](../src/lib/deviceId.ts)) is the anchor,
+`attach_push_token` runs when notification permission is granted, and
+`claim_saves_for_user` runs on login (from `auth.tsx`). The split
+heart/bell components are replaced by a single
+[`SaveHeart`](../src/components/SaveHeart.tsx) (kind = fighter/event/org, plus a
+`label` variant for the inline org save in the event detail) — one tap saves +
+turns notifications on, with a one-time "Erst-Klick-Hinweis" before the very
+first OS permission prompt. Saving is device-anchored and never blocked by a
+denied permission (the row stays in the list, push just doesn't fire). The
+profile Merkliste is one unified list of three saved sections, each with
+per-type notify switches (`set_*_notify`); local event reminders are **retired**
+in favour of the new `event_start` server push. Remaining: verify on a real
+build, then drop the five legacy tables.
+
+The `saved_*` tables (via their RPCs) are the exception to "app is read-only"
+for anonymous users — a `SaveHeart` tap writes a device-anchored row without
+login. `fight_votes` works the same way, keyed purely on the same
+locally-generated device id (now shared via `src/lib/deviceId.ts`, imported by
+both `voting.ts` and `saves.ts`), independent of the push token so saving/voting
+never *requires* the OS notification-permission prompt (a save triggers it only
+to arm push, and stands even if denied). See [Notifications](#notifications),
+[Login / Profile](#login--profile), and [Voting](#voting).
 
 `fighters.primary_organization_id` (added 2026-07-19) is a best-effort
 "which org is this fighter currently in" column, populated by the sync
@@ -398,9 +409,9 @@ else (UFC + 9 other leagues) is populated by
     filtered server-side by org — calendar mode's org list is the full,
     unfiltered `organizations`, not `listOrganizations`, since "does this
     league have an event this month" isn't the same question), tapping
-    a day filters the list below to that day. Per-event reminder bell +
-    favorite heart (only bell rendered for events where `isEventUpcoming()`
-    is true, heart always). A pulsing
+    a day filters the list below to that day. Per-event `SaveHeart` (one heart
+    = save + notify, see the [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge)).
+    A pulsing
     red `LiveBadge` (`src/components/`, RN's built-in
     `Animated` API — no new dependency) renders on any card where
     `isEventLive()` is true (also used in `EventDetailScreen`'s header);
@@ -436,8 +447,9 @@ else (UFC + 9 other leagues) is populated by
     green/red trade dress. DRAW/NC are read from `result_method`
     "Draw"/"No Contest" since those have no `result_winner_id`). A live badge next
     to a cancelled-banner-style slot in the header (see above); an
-    `OrganizationFollowBell` next to the org name (added 2026-07-19, see
-    [Notifications](#notifications)); and, for any fight with no result
+    inline org `SaveHeart` next to the org name (save league = notify on its
+    event starts, see [Gruppe C](#gruppe-c--the-saved_-model-bellheart-merge));
+    and, for any fight with no result
     yet, a vote UI (see [Voting](#voting)).
   - `FighterListScreen` — search, a single "Filter" button opening the
     shared `FilterModal` (see [App structure → Components](#app-structure))
@@ -452,7 +464,7 @@ else (UFC + 9 other leagues) is populated by
     the women's-section chip label strips the prefix for display, the
     stored/matched value keeps it). All three still derive their options
     client-side from the already-loaded fighter list. Pull-to-refresh,
-    per-fighter follow bell. Tapping a fighter opens `FighterDetailScreen`
+    per-fighter `SaveHeart`. Tapping a fighter opens `FighterDetailScreen`
     (used to jump straight to Tapology/Sherdog — now shows an in-app
     profile first, external links are explicit buttons there).
   - `FighterDetailScreen` — photo/name/nickname/nationality, W-L-D record
@@ -460,7 +472,7 @@ else (UFC + 9 other leagues) is populated by
     if `record_no_contests > 0`), a "Tale of the Tape" card (weight class,
     height/reach converted from balldontlie's inches to cm, stance, date
     of birth, birth place — section only renders the rows that have data),
-    Tapology/Sherdog link buttons, follow bell, upcoming fight (if any,
+    Tapology/Sherdog link buttons, `SaveHeart`, upcoming fight (if any,
     via `isEventUpcoming`) and full fight history (opponent, event,
     win/loss by comparing `result_winner_id`), fed by `getFighterFights()`
     in `queries.ts` (fetches both `fighter1_id`/`fighter2_id` sides via
@@ -485,20 +497,19 @@ else (UFC + 9 other leagues) is populated by
     Einstellungen), **shown in both the logged-in and logged-out states**
     (`SectionSwitcher`, shared). Konto: logged-out shows the auth form
     (login/signup + forgot-password OTP + magic-link + OAuth, `AuthPanel`),
-    logged-in shows nickname, change email/password, logout. Merkliste:
-    followed fighters/events/**organizations** (added 2026-07-19) and
-    favorited fighters/events (reusing the same bell/heart components to
-    unfollow/unfavorite directly from the list). **The Merkliste tab is
-    identical logged-out and logged-in** (`FavoritesList` + `useMerkliste`,
-    shared) — only the storage differs: logged in reads the server tables by
-    `user_id` (cross-device), logged out reads the same concepts locally —
-    fighter/org follows by device `push_token`
-    (`getFollowedFightersByToken`/`getFollowedOrganizationsByToken`), event
-    follows from the local scheduled reminders
-    (`getReminderEventIds` + `getEventsByIds`, since `event_follows` has no
-    anonymous rows — see [Notifications](#notifications)), and favorites from
-    AsyncStorage (`getFighterFavoriteIds`/`getEventFavoriteIds` +
-    `getFightersByIds`/`getEventsByIds`). Einstellungen (`SettingsSection`,
+    logged-in shows nickname, change email/password, logout. Merkliste: one
+    unified saved list — saved leagues / fighters / events, each row a
+    `SaveHeart` (tap to unsave) plus per-type notify switches (`set_*_notify`;
+    fighter → new-fight/fight-start, event/org → event-start; a "enable
+    notifications" hint replaces the switches when the device has no push token
+    yet). **The Merkliste tab is identical logged-out and logged-in**
+    (`FavoritesList` + `useMerkliste`, shared) and needs no auth branch: the
+    `list_saved_*` RPCs union this device's rows with the logged-in user's rows,
+    so both states call the same `getSavedFighters`/`getSavedEvents`/
+    `getSavedOrganizations`, resolving the returned ids via
+    `getFightersByIds`/`getEventsByIds`/`getOrganizationsByIds`. See the
+    [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge).
+    Einstellungen (`SettingsSection`,
     replaced the old standalone `LanguageScreen` tab 2026-07-20; the
     switcher-tab layout replaced the earlier settings-gear `SettingsModal`):
     a System/Light/Dark appearance picker (`useTheme().themeOverride` +
@@ -552,17 +563,19 @@ else (UFC + 9 other leagues) is populated by
   - `dateFormat.ts` — single `formatEventDate()` used by both event screens.
   - `queries.ts` — all Supabase reads, plus `isEventUpcoming()` (the single
     source of truth for "is this event in the future" — used by both list
-    and detail screens so the reminder bell's visibility never disagrees
+    and detail screens so the live-badge/"upcoming" logic never disagrees
     between them).
   - `types.ts` — DB row shapes as consumed by the app. `EventDetail` is
     `Omit<EventListItem, 'organization_id'>`, not a separate literal.
-  - `notifications.ts` / `pushSubscriptions.ts` — see below.
+  - `saves.ts` / `deviceId.ts` — see the
+    [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge)
+    and [Notifications](#notifications).
 - **Components** (`src/components/`): `BellIconButton` (shared
-  presentational icon-button, `icon`/`offsetRight` props), `EventReminderBell`,
-  `FighterFollowBell` (each wraps `BellIconButton`, shows an `Alert` after
-  a successful toggle explaining what enabling/disabling the reminder
-  does), `EventFavoriteHeart`, `FighterFavoriteHeart` (same pattern, see
-  [Favorites](#favorites)).
+  presentational icon-button, `icon`/`offsetRight` props — still used by
+  `SaveHeart` for the card-corner/inline heart), `SaveHeart` (the single
+  save-heart for fighters/events/orgs; `kind`/`id`/`active`/`label` props, wraps
+  `BellIconButton` or, with `label`, an inline text+icon button — see
+  [Gruppe C](#gruppe-c--the-saved_-model-bellheart-merge)).
   - **Filter system (redesigned 2026-07-20, replaces the old `FilterButton`
     below).** Three components, each for a distinct interaction that used
     to look identical: `SegmentedControl` (exclusive small mode switches —
@@ -605,16 +618,15 @@ else (UFC + 9 other leagues) is populated by
   - `SettingsModal` (2026-07-20) — built on the shared `FilterModal` shell,
     see [Login / Profile](#login--profile) for what it contains and why
     `LanguageScreen` was removed in favor of it.
-  - `OrganizationFollowBell` (2026-07-20) — now shows a success `Alert` on
-    toggle explaining the effect ("you'll be notified when an event from
-    this league starts"), matching the pattern `EventReminderBell` and
-    `FighterFollowBell` already had; it was the one bell missing this
-    explanation. Note the fighter-follow bell's explanation is accurate to
-    its *current* behavior (notifies when the fighter is booked for a new
-    fight) — notifying when that fighter's fight actually **starts** is a
-    distinct, not-yet-built feature (see [Known open
-    items](#known-open-items)), don't reword the alert to promise it before
-    the trigger exists.
+  - The former split bell/heart components (`EventReminderBell`,
+    `FighterFollowBell`, `OrganizationFollowBell`, `EventFavoriteHeart`,
+    `FighterFavoriteHeart`) were **removed** in the Gruppe C client merge and
+    replaced by the single `SaveHeart`. The old per-toggle "you'll be notified
+    when…" alerts are gone; the behaviour is now explained once via the
+    first-tap hint, and tuned per object by the profile notify switches. The
+    fighter save now covers **both** notify types (new-fight *and* fight-start,
+    each a toggle) — the earlier caveat that fight-start wasn't built no longer
+    applies (see the [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge)).
 
 ## Design system (Blue Alloy)
 
@@ -664,39 +676,40 @@ Alloy**, shipped in a Dark and a fully equivalent Light theme — nothing else
 
 ## Notifications
 
-Two independent mechanisms, because they have fundamentally different
-constraints:
+Since the Gruppe C merge, **all** notifications are real server push, keyed off
+the unified `saved_*` tables (one row = saved + notify). The client side is a
+single lib, `src/lib/saves.ts` (device token resolved via
+`Notifications.getExpoPushTokenAsync`, stamped onto the device's rows with
+`attach_push_token` when permission is granted); the audience/table/trigger
+details live in the [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge).
+The three push types below differ only in their trigger mechanics:
 
-1. **Event reminders** (`src/lib/notifications.ts`) — **local** device
-   notifications via `expo-notifications`, scheduled on-device for a
-   specific event's start time, tracked in AsyncStorage
-   (`true-mma:event-reminder:<eventId>` → notification id). No backend
-   involved. Works in Expo Go.
-2. **Fighter-follow push** (`src/lib/pushSubscriptions.ts`) — **real**
-   push notifications, since the app needs to notify a user even when it's
-   closed, triggered by a database change (a new fight involving a
-   followed fighter). This requires:
-   - A device push token (`Notifications.getExpoPushTokenAsync`), stored
-     in `push_subscriptions` keyed by `(push_token, fighter_id)`.
+1. **Event-start push** (`saved_events`, `notify_event_start`) — **replaced the
+   old local device reminders.** Events had no server push before Gruppe C; a
+   saved event now fires via the `event_start` audience of
+   `send_league_start_pushes()` (the timer path in item 3), so it no longer
+   depends on the app having scheduled a local `expo-notifications` trigger.
+2. **Fighter-follow push** (`saved_fighters`) — **real** push notifications,
+   since the app needs to notify a user even when it's closed, triggered by a
+   database change (a new fight involving a saved fighter). This requires:
+   - A device push token (`Notifications.getExpoPushTokenAsync`), stored on the
+     device's `saved_fighters` rows (`push_token`), audience filtered on
+     `push_token is not null AND notify_new_fight`.
    - A Postgres trigger (`notify_fighter_added_to_fight`, uses the
      `pg_net` extension) that fires `AFTER INSERT ON fights` and POSTs
      directly to Expo's push API (`https://exp.host/--/api/v2/push/send`)
-     for every matching subscription — **no Supabase Edge Function**, kept
-     entirely in SQL to avoid needing the Supabase CLI. See
-     `push_subscriptions` in [Data model](#data-model) for the SQL.
+     for every matching saved row — **no Supabase Edge Function**, kept
+     entirely in SQL to avoid needing the Supabase CLI.
    - **Expo Go cannot receive real push notifications since SDK 54** — a
-     development build (EAS) is required to test this path. Local
-     reminders are unaffected.
-   - **Also fires on fight start** (2026-07-20, `dev` only — see [Known open
-     items](#known-open-items)), piggybacked onto `send_league_start_pushes()`
-     below rather than its own trigger, since "did this event start" is
-     already that function's job and there's no per-fight start time to key
-     a separate trigger off anyway.
-3. **League-follow push** (`src/lib/organizationFollows.ts`, added
-   2026-07-19) — same push-token/anonymous-follow shape as fighter-follow,
-   but fires when a followed organization's event actually **starts**, not
-   when it's created, so it can't be a simple `AFTER INSERT` trigger. It
-   needs something that ticks on a timer.
+     development build (EAS) is required to test this path.
+   - **Also fires on fight start** (`notify_fight_start`), piggybacked onto
+     `send_league_start_pushes()` below rather than its own trigger, since "did
+     this event start" is already that function's job and there's no per-fight
+     start time to key a separate trigger off anyway.
+3. **League-follow push** (`saved_organizations`, `notify_event_start`) — fires
+   when a saved organization's event actually **starts**, not when it's created,
+   so it can't be a simple `AFTER INSERT` trigger. It needs something that ticks
+   on a timer.
 
    **Driven by `pg_cron` inside Supabase since 2026-07-19**
    (`supabase/migrations/006_league_start_push_pg_cron.sql`). It originally
@@ -816,18 +829,17 @@ separately:
   yet verified against a real uninstalled app** — same caveat the
   league-start push already carries for real end-to-end delivery.
 
-`resolvePushToken()` in `pushSubscriptions.ts` deliberately never prompts
-for permission just to *check* follow-state (`isFollowingFighter`) — only
-an explicit `followFighter()` call (interactive) may trigger the OS
-permission dialog. Concurrent callers share one in-flight token-resolution
-promise.
+`resolvePushToken()` in `saves.ts` deliberately never prompts for permission
+just to *read* state — only an explicit `save()` (interactive) may trigger the
+OS permission dialog, via `ensurePushTokenAttached(true)`. Concurrent callers
+share one in-flight token-resolution promise.
 
 ## Login / Profile
 
-Login is **optional** — every existing feature (browsing, fighter-follow,
-event reminders) keeps working fully anonymously, same as before. Login is
-additive: it gives a user a "Profil" tab (`ProfileScreen`) where they can
-see what they follow across devices, pick a nickname, and manage their
+Login is **optional** — every existing feature (browsing, saving fighters/
+events/leagues) keeps working fully anonymously, same as before. Login is
+additive: it gives a user a "Profil" tab (`ProfileScreen`) where their saved
+merkliste syncs across devices, and they can pick a nickname and manage their
 email/password. No feature is gated behind login (yet) — see [Known open
 items](#known-open-items) if that changes.
 
@@ -870,20 +882,13 @@ items](#known-open-items) if that changes.
   OFF there, same manual per-project sync caveat as the SMTP/template config.
   Before this fix the feature was broken outright on every environment (the hook
   500'd on the unhandled `email_change` type).
-- **Anonymous → account linking:** fighter-follow (`push_subscriptions`)
-  keeps working without login, keyed by push token as before, now with an
-  additional nullable `user_id`. On sign-in, `claimAnonymousFollows()`
-  (`src/lib/pushSubscriptions.ts`) attaches this device's already-existing
-  anonymous rows (`user_id is null`, matching push token) to the newly
-  logged-in account, so follows made before login aren't lost or
-  duplicated.
-- **Event follows:** event reminders themselves stay 100% local
-  (`expo-notifications` + AsyncStorage, unaffected by login). A separate
-  `event_follows` table (login-only, no anonymous rows) exists purely so a
-  followed event is visible in the profile; `EventReminderBell` writes to
-  it as a best-effort side effect alongside the local schedule/cancel call
-  — the local reminder is always the source of truth for the bell's
-  on/off state.
+- **Anonymous → account linking:** saving works without login, keyed by the
+  device id (`saved_*.device_id`). On sign-in, `claimSavesForUser()`
+  (`src/lib/saves.ts` → `claim_saves_for_user` RPC) attaches this device's
+  anonymous rows (`user_id is null`, matching `device_id`) to the newly
+  logged-in account — `user_id` is derived server-side from `auth.uid()`, never
+  passed by the client — so saves made before login aren't lost or duplicated
+  and become the account's cross-device list.
 - **Nickname:** stored in `profiles` (`id` = `auth.users.id`, one row per
   account, auto-created by an `on_auth_user_created` trigger on signup),
   optional, editable anytime from the profile screen. Minimal data
@@ -1153,38 +1158,22 @@ relationship on top of the new architecture surface.
 - Email content is currently plain text, not branded HTML — visual design is
   explicitly deferred, not a blocker for the mechanism working.
 
-## Favorites
+## Favorites (now "saves")
 
-Separate concept from follows/reminders (see [Notifications](#notifications)
-and [Login / Profile](#login--profile)) — a heart icon next to the bell on
-fighters and events. Favoriting pins an entry to the top of its list and
-shows it in the profile; it has nothing to do with push/local
-notifications.
+Favoriting and following were **merged** in Gruppe C — there is no longer a
+separate favorite concept. One `SaveHeart` per fighter/event/org both pins the
+entry to the top of its list / into the profile merkliste **and** turns its push
+notifications on (tunable per object). The full model — the `device_id` anchor,
+the `saved_*` tables and RPCs, anonymous → account claiming, and push audiences
+— is documented under the
+[Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge). The old
+fully-local AsyncStorage favorites and the `fighter_favorites`/`event_favorites`
+tables are retired (legacy tables not yet dropped).
 
-- **No push-token anchor for anonymous users, unlike follows:**
-  `push_subscriptions` can have an anonymous row because the device push
-  token is a stable anonymous identity to key rows on. Favorites have no
-  equivalent, so anonymous favoriting (`src/lib/favorites.ts`) is **fully
-  local** — a plain array of ids in AsyncStorage
-  (`true-mma:favorites:fighters` / `:events`) — until login, at which
-  point reads/writes switch to the `fighter_favorites`/`event_favorites`
-  tables (`user_id` + `fighter_id`/`event_id`, unique constraint, RLS
-  scoped to `auth.uid() = user_id`, no anonymous rows at all — see
-  `supabase/migrations/002_favorites.sql`).
-- **Claim on login:** `claimLocalFavorites(userId)`, called from
-  `src/lib/auth.tsx`'s `SIGNED_IN` handler alongside
-  `claimAnonymousFollows()`, upserts the locally-stored ids into the
-  account tables so favorites made before login aren't lost. Local storage
-  is left in place afterwards (harmless if the user logs out again).
-- **UI:** `FighterFavoriteHeart`/`EventFavoriteHeart` (`src/components/`)
-  mirror `FighterFollowBell`/`EventReminderBell`, built on the same
-  `BellIconButton`, now generalized with an `icon` prop (heart vs. bell
-  glyph) and an `offsetRight` prop so both icons can sit side by side on
-  one card. `FighterListScreen`/`EventListScreen` sort favorited entries
-  to the top of the list (stable sort, existing order preserved within
-  each group) using a favorite-id `Set` kept in sync via each heart's
-  `onToggle` callback, refreshed from `getFighterFavoriteIds()`/
-  `getEventFavoriteIds()` on load and pull-to-refresh.
+- **List sort:** `FighterListScreen`/`EventListScreen` still sort saved entries
+  to the top (stable sort, order preserved within each group) using a saved-id
+  `Set` kept in sync via each `SaveHeart`'s `onToggle`, refreshed from
+  `getSavedIds('fighter')` / `getSavedIds('event')` on load and pull-to-refresh.
 
 ## Voting
 

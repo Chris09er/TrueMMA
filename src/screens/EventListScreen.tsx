@@ -20,17 +20,15 @@ import {
   getPastEvents,
   getUpcomingEvents,
   isEventLive,
-  isEventUpcoming,
 } from '../lib/queries';
-import { getEventFavoriteIds } from '../lib/favorites';
+import { getSavedIds } from '../lib/saves';
 import type { EventListItem, Organization } from '../lib/types';
 import { pressedStyle, radius, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDateTime } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 import Flag from '../components/Flag';
-import EventReminderBell from '../components/EventReminderBell';
-import EventFavoriteHeart from '../components/EventFavoriteHeart';
+import SaveHeart from '../components/SaveHeart';
 import LiveBadge from '../components/LiveBadge';
 import FilterChip from '../components/FilterChip';
 import FilterModal, { FilterSection } from '../components/FilterModal';
@@ -118,7 +116,7 @@ export default function EventListScreen({ navigation }: Props) {
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([loadEvents(), getEventFavoriteIds().then(setFavoriteIds)]).finally(() => setLoading(false));
+    Promise.all([loadEvents(), getSavedIds('event').then(setFavoriteIds)]).finally(() => setLoading(false));
   }, [loadEvents]);
 
   useEffect(() => {
@@ -131,7 +129,7 @@ export default function EventListScreen({ navigation }: Props) {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadEvents(), getEventFavoriteIds().then(setFavoriteIds)]);
+    await Promise.all([loadEvents(), getSavedIds('event').then(setFavoriteIds)]);
     setRefreshing(false);
   }, [loadEvents]);
 
@@ -230,22 +228,15 @@ export default function EventListScreen({ navigation }: Props) {
   }, [visibleEvents, showPast, locale, t]);
 
   const renderEventCard = (item: EventListItem) => {
-    const upcoming = isEventUpcoming(item.event_date);
     return (
       <Card
         style={styles.card}
         onPress={() => navigation.navigate('EventDetail', { eventId: item.id, eventName: item.name })}
       >
-        {upcoming && (
-          <EventReminderBell
-            eventId={item.id}
-            eventName={item.name}
-            eventDateIso={item.event_date}
-            offsetRight={38}
-          />
-        )}
-        <EventFavoriteHeart
-          eventId={item.id}
+        <SaveHeart
+          kind="event"
+          id={item.id}
+          active={favoriteIds.has(item.id)}
           onToggle={(active) => handleFavoriteToggle(item.id, active)}
           offsetRight={10}
         />
