@@ -22,19 +22,24 @@ export async function getEventVotes(
   if (fightIds.length === 0) return result;
 
   const deviceId = await getDeviceId();
-  const { data, error } = await supabase
-    .from('fight_votes')
-    .select('fight_id, device_id, picked_fighter_id')
-    .in('fight_id', fightIds);
+  // Tallies come from a SECURITY DEFINER RPC that returns only per-fighter vote
+  // counts plus a `mine` flag for this device — never any other device's id.
+  // The base table is RLS-locked (see 20260723191444_fight_vote_tally_rpc.sql).
+  const { data, error } = await supabase.rpc('get_fight_vote_tallies', {
+    p_fight_ids: fightIds,
+    p_device_id: deviceId,
+  });
   if (error) throw error;
 
+  const rows = (data ?? []) as { fight_id: string; picked_fighter_id: string; votes: number; mine: boolean }[];
   for (const fight of fights) {
-    const votesForFight = (data ?? []).filter((v) => v.fight_id === fight.id);
-    const myVoteRow = votesForFight.find((v) => v.device_id === deviceId);
+    const rowsForFight = rows.filter((r) => r.fight_id === fight.id);
+    const votesFor = (fighterId: string) =>
+      rowsForFight.find((r) => r.picked_fighter_id === fighterId)?.votes ?? 0;
     result.set(fight.id, {
-      fighter1Votes: votesForFight.filter((v) => v.picked_fighter_id === fight.fighter1_id).length,
-      fighter2Votes: votesForFight.filter((v) => v.picked_fighter_id === fight.fighter2_id).length,
-      myVote: myVoteRow?.picked_fighter_id ?? null,
+      fighter1Votes: votesFor(fight.fighter1_id),
+      fighter2Votes: votesFor(fight.fighter2_id),
+      myVote: rowsForFight.find((r) => r.mine)?.picked_fighter_id ?? null,
     });
   }
 
