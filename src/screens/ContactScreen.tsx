@@ -67,7 +67,11 @@ export default function ContactScreen() {
           fullWidth
         />
 
-        <Text style={styles.emailHint} selectable>
+        <Text
+          style={styles.emailLink}
+          selectable
+          onPress={() => Linking.openURL(`mailto:${CONTACT_EMAIL}`)}
+        >
           {CONTACT_EMAIL}
         </Text>
 
@@ -110,7 +114,7 @@ const makeStyles = (colors: ColorTokens) =>
       color: colors.textPrimary,
       marginBottom: spacing.lg,
     },
-    emailHint: { ...typography.meta, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.lg },
+    emailLink: { ...typography.meta, color: colors.link, textAlign: 'center', marginTop: spacing.lg },
     legalRow: {
       flexDirection: 'row',
       justifyContent: 'center',

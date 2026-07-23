@@ -103,12 +103,16 @@ function GuestCard() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <LinearGradient colors={['#3B4658', '#232D3C', '#151C28']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.guestCard}>
-      <View style={styles.guestBadge}>
-        <Text style={styles.guestBadgeText}>{t.profile.guestMode.toUpperCase()}</Text>
+      <Ionicons name="person-circle-outline" size={30} color={colors.alloy} />
+      <View style={styles.guestTextCol}>
+        <View style={styles.guestTitleRow}>
+          <Text style={styles.guestTitle}>{t.profile.guestTitle.toUpperCase()}</Text>
+          <View style={styles.guestBadge}>
+            <Text style={styles.guestBadgeText}>{t.profile.guestMode.toUpperCase()}</Text>
+          </View>
+        </View>
+        <Text style={styles.guestSubtitle}>{t.profile.guestSubtitle}</Text>
       </View>
-      <Ionicons name="person-circle-outline" size={44} color={colors.alloy} style={styles.guestAvatar} />
-      <Text style={styles.guestTitle}>{t.profile.guestTitle.toUpperCase()}</Text>
-      <Text style={styles.guestSubtitle}>{t.profile.guestSubtitle}</Text>
     </LinearGradient>
   );
 }
@@ -606,9 +610,6 @@ function NotificationPrefsSection() {
   return (
     <>
       <Text style={styles.sectionTitle}>{t.profile.notificationsTitle}</Text>
-      <View style={styles.infoCard}>
-        <Text style={[styles.body, styles.infoCardText]}>{t.profile.notificationsBody}</Text>
-      </View>
 
       {hasPush === false ? (
         <Text style={styles.notifyNote}>{t.profile.notifyNeedsPermission}</Text>
@@ -1453,14 +1454,6 @@ const makeStyles = (colors: ColorTokens) =>
     switcherItemActive: { backgroundColor: colors.accent },
     switcherText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.textSecondary },
     switcherTextActive: { color: '#FFFFFF' },
-    infoCard: {
-      padding: spacing.lg,
-      borderRadius: radius.card,
-      backgroundColor: colors.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-    },
-    infoCardText: { marginBottom: 0 },
     title: { ...typography.title, color: colors.textPrimary, marginBottom: spacing.md },
     sectionTitle: { ...typography.label, color: colors.textSecondary, marginTop: spacing.xl, marginBottom: spacing.sm },
     body: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.lg },
@@ -1530,24 +1523,27 @@ const makeStyles = (colors: ColorTokens) =>
     logoutButtonText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.danger },
 
     guestCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
       borderRadius: radius.card,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.alloyMuted,
-      padding: spacing.md,
-      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
       marginBottom: spacing.md,
     },
+    guestTextCol: { flex: 1, gap: 2 },
+    guestTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     guestBadge: {
       backgroundColor: 'rgba(0,0,0,0.25)',
       borderRadius: radius.control,
       paddingHorizontal: spacing.sm,
       paddingVertical: 2,
-      marginBottom: spacing.sm,
     },
     guestBadgeText: { ...typography.caption, color: colors.alloy },
-    guestAvatar: { marginBottom: spacing.xs },
-    guestTitle: { ...typography.title, color: colors.alloy },
-    guestSubtitle: { ...typography.meta, color: colors.alloyMuted, textAlign: 'center', marginTop: spacing.xs },
+    guestTitle: { ...typography.cardTitle, color: colors.alloy },
+    guestSubtitle: { ...typography.meta, color: colors.alloyMuted },
 
     themeCards: { flexDirection: 'row', gap: spacing.sm },
     themeCard: {
