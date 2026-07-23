@@ -12,7 +12,8 @@ import {
 import { Calendar, type DateData } from 'react-native-calendars';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { EventsStackParamList } from '../navigation';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import {
   getEventsInRange,
   getOrganizations,
@@ -80,6 +81,30 @@ export default function EventListScreen({ navigation }: Props) {
   const [monthEvents, setMonthEvents] = useState<EventListItem[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
+
+  // Reset to the default "Veranstaltungen" home view: upcoming list, no
+  // calendar, no day/org filter, empty search. Wired to both a tap on the
+  // brand logo and a press on the already-focused Events tab.
+  const resetToHome = useCallback(() => {
+    setViewMode('list');
+    setSelectedDate(null);
+    setShowPast(false);
+    setSearch('');
+    setSelectedOrgId(undefined);
+    setFilterModalVisible(false);
+  }, []);
+
+  useEffect(() => {
+    const parent = navigation.getParent<BottomTabNavigationProp<RootTabParamList>>();
+    const unsubscribe = parent?.addListener('tabPress', () => {
+      // Only reset when the list is already the focused screen (tab tapped
+      // while here) — e.g. switching back from the calendar to the default
+      // list. When coming from EventDetail, the navigator's own pop-to-top
+      // already returns here.
+      if (navigation.isFocused()) resetToHome();
+    });
+    return unsubscribe;
+  }, [navigation, resetToHome]);
 
   const loadEvents = useCallback(async () => {
     setError(null);
@@ -306,7 +331,17 @@ export default function EventListScreen({ navigation }: Props) {
 
   const brandHeader = (
     <ScreenHeader
-      left={<LogoMark size={26} />}
+      left={
+        <Pressable
+          onPress={resetToHome}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t.tabs.events}
+          style={({ pressed }) => pressed && pressedStyle}
+        >
+          <LogoMark size={26} />
+        </Pressable>
+      }
       title={t.tabs.events.toUpperCase()}
       right={
         <Pressable
@@ -339,6 +374,7 @@ export default function EventListScreen({ navigation }: Props) {
             <>
               <Calendar
                 current={`${calendarMonth}-01`}
+                enableSwipeMonths
                 markedDates={markedDates}
                 onDayPress={(day: DateData) => setSelectedDate(day.dateString)}
                 onMonthChange={(month: DateData) =>
