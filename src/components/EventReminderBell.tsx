@@ -16,9 +16,10 @@ type Props = {
   eventName: string;
   eventDateIso: string;
   inline?: boolean;
+  offsetRight?: number;
 };
 
-export default function EventReminderBell({ eventId, eventName, eventDateIso, inline }: Props) {
+export default function EventReminderBell({ eventId, eventName, eventDateIso, inline, offsetRight }: Props) {
   const { t } = useLocale();
   const { user } = useAuth();
   const [active, setActive] = useState(false);
@@ -63,5 +64,5 @@ export default function EventReminderBell({ eventId, eventName, eventDateIso, in
     }
   };
 
-  return <BellIconButton active={active} busy={busy} onPress={handlePress} inline={inline} />;
+  return <BellIconButton active={active} busy={busy} onPress={handlePress} inline={inline} offsetRight={offsetRight} />;
 }

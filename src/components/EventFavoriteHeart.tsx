@@ -6,9 +6,10 @@ type Props = {
   eventId: string;
   onToggle?: (active: boolean) => void;
   inline?: boolean;
+  offsetRight?: number;
 };
 
-export default function EventFavoriteHeart({ eventId, onToggle, inline }: Props) {
+export default function EventFavoriteHeart({ eventId, onToggle, inline, offsetRight = 38 }: Props) {
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -35,7 +36,7 @@ export default function EventFavoriteHeart({ eventId, onToggle, inline }: Props)
       busy={busy}
       onPress={handlePress}
       icon={active ? 'heart' : 'heart-outline'}
-      offsetRight={38}
+      offsetRight={offsetRight}
       inline={inline}
     />
   );

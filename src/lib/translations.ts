@@ -33,6 +33,7 @@ export const translations = {
       calendarSelectDay: 'Tippe auf einen Tag mit Veranstaltung.',
     },
     eventDetail: {
+      screenTitle: 'Veranstaltung',
       mainEvent: 'MAIN EVENT',
       prelimMainEvent: 'PRELIMS MAIN EVENT',
       cancelled: 'ABGESAGT',
@@ -239,6 +240,7 @@ export const translations = {
       calendarSelectDay: 'Tap a day with an event.',
     },
     eventDetail: {
+      screenTitle: 'Event',
       mainEvent: 'MAIN EVENT',
       prelimMainEvent: 'PRELIMS MAIN EVENT',
       cancelled: 'CANCELLED',

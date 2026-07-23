@@ -12,7 +12,7 @@ import FighterFollowBell from '../components/FighterFollowBell';
 import FighterFavoriteHeart from '../components/FighterFavoriteHeart';
 import FilterChip from '../components/FilterChip';
 import FilterModal, { FilterSection } from '../components/FilterModal';
-import { Button, EmptyState, ErrorState, Screen, ScreenHeader, SearchInput, SkeletonBlock } from '../components/ui';
+import { EmptyState, ErrorState, FilterIconButton, LogoMark, Screen, ScreenHeader, SearchInput, SkeletonBlock } from '../components/ui';
 
 type FighterSort = 'name' | 'weight' | 'record' | 'nationality';
 
@@ -149,14 +149,11 @@ export default function FighterListScreen({ navigation }: Props) {
 
   const listHeader = (
     <View style={styles.listHeader}>
-      <SearchInput value={search} onChangeText={setSearch} placeholder={t.fighterList.searchPlaceholder} />
-      <View style={styles.filterRow}>
-        <Button
-          variant="secondary"
-          icon="filter-variant"
-          label={activeFilterCount > 0 ? `${t.fighterList.filter} (${activeFilterCount})` : t.fighterList.filter}
-          onPress={() => setFilterModalVisible(true)}
-        />
+      <View style={styles.searchRow}>
+        <View style={styles.searchFlex}>
+          <SearchInput value={search} onChangeText={setSearch} placeholder={t.fighterList.searchPlaceholder} />
+        </View>
+        <FilterIconButton count={activeFilterCount} onPress={() => setFilterModalVisible(true)} label={t.fighterList.filter} />
       </View>
 
       <FilterModal
@@ -287,7 +284,7 @@ export default function FighterListScreen({ navigation }: Props) {
 
   return (
     <Screen>
-      <ScreenHeader title={t.tabs.fighters} />
+      <ScreenHeader left={<LogoMark size={26} />} title={t.tabs.fighters.toUpperCase()} />
       {loading ? (
         <View style={styles.skeletonWrap}>
           {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -327,7 +324,8 @@ export default function FighterListScreen({ navigation }: Props) {
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
     listHeader: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.md, marginBottom: spacing.sm },
-    filterRow: { flexDirection: 'row', alignItems: 'flex-start' },
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    searchFlex: { flex: 1 },
     row: {
       flexDirection: 'row',
       alignItems: 'center',

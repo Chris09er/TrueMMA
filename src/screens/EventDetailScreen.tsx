@@ -8,7 +8,7 @@ import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import { abbreviateWeightClass, getEventDetail, getFightsForEvent, isEventLive, isEventUpcoming } from '../lib/queries';
 import type { CardSegment, EventDetail, Fight, Fighter } from '../lib/types';
 import { pressedStyle, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
-import { formatEventDate } from '../lib/dateFormat';
+import { formatEventDateTime } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 import Flag from '../components/Flag';
@@ -16,7 +16,7 @@ import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import LiveBadge from '../components/LiveBadge';
 import OrganizationFollowBell from '../components/OrganizationFollowBell';
-import { Card, EmptyState, ErrorState, LogoPlaceholder, Screen, ScreenHeader } from '../components/ui';
+import { Card, EmptyState, ErrorState, Screen, ScreenHeader } from '../components/ui';
 
 type Props = NativeStackScreenProps<EventsStackParamList, 'EventDetail'>;
 type Styles = ReturnType<typeof makeStyles>;
@@ -150,6 +150,7 @@ export default function EventDetailScreen({ route, navigation }: Props) {
       hour: '2-digit',
       minute: '2-digit',
       ...(timezoneOverride ? { timeZone: timezoneOverride } : {}),
+      ...(timezoneOverride ? { timeZone: timezoneOverride } : {}),
     });
 
   const segmentStart: Record<CardSegment, string | null> = {
@@ -187,7 +188,7 @@ export default function EventDetailScreen({ route, navigation }: Props) {
           <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
         </Pressable>
       }
-      center={<LogoPlaceholder size={30} />}
+      title={t.eventDetail.screenTitle.toUpperCase()}
       right={
         <>
           {event && isEventUpcoming(event.event_date) && (
@@ -241,7 +242,7 @@ export default function EventDetailScreen({ route, navigation }: Props) {
           <Text style={styles.eventName}>{event?.name ?? eventName}</Text>
           {event && (
             <Text style={styles.eventDate}>
-              {formatEventDate(event.event_date, locale, 'long', timezoneOverride ?? undefined).toUpperCase()}
+              {formatEventDateTime(event.event_date, locale, 'long', timezoneOverride ?? undefined).toUpperCase()}
             </Text>
           )}
           {event && (event.venue || event.city || event.venue_state || event.country) && (

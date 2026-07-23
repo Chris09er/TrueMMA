@@ -3,7 +3,7 @@ import { Alert, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'r
 import { useLocale } from '../lib/i18n';
 import { radius, spacing, typography, useTheme, type ColorTokens } from '../lib/theme';
 import FilterChip from '../components/FilterChip';
-import { Button, Screen, ScreenHeader } from '../components/ui';
+import { Button, LogoMark, Screen, ScreenHeader } from '../components/ui';
 
 const CONTACT_EMAIL = 'support@true-mma.com';
 
@@ -35,7 +35,7 @@ export default function ContactScreen() {
 
   return (
     <Screen>
-      <ScreenHeader title={t.contact.title} />
+      <ScreenHeader left={<LogoMark size={26} />} title={t.contact.title.toUpperCase()} />
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Text style={styles.body}>{t.contact.body}</Text>
 

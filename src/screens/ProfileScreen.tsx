@@ -22,7 +22,7 @@ import Flag from '../components/Flag';
 import FilterModal from '../components/FilterModal';
 import { LinearGradient } from 'expo-linear-gradient';
 import { TIMEZONE_OPTIONS } from '../lib/timezones';
-import { LogoPlaceholder, Screen, ScreenHeader } from '../components/ui';
+import { LogoMark, Screen, ScreenHeader } from '../components/ui';
 import { useAuth, type AuthResult } from '../lib/auth';
 import { authErrorMessage } from '../lib/authErrors';
 import { formatEventDate } from '../lib/dateFormat';
@@ -60,6 +60,11 @@ const RESEND_COOLDOWN_SECONDS = 60;
 
 const LAST_EMAIL_STORAGE_KEY = 'true-mma:last-email';
 
+// Biometric app-lock is implemented (see lib/biometrics + the biometric prop
+// on SettingsSection) but intentionally hidden from the UI for now. Flip to
+// true to resurface it once the feature is ready to ship.
+const SHOW_BIOMETRIC_LOCK = false;
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -73,14 +78,7 @@ export default function ProfileScreen() {
 
   return (
     <Screen>
-      <ScreenHeader
-        center={
-          <View style={styles.brand}>
-            <LogoPlaceholder size={22} />
-            <Text style={styles.wordmark}>{t.eventList.title.toUpperCase()}</Text>
-          </View>
-        }
-      />
+      <ScreenHeader left={<LogoMark size={26} />} title={t.tabs.profile.toUpperCase()} />
       {loading ? (
         <ActivityIndicator style={commonStyles.center} color={colors.accent} />
       ) : user ? (
@@ -1151,7 +1149,11 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
       <SettingsSection
         timezoneOverride={timezoneOverride}
         onTimezoneChange={setTimezoneOverride}
-        biometric={biometricAvailable ? { enabled: biometricEnabled, onChange: handleBiometricLockChange } : undefined}
+        biometric={
+          SHOW_BIOMETRIC_LOCK && biometricAvailable
+            ? { enabled: biometricEnabled, onChange: handleBiometricLockChange }
+            : undefined
+        }
       />
 
       <Pressable style={({ pressed }) => [styles.logoutButton, pressed && pressedStyle]} onPress={signOut}>
@@ -1165,8 +1167,6 @@ const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
     container: { flex: 1 },
     form: { padding: spacing.lg },
-    brand: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    wordmark: { fontFamily: typography.display.fontFamily, fontSize: 20, letterSpacing: 1, color: colors.textPrimary },
     title: { ...typography.title, color: colors.textPrimary, marginBottom: spacing.md },
     sectionTitle: { ...typography.label, color: colors.textSecondary, marginTop: spacing.xl, marginBottom: spacing.sm },
     body: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.lg },

@@ -13,22 +13,32 @@ import { Calendar, type DateData } from 'react-native-calendars';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList } from '../navigation';
-import { getEventsInRange, getPastEvents, getUpcomingEvents, isEventLive, isEventUpcoming } from '../lib/queries';
+import {
+  getEventsInRange,
+  getOrganizations,
+  getPastEvents,
+  getUpcomingEvents,
+  isEventLive,
+  isEventUpcoming,
+} from '../lib/queries';
 import { getEventFavoriteIds } from '../lib/favorites';
-import type { EventListItem } from '../lib/types';
+import type { EventListItem, Organization } from '../lib/types';
 import { pressedStyle, radius, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
-import { formatEventDate } from '../lib/dateFormat';
+import { formatEventDateTime } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 import Flag from '../components/Flag';
 import EventReminderBell from '../components/EventReminderBell';
 import EventFavoriteHeart from '../components/EventFavoriteHeart';
 import LiveBadge from '../components/LiveBadge';
+import FilterChip from '../components/FilterChip';
+import FilterModal, { FilterSection } from '../components/FilterModal';
 import {
   Card,
   EmptyState,
   ErrorState,
-  LogoPlaceholder,
+  FilterIconButton,
+  LogoMark,
   Screen,
   ScreenHeader,
   SearchInput,
@@ -58,6 +68,9 @@ export default function EventListScreen({ navigation }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [search, setSearch] = useState('');
   const [events, setEvents] = useState<EventListItem[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -86,6 +99,10 @@ export default function EventListScreen({ navigation }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    getOrganizations().then(setOrganizations).catch(() => {});
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -139,9 +156,14 @@ export default function EventListScreen({ navigation }: Props) {
 
   const visibleEvents = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return events;
-    return events.filter((event) => event.name.toLowerCase().includes(query));
-  }, [events, search]);
+    return events.filter((event) => {
+      if (selectedOrgId && event.organization_id !== selectedOrgId) return false;
+      if (query && !event.name.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [events, search, selectedOrgId]);
+
+  const activeFilterCount = selectedOrgId ? 1 : 0;
 
   const sections = useMemo<Section[]>(() => {
     const monthLabel = (d: Date) =>
@@ -189,8 +211,19 @@ export default function EventListScreen({ navigation }: Props) {
         style={styles.card}
         onPress={() => navigation.navigate('EventDetail', { eventId: item.id, eventName: item.name })}
       >
-        {upcoming && <EventReminderBell eventId={item.id} eventName={item.name} eventDateIso={item.event_date} />}
-        <EventFavoriteHeart eventId={item.id} onToggle={(active) => handleFavoriteToggle(item.id, active)} />
+        {upcoming && (
+          <EventReminderBell
+            eventId={item.id}
+            eventName={item.name}
+            eventDateIso={item.event_date}
+            offsetRight={38}
+          />
+        )}
+        <EventFavoriteHeart
+          eventId={item.id}
+          onToggle={(active) => handleFavoriteToggle(item.id, active)}
+          offsetRight={10}
+        />
         <Text style={styles.eventOrg}>{item.organizations?.short_name ?? ''}</Text>
         {isEventLive(item) && (
           <View style={styles.liveBadgeSlot}>
@@ -199,7 +232,7 @@ export default function EventListScreen({ navigation }: Props) {
         )}
         <Text style={[styles.eventName, styles.eventNameWithIcons]}>{item.name}</Text>
         <Text style={styles.eventDate}>
-          {formatEventDate(item.event_date, locale, 'short', timezoneOverride ?? undefined)}
+          {formatEventDateTime(item.event_date, locale, 'short', timezoneOverride ?? undefined)}
         </Text>
         {(item.venue || item.city || item.country) && (
           <View style={styles.locationRow}>
@@ -233,21 +266,48 @@ export default function EventListScreen({ navigation }: Props) {
 
   const listHeader = (
     <View style={styles.controls}>
-      <SearchInput value={search} onChangeText={setSearch} placeholder={t.eventList.searchPlaceholder} />
+      <View style={styles.searchRow}>
+        <View style={styles.searchFlex}>
+          <SearchInput value={search} onChangeText={setSearch} placeholder={t.eventList.searchPlaceholder} />
+        </View>
+        <FilterIconButton count={activeFilterCount} onPress={() => setFilterModalVisible(true)} label={t.eventList.filter} />
+      </View>
       {timeframeToggle}
+
+      <FilterModal
+        visible={filterModalVisible}
+        title={t.eventList.filter}
+        doneLabel={t.eventList.filterDone}
+        onClose={() => setFilterModalVisible(false)}
+        showReset={activeFilterCount > 0}
+        resetLabel={t.eventList.filterReset}
+        onReset={() => setSelectedOrgId(undefined)}
+      >
+        {organizations.length > 0 && (
+          <FilterSection title={t.eventList.filterOrganization}>
+            <FilterChip
+              label={t.eventList.filterAll}
+              active={selectedOrgId === undefined}
+              onPress={() => setSelectedOrgId(undefined)}
+            />
+            {organizations.map((org) => (
+              <FilterChip
+                key={org.id}
+                label={org.short_name}
+                active={selectedOrgId === org.id}
+                onPress={() => setSelectedOrgId(org.id)}
+              />
+            ))}
+          </FilterSection>
+        )}
+      </FilterModal>
     </View>
   );
 
   const brandHeader = (
     <ScreenHeader
-      left={
-        <View style={styles.brand}>
-          <LogoPlaceholder size={24} />
-          <Text style={styles.wordmark} numberOfLines={1}>
-            {t.eventList.title.toUpperCase()}
-          </Text>
-        </View>
-      }
+      left={<LogoMark size={26} />}
+      title={t.tabs.events.toUpperCase()}
       right={
         <Pressable
           onPress={() => setViewMode((mode) => (mode === 'calendar' ? 'list' : 'calendar'))}
@@ -352,11 +412,11 @@ export default function EventListScreen({ navigation }: Props) {
 
 const makeStyles = (colors: ColorTokens) =>
   StyleSheet.create({
-    brand: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    wordmark: { fontFamily: typography.display.fontFamily, fontSize: 22, letterSpacing: 1, color: colors.textPrimary },
     iconButton: { minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
 
     controls: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.md },
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    searchFlex: { flex: 1 },
     segment: {
       flexDirection: 'row',
       backgroundColor: colors.surface,
