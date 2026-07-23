@@ -411,21 +411,32 @@ else (UFC + 9 other leagues) is populated by
     guards `Linking.openURL` with `Linking.canOpenURL` first, falling back
     to an alert instead of failing silently if no mail client is
     configured.
-  - `ProfileScreen` — logged-out: login/signup form + forgot-password (OTP)
-    flow. Logged-in: nickname, change email/password,
+  - `ProfileScreen` — a three-tab segmented switcher (Konto / Merkliste /
+    Einstellungen), **shown in both the logged-in and logged-out states**
+    (`SectionSwitcher`, shared). Konto: logged-out shows the auth form
+    (login/signup + forgot-password OTP + magic-link + OAuth, `AuthPanel`),
+    logged-in shows nickname, change email/password, logout. Merkliste:
     followed fighters/events/**organizations** (added 2026-07-19) and
     favorited fighters/events (reusing the same bell/heart components to
-    unfollow/unfavorite directly from the list), logout. **Settings gear
-    icon (2026-07-20, replaces the old standalone `LanguageScreen` tab)** —
-    top-right on `ProfileScreen`, shown in both logged-in and logged-out
-    states, opens `SettingsModal` (built on the shared `FilterModal` shell):
-    language picker (`SUPPORTED_LOCALES`, flag emoji per entry), a
-    System/Light/Dark appearance picker (`useTheme().themeOverride` +
-    `setThemeOverride()`, persisted to AsyncStorage — see `theme.tsx`
-    below), and — only when logged in, since it's stored server-side on the
-    user's profile — the timezone-override picker (moved out of the main
-    scroll view into the modal). See [Login / Profile](#login--profile) and
-    [Favorites](#favorites).
+    unfollow/unfavorite directly from the list). **The Merkliste tab is
+    identical logged-out and logged-in** (`FavoritesList` + `useMerkliste`,
+    shared) — only the storage differs: logged in reads the server tables by
+    `user_id` (cross-device), logged out reads the same concepts locally —
+    fighter/org follows by device `push_token`
+    (`getFollowedFightersByToken`/`getFollowedOrganizationsByToken`), event
+    follows from the local scheduled reminders
+    (`getReminderEventIds` + `getEventsByIds`, since `event_follows` has no
+    anonymous rows — see [Notifications](#notifications)), and favorites from
+    AsyncStorage (`getFighterFavoriteIds`/`getEventFavoriteIds` +
+    `getFightersByIds`/`getEventsByIds`). Einstellungen (`SettingsSection`,
+    replaced the old standalone `LanguageScreen` tab 2026-07-20; the
+    switcher-tab layout replaced the earlier settings-gear `SettingsModal`):
+    a System/Light/Dark appearance picker (`useTheme().themeOverride` +
+    `setThemeOverride()`, persisted to AsyncStorage — see `theme.tsx` below)
+    and a language picker (`SUPPORTED_LOCALES`, flag per entry) in both
+    states, plus the timezone-override picker only when logged in (stored
+    server-side on the user's profile). See [Login / Profile](#login--profile)
+    and [Favorites](#favorites).
 - **Shared lib** (`src/lib/`):
   - `theme.tsx` (renamed from `theme.ts` 2026-07-20 — see [Known open
     items](#known-open-items) for the visual redesign this is part of) —

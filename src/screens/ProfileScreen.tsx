@@ -35,12 +35,18 @@ import { PASSWORD_REQUIREMENTS, isPasswordValid } from '../lib/passwordPolicy';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { isBiometricLockAvailable, isBiometricLockEnabled, setBiometricLockEnabled } from '../lib/biometrics';
 import {
+  getEventsByIds,
   getFavoritedEvents,
   getFavoritedFighters,
+  getFightersByIds,
   getFollowedEvents,
   getFollowedFighters,
+  getFollowedFightersByToken,
   getFollowedOrganizations,
+  getFollowedOrganizationsByToken,
 } from '../lib/queries';
+import { getEventFavoriteIds, getFighterFavoriteIds } from '../lib/favorites';
+import { getPushTokenIfPermitted, getReminderEventIds } from '../lib/notifications';
 import { minTapTarget, pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens, type ThemeOverride } from '../lib/theme';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
 
@@ -356,7 +362,301 @@ function showAuthError(t: Translations, result: AuthResult) {
   }
 }
 
+type MerklisteData = {
+  followedOrganizations: Organization[];
+  followedFighters: Fighter[];
+  followedEvents: EventListItem[];
+  favoritedFighters: Fighter[];
+  favoritedEvents: EventListItem[];
+  followsLoading: boolean;
+  favoritesLoading: boolean;
+  removeFavoritedFighter: (id: string) => void;
+  removeFavoritedEvent: (id: string) => void;
+};
+
+// Loads the follows + favorites shown in the "Merkliste" tab, for either auth
+// state. Logged in (userId set) reads the server tables by user_id — those
+// rows sync across devices. Logged out (userId null) reads the exact same
+// concepts from where they live without an account: fighter/org follows by
+// device push_token, event follows from the local scheduled reminders, and
+// favorites from local storage. Same UI either way; only the storage differs.
+function useMerkliste(userId: string | null): MerklisteData {
+  const [followedOrganizations, setFollowedOrganizations] = useState<Organization[]>([]);
+  const [followedFighters, setFollowedFighters] = useState<Fighter[]>([]);
+  const [followedEvents, setFollowedEvents] = useState<EventListItem[]>([]);
+  const [favoritedFighters, setFavoritedFighters] = useState<Fighter[]>([]);
+  const [favoritedEvents, setFavoritedEvents] = useState<EventListItem[]>([]);
+  const [followsLoading, setFollowsLoading] = useState(true);
+  const [favoritesLoading, setFavoritesLoading] = useState(true);
+
+  const loadFollows = useCallback(() => {
+    setFollowsLoading(true);
+    (async () => {
+      if (userId) {
+        const [fighters, events, organizations] = await Promise.all([
+          getFollowedFighters(userId),
+          getFollowedEvents(userId),
+          getFollowedOrganizations(userId),
+        ]);
+        return { fighters, events, organizations };
+      }
+      const token = await getPushTokenIfPermitted();
+      const [fighters, organizations] = token
+        ? await Promise.all([getFollowedFightersByToken(token), getFollowedOrganizationsByToken(token)])
+        : [[] as Fighter[], [] as Organization[]];
+      const events = await getEventsByIds(await getReminderEventIds());
+      return { fighters, events, organizations };
+    })()
+      .then(({ fighters, events, organizations }) => {
+        setFollowedFighters(fighters);
+        setFollowedEvents(events);
+        setFollowedOrganizations(organizations);
+      })
+      .catch(() => {})
+      .finally(() => setFollowsLoading(false));
+  }, [userId]);
+
+  const loadFavorites = useCallback(() => {
+    setFavoritesLoading(true);
+    (async () => {
+      if (userId) {
+        const [fighters, events] = await Promise.all([getFavoritedFighters(userId), getFavoritedEvents(userId)]);
+        return { fighters, events };
+      }
+      const [fighterIds, eventIds] = await Promise.all([getFighterFavoriteIds(), getEventFavoriteIds()]);
+      const [fighters, events] = await Promise.all([
+        getFightersByIds([...fighterIds]),
+        getEventsByIds([...eventIds]),
+      ]);
+      return { fighters, events };
+    })()
+      .then(({ fighters, events }) => {
+        setFavoritedFighters(fighters);
+        setFavoritedEvents(events);
+      })
+      .catch(() => {})
+      .finally(() => setFavoritesLoading(false));
+  }, [userId]);
+
+  // Reload every time the Profile tab regains focus, not just on mount — the
+  // tab screen stays mounted, so favoriting/following on a detail or list
+  // screen would otherwise not show here until an app restart.
+  useFocusEffect(
+    useCallback(() => {
+      loadFollows();
+      loadFavorites();
+    }, [loadFollows, loadFavorites])
+  );
+
+  return {
+    followedOrganizations,
+    followedFighters,
+    followedEvents,
+    favoritedFighters,
+    favoritedEvents,
+    followsLoading,
+    favoritesLoading,
+    removeFavoritedFighter: (id) => setFavoritedFighters((prev) => prev.filter((f) => f.id !== id)),
+    removeFavoritedEvent: (id) => setFavoritedEvents((prev) => prev.filter((e) => e.id !== id)),
+  };
+}
+
+// The Konto / Merkliste / Einstellungen segmented control, shared by the
+// logged-in and logged-out profile so both use identical tabs.
+function SectionSwitcher({ section, onChange }: { section: ProfileSection; onChange: (section: ProfileSection) => void }) {
+  const { t } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const sections: { key: ProfileSection; label: string }[] = [
+    { key: 'account', label: t.profile.sectionAccount },
+    { key: 'favorites', label: t.profile.sectionFavorites },
+    { key: 'settings', label: t.profile.sectionSettings },
+  ];
+  return (
+    <View style={styles.switcher}>
+      {sections.map((seg) => {
+        const active = section === seg.key;
+        return (
+          <Pressable
+            key={seg.key}
+            onPress={() => onChange(seg.key)}
+            style={({ pressed }) => [styles.switcherItem, active && styles.switcherItemActive, pressed && pressedStyle]}
+          >
+            <Text style={[styles.switcherText, active && styles.switcherTextActive]} numberOfLines={1}>
+              {seg.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// The full contents of the Merkliste tab: followed orgs/fighters/events (bell)
+// and favorited fighters/events (heart). Presentational — the data comes from
+// useMerkliste, so it renders identically for logged-in and logged-out users.
+function FavoritesList({ data }: { data: MerklisteData }) {
+  const { t, locale } = useLocale();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const navigation = useNavigation<NavigationProp<RootTabParamList>>();
+  const { timezoneOverride } = useAuth();
+  const {
+    followedOrganizations,
+    followedFighters,
+    followedEvents,
+    favoritedFighters,
+    favoritedEvents,
+    followsLoading,
+    favoritesLoading,
+    removeFavoritedFighter,
+    removeFavoritedEvent,
+  } = data;
+
+  const openFighter = (fighter: Fighter) =>
+    navigation.navigate('FightersTab', {
+      screen: 'FighterDetail',
+      params: { fighterId: fighter.id, fighterName: fighter.name },
+    });
+  const openEvent = (event: EventListItem) =>
+    navigation.navigate('EventsTab', {
+      screen: 'EventDetail',
+      params: { eventId: event.id, eventName: event.name },
+    });
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>{t.profile.followedOrganizationsTitle}</Text>
+      {followsLoading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : followedOrganizations.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFollowedOrganizations}</Text>
+      ) : (
+        followedOrganizations.map((org) => (
+          <View key={org.id} style={[styles.listCard, styles.listCardRow]}>
+            <Text style={styles.listCardTitleInline}>{org.short_name}</Text>
+            <OrganizationFollowBell organizationId={org.id} />
+          </View>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
+      {followsLoading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : followedFighters.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFollowedFighters}</Text>
+      ) : (
+        followedFighters.map((fighter) => (
+          <Pressable
+            key={fighter.id}
+            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
+            onPress={() => openFighter(fighter)}
+          >
+            <FighterFollowBell fighterId={fighter.id} />
+            <Text style={styles.listCardTitle}>{fighter.name}</Text>
+          </Pressable>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>{t.profile.followedEventsTitle}</Text>
+      {followsLoading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : followedEvents.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFollowedEvents}</Text>
+      ) : (
+        followedEvents.map((event) => (
+          <Pressable
+            key={event.id}
+            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
+            onPress={() => openEvent(event)}
+          >
+            <EventReminderBell eventId={event.id} eventName={event.name} eventDateIso={event.event_date} />
+            <Text style={styles.listCardTitle}>{event.name}</Text>
+            <Text style={styles.listCardMeta}>
+              {formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}
+            </Text>
+          </Pressable>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>{t.profile.favoritedFightersTitle}</Text>
+      {favoritesLoading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : favoritedFighters.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFavoritedFighters}</Text>
+      ) : (
+        favoritedFighters.map((fighter) => (
+          <Pressable
+            key={fighter.id}
+            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
+            onPress={() => openFighter(fighter)}
+          >
+            <FighterFavoriteHeart
+              fighterId={fighter.id}
+              onToggle={(activeState) => !activeState && removeFavoritedFighter(fighter.id)}
+            />
+            <Text style={styles.listCardTitle}>{fighter.name}</Text>
+          </Pressable>
+        ))
+      )}
+
+      <Text style={styles.sectionTitle}>{t.profile.favoritedEventsTitle}</Text>
+      {favoritesLoading ? (
+        <ActivityIndicator color={colors.accent} />
+      ) : favoritedEvents.length === 0 ? (
+        <Text style={styles.body}>{t.profile.noFavoritedEvents}</Text>
+      ) : (
+        favoritedEvents.map((event) => (
+          <Pressable
+            key={event.id}
+            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
+            onPress={() => openEvent(event)}
+          >
+            <EventFavoriteHeart
+              eventId={event.id}
+              onToggle={(activeState) => !activeState && removeFavoritedEvent(event.id)}
+            />
+            <Text style={styles.listCardTitle}>{event.name}</Text>
+            <Text style={styles.listCardMeta}>
+              {formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}
+            </Text>
+          </Pressable>
+        ))
+      )}
+    </>
+  );
+}
+
+// The logged-out profile: the same three-tab switcher as the logged-in view.
+// Konto holds the auth form, Merkliste holds the anonymous follows/favorites,
+// Einstellungen holds theme/language.
 function LoggedOutView() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [section, setSection] = useState<ProfileSection>('account');
+  const merkliste = useMerkliste(null);
+
+  return (
+    <View style={styles.loggedIn}>
+      <SectionSwitcher section={section} onChange={setSection} />
+      {section === 'account' && <AuthPanel />}
+      {section === 'favorites' && (
+        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+          <FavoritesList data={merkliste} />
+        </ScrollView>
+      )}
+      {section === 'settings' && (
+        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
+          <SettingsSection />
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+// The auth form (login / signup / password reset / magic link / OAuth), shown
+// under the Konto tab of the logged-out profile.
+function AuthPanel() {
   const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -839,18 +1139,15 @@ function LoggedOutView() {
             </View>
           </Pressable>
         )}
-
-        <SettingsSection />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 function LoggedInView({ userId, email }: { userId: string; email: string }) {
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const [section, setSection] = useState<ProfileSection>('account');
   const { signOut, updateEmail, confirmEmailChange, updatePassword, timezoneOverride, setTimezoneOverride } = useAuth();
   const [nickname, setNickname] = useState('');
@@ -862,15 +1159,9 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
   const [emailCode, setEmailCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [followedFighters, setFollowedFighters] = useState<Fighter[]>([]);
-  const [followedEvents, setFollowedEvents] = useState<EventListItem[]>([]);
-  const [followedOrganizations, setFollowedOrganizations] = useState<Organization[]>([]);
-  const [followsLoading, setFollowsLoading] = useState(true);
-  const [favoritedFighters, setFavoritedFighters] = useState<Fighter[]>([]);
-  const [favoritedEvents, setFavoritedEvents] = useState<EventListItem[]>([]);
-  const [favoritesLoading, setFavoritesLoading] = useState(true);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const merkliste = useMerkliste(userId);
 
   useEffect(() => {
     isBiometricLockAvailable().then(setBiometricAvailable);
@@ -887,37 +1178,6 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
       .then((profile) => setNickname(profile?.nickname ?? ''))
       .finally(() => setNicknameLoading(false));
   }, [userId]);
-
-  const loadFollows = useCallback(() => {
-    setFollowsLoading(true);
-    Promise.all([getFollowedFighters(userId), getFollowedEvents(userId), getFollowedOrganizations(userId)])
-      .then(([fighters, events, organizations]) => {
-        setFollowedFighters(fighters);
-        setFollowedEvents(events);
-        setFollowedOrganizations(organizations);
-      })
-      .finally(() => setFollowsLoading(false));
-  }, [userId]);
-
-  const loadFavorites = useCallback(() => {
-    setFavoritesLoading(true);
-    Promise.all([getFavoritedFighters(userId), getFavoritedEvents(userId)])
-      .then(([fighters, events]) => {
-        setFavoritedFighters(fighters);
-        setFavoritedEvents(events);
-      })
-      .finally(() => setFavoritesLoading(false));
-  }, [userId]);
-
-  // Reload follows + favorites every time the Profile tab regains focus, not
-  // just on mount — the tab screen stays mounted, so favoriting on a detail or
-  // list screen would otherwise not show here until an app restart.
-  useFocusEffect(
-    useCallback(() => {
-      loadFollows();
-      loadFavorites();
-    }, [loadFollows, loadFavorites])
-  );
 
   const handleSaveNickname = async () => {
     setBusy(true);
@@ -987,23 +1247,6 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
       setBusy(false);
     }
   };
-
-  const openFighter = (fighter: Fighter) =>
-    navigation.navigate('FightersTab', {
-      screen: 'FighterDetail',
-      params: { fighterId: fighter.id, fighterName: fighter.name },
-    });
-  const openEvent = (event: EventListItem) =>
-    navigation.navigate('EventsTab', {
-      screen: 'EventDetail',
-      params: { eventId: event.id, eventName: event.name },
-    });
-
-  const sections: { key: ProfileSection; label: string }[] = [
-    { key: 'account', label: t.profile.sectionAccount },
-    { key: 'favorites', label: t.profile.sectionFavorites },
-    { key: 'settings', label: t.profile.sectionSettings },
-  ];
 
   const accountContent = (
     <>
@@ -1115,112 +1358,6 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
     </>
   );
 
-  const favoritesContent = (
-    <>
-      <Text style={styles.sectionTitle}>{t.profile.followedOrganizationsTitle}</Text>
-      {followsLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : followedOrganizations.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedOrganizations}</Text>
-      ) : (
-        followedOrganizations.map((org) => (
-          <View key={org.id} style={[styles.listCard, styles.listCardRow]}>
-            <Text style={styles.listCardTitleInline}>{org.short_name}</Text>
-            <OrganizationFollowBell organizationId={org.id} />
-          </View>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.followedFightersTitle}</Text>
-      {followsLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : followedFighters.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedFighters}</Text>
-      ) : (
-        followedFighters.map((fighter) => (
-          <Pressable
-            key={fighter.id}
-            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
-            onPress={() => openFighter(fighter)}
-          >
-            <FighterFollowBell fighterId={fighter.id} />
-            <Text style={styles.listCardTitle}>{fighter.name}</Text>
-          </Pressable>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.followedEventsTitle}</Text>
-      {followsLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : followedEvents.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFollowedEvents}</Text>
-      ) : (
-        followedEvents.map((event) => (
-          <Pressable
-            key={event.id}
-            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
-            onPress={() => openEvent(event)}
-          >
-            <EventReminderBell eventId={event.id} eventName={event.name} eventDateIso={event.event_date} />
-            <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>
-              {formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}
-            </Text>
-          </Pressable>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.favoritedFightersTitle}</Text>
-      {favoritesLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : favoritedFighters.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFavoritedFighters}</Text>
-      ) : (
-        favoritedFighters.map((fighter) => (
-          <Pressable
-            key={fighter.id}
-            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
-            onPress={() => openFighter(fighter)}
-          >
-            <FighterFavoriteHeart
-              fighterId={fighter.id}
-              onToggle={(activeState) =>
-                !activeState && setFavoritedFighters((prev) => prev.filter((f) => f.id !== fighter.id))
-              }
-            />
-            <Text style={styles.listCardTitle}>{fighter.name}</Text>
-          </Pressable>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>{t.profile.favoritedEventsTitle}</Text>
-      {favoritesLoading ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : favoritedEvents.length === 0 ? (
-        <Text style={styles.body}>{t.profile.noFavoritedEvents}</Text>
-      ) : (
-        favoritedEvents.map((event) => (
-          <Pressable
-            key={event.id}
-            style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
-            onPress={() => openEvent(event)}
-          >
-            <EventFavoriteHeart
-              eventId={event.id}
-              onToggle={(activeState) =>
-                !activeState && setFavoritedEvents((prev) => prev.filter((e) => e.id !== event.id))
-              }
-            />
-            <Text style={styles.listCardTitle}>{event.name}</Text>
-            <Text style={styles.listCardMeta}>
-              {formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}
-            </Text>
-          </Pressable>
-        ))
-      )}
-    </>
-  );
-
   const settingsContent = (
     <>
       <SettingsSection
@@ -1242,25 +1379,10 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
 
   return (
     <View style={styles.loggedIn}>
-      <View style={styles.switcher}>
-        {sections.map((seg) => {
-          const active = section === seg.key;
-          return (
-            <Pressable
-              key={seg.key}
-              onPress={() => setSection(seg.key)}
-              style={({ pressed }) => [styles.switcherItem, active && styles.switcherItemActive, pressed && pressedStyle]}
-            >
-              <Text style={[styles.switcherText, active && styles.switcherTextActive]} numberOfLines={1}>
-                {seg.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <SectionSwitcher section={section} onChange={setSection} />
       <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
         {section === 'account' && accountContent}
-        {section === 'favorites' && favoritesContent}
+        {section === 'favorites' && <FavoritesList data={merkliste} />}
         {section === 'settings' && settingsContent}
       </ScrollView>
     </View>

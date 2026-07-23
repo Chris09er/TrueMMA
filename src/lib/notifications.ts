@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 
 Notifications.setNotificationHandler({
@@ -31,6 +32,30 @@ export async function hasNotificationPermission(): Promise<boolean> {
 export async function isEventReminderSet(eventId: string): Promise<boolean> {
   const id = await AsyncStorage.getItem(STORAGE_PREFIX + eventId);
   return id !== null;
+}
+
+// Non-interactive: resolves the device's Expo push token only if notification
+// permission is already granted, otherwise null. Never prompts. Used to look
+// up anonymous (token-anchored) follows for the profile without triggering the
+// OS permission dialog as a side effect of rendering.
+export async function getPushTokenIfPermitted(): Promise<string | null> {
+  const granted = await hasNotificationPermission();
+  if (!granted) return null;
+
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+  if (!projectId) return null;
+
+  const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+  return data;
+}
+
+// All event ids that currently have a local reminder scheduled — the
+// anonymous equivalent of the event_follows table (which only exists for
+// logged-in users). The local reminder is the source of truth for the bell,
+// so this is what the logged-out profile lists as "followed events".
+export async function getReminderEventIds(): Promise<string[]> {
+  const keys = await AsyncStorage.getAllKeys();
+  return keys.filter((key) => key.startsWith(STORAGE_PREFIX)).map((key) => key.slice(STORAGE_PREFIX.length));
 }
 
 export async function scheduleEventReminder(
