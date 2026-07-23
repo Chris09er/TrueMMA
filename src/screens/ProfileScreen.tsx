@@ -636,7 +636,7 @@ function NotificationPrefsSection() {
           <Text style={styles.sectionTitle}>{t.profile.notifyCategoryLeagues}</Text>
           <View style={styles.notifyGroup}>
             <NotifyToggle
-              label={t.profile.notifyEventStart}
+              label={t.profile.notifyLeagueStart}
               value={prefs.notifyLeagueStart}
               onChange={(v) => change({ notifyLeagueStart: v })}
             />

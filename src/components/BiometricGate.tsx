@@ -26,29 +26,36 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
   const [state, setState] = useState<GateState>('checking');
   const appState = useRef(AppState.currentState);
 
+  // Key everything on the user *id*, not the session object: Supabase hands us a
+  // brand-new `user` reference on every TOKEN_REFRESHED / re-auth while the id
+  // stays the same. Depending on the object would re-run the evaluate effect on
+  // each hourly refresh and re-lock an already-open app mid-use.
+  const userId = user?.id ?? null;
+
   const evaluate = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setState('open');
       return;
     }
     const enabled = await isBiometricLockEnabled();
     setState(enabled ? 'locked' : 'open');
-  }, [user]);
+  }, [userId]);
 
-  // Re-evaluate whenever auth resolves or the user changes. While auth is still
-  // loading, stay in `checking` (blank cover) rather than assuming `open`.
+  // Re-evaluate whenever auth resolves or the logged-in user actually changes
+  // (login/logout), not on a token refresh. While auth is still loading, stay in
+  // `checking` (blank cover) rather than assuming `open`.
   useEffect(() => {
     if (loading) return;
     setState('checking');
     evaluate();
-  }, [loading, user, evaluate]);
+  }, [loading, evaluate]);
 
   // On return-to-foreground, re-lock if enabled. Only flips to `locked` (never
   // back to `checking`), so a resume never blanks an already-open app for a
   // logged-in user who doesn't have the lock on.
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
-      if (appState.current.match(/inactive|background/) && next === 'active' && user) {
+      if (appState.current.match(/inactive|background/) && next === 'active' && userId) {
         isBiometricLockEnabled().then((enabled) => {
           if (enabled) setState('locked');
         });
@@ -56,7 +63,7 @@ export default function BiometricGate({ children }: { children: React.ReactNode 
       appState.current = next;
     });
     return () => subscription.remove();
-  }, [user]);
+  }, [userId]);
 
   const unlock = async () => {
     const success = await authenticateWithBiometrics(t.profile.biometricPrompt);
