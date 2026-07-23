@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation, type NavigationProp } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, type NavigationProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import type { RootTabParamList } from '../navigation';
 import EventReminderBell from '../components/EventReminderBell';
@@ -105,7 +105,7 @@ function GuestCard() {
       <View style={styles.guestBadge}>
         <Text style={styles.guestBadgeText}>{t.profile.guestMode.toUpperCase()}</Text>
       </View>
-      <Ionicons name="person-circle-outline" size={72} color={colors.alloy} style={styles.guestAvatar} />
+      <Ionicons name="person-circle-outline" size={44} color={colors.alloy} style={styles.guestAvatar} />
       <Text style={styles.guestTitle}>{t.profile.guestTitle.toUpperCase()}</Text>
       <Text style={styles.guestSubtitle}>{t.profile.guestSubtitle}</Text>
     </LinearGradient>
@@ -888,7 +888,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
       .finally(() => setNicknameLoading(false));
   }, [userId]);
 
-  useEffect(() => {
+  const loadFollows = useCallback(() => {
     setFollowsLoading(true);
     Promise.all([getFollowedFighters(userId), getFollowedEvents(userId), getFollowedOrganizations(userId)])
       .then(([fighters, events, organizations]) => {
@@ -899,7 +899,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
       .finally(() => setFollowsLoading(false));
   }, [userId]);
 
-  useEffect(() => {
+  const loadFavorites = useCallback(() => {
     setFavoritesLoading(true);
     Promise.all([getFavoritedFighters(userId), getFavoritedEvents(userId)])
       .then(([fighters, events]) => {
@@ -908,6 +908,16 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
       })
       .finally(() => setFavoritesLoading(false));
   }, [userId]);
+
+  // Reload follows + favorites every time the Profile tab regains focus, not
+  // just on mount — the tab screen stays mounted, so favoriting on a detail or
+  // list screen would otherwise not show here until an app restart.
+  useFocusEffect(
+    useCallback(() => {
+      loadFollows();
+      loadFavorites();
+    }, [loadFollows, loadFavorites])
+  );
 
   const handleSaveNickname = async () => {
     setBusy(true);
@@ -1172,7 +1182,12 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
             style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
             onPress={() => openFighter(fighter)}
           >
-            <FighterFavoriteHeart fighterId={fighter.id} />
+            <FighterFavoriteHeart
+              fighterId={fighter.id}
+              onToggle={(activeState) =>
+                !activeState && setFavoritedFighters((prev) => prev.filter((f) => f.id !== fighter.id))
+              }
+            />
             <Text style={styles.listCardTitle}>{fighter.name}</Text>
           </Pressable>
         ))
@@ -1190,7 +1205,12 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
             style={({ pressed }) => [styles.listCard, pressed && pressedStyle]}
             onPress={() => openEvent(event)}
           >
-            <EventFavoriteHeart eventId={event.id} />
+            <EventFavoriteHeart
+              eventId={event.id}
+              onToggle={(activeState) =>
+                !activeState && setFavoritedEvents((prev) => prev.filter((e) => e.id !== event.id))
+              }
+            />
             <Text style={styles.listCardTitle}>{event.name}</Text>
             <Text style={styles.listCardMeta}>
               {formatEventDate(event.event_date, locale, undefined, timezoneOverride ?? undefined)}
@@ -1341,20 +1361,20 @@ const makeStyles = (colors: ColorTokens) =>
       borderRadius: radius.card,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.alloyMuted,
-      padding: spacing.lg,
+      padding: spacing.md,
       alignItems: 'center',
-      marginBottom: spacing.lg,
+      marginBottom: spacing.md,
     },
     guestBadge: {
       backgroundColor: 'rgba(0,0,0,0.25)',
       borderRadius: radius.control,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-      marginBottom: spacing.md,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      marginBottom: spacing.sm,
     },
     guestBadgeText: { ...typography.caption, color: colors.alloy },
-    guestAvatar: { marginBottom: spacing.sm },
-    guestTitle: { ...typography.display, color: colors.alloy },
+    guestAvatar: { marginBottom: spacing.xs },
+    guestTitle: { ...typography.title, color: colors.alloy },
     guestSubtitle: { ...typography.meta, color: colors.alloyMuted, textAlign: 'center', marginTop: spacing.xs },
 
     themeCards: { flexDirection: 'row', gap: spacing.sm },
