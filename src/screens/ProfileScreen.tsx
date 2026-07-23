@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -33,12 +33,14 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { isBiometricLockAvailable, isBiometricLockEnabled, setBiometricLockEnabled } from '../lib/biometrics';
 import { getEventsByIds, getFightersByIds, getOrganizationsByIds } from '../lib/queries';
 import {
+  DEFAULT_NOTIFICATION_PREFS,
+  getNotificationPrefs,
   getSavedEvents,
   getSavedFighters,
   getSavedOrganizations,
-  setEventNotify,
-  setFighterNotify,
-  setOrganizationNotify,
+  hasNotificationPermission,
+  setNotificationPrefs,
+  type NotificationPrefs,
 } from '../lib/saves';
 import { minTapTarget, pressedStyle, radius, spacing, typography, useCommonStyles, useTheme, type ColorTokens, type ThemeOverride } from '../lib/theme';
 import type { EventListItem, Fighter, Organization } from '../lib/types';
@@ -355,9 +357,9 @@ function showAuthError(t: Translations, result: AuthResult) {
   }
 }
 
-type SavedFighterItem = { fighter: Fighter; notifyNewFight: boolean; notifyFightStart: boolean; hasPush: boolean };
-type SavedEventItem = { event: EventListItem; notifyEventStart: boolean; hasPush: boolean };
-type SavedOrganizationItem = { organization: Organization; notifyEventStart: boolean; hasPush: boolean };
+type SavedFighterItem = { fighter: Fighter };
+type SavedEventItem = { event: EventListItem };
+type SavedOrganizationItem = { organization: Organization };
 
 type MerklisteData = {
   savedFighters: SavedFighterItem[];
@@ -367,17 +369,14 @@ type MerklisteData = {
   removeFighter: (id: string) => void;
   removeEvent: (id: string) => void;
   removeOrganization: (id: string) => void;
-  updateFighterNotify: (id: string, notifyNewFight: boolean, notifyFightStart: boolean) => void;
-  updateEventNotify: (id: string, notifyEventStart: boolean) => void;
-  updateOrganizationNotify: (id: string, notifyEventStart: boolean) => void;
 };
 
-// Loads the unified saved_* merkliste shown in the "Merkliste" tab. There is no
+// Loads the unified saved_* list shown in the "Favoriten" tab. There is no
 // longer a logged-in/logged-out branch: the list_saved_* RPCs return this
 // device's rows UNION the logged-in user's rows, so the same three calls work
 // in either state (the RPC reads auth.uid() and device_id itself). The `userId`
-// arg only drives a reload when the auth state flips. The RPCs return bare ids
-// plus notify flags; the objects are resolved via getFightersByIds etc.
+// arg only drives a reload when the auth state flips. The RPCs return bare ids;
+// the objects are resolved via getFightersByIds etc.
 function useMerkliste(userId: string | null): MerklisteData {
   const [savedFighters, setSavedFighters] = useState<SavedFighterItem[]>([]);
   const [savedEvents, setSavedEvents] = useState<SavedEventItem[]>([]);
@@ -401,20 +400,11 @@ function useMerkliste(userId: string | null): MerklisteData {
       const eventById = new Map(events.map((e) => [e.id, e]));
       const orgById = new Map(organizations.map((o) => [o.id, o]));
       return {
-        savedFighters: fighterRows
-          .filter((r) => fighterById.has(r.id))
-          .map((r) => ({
-            fighter: fighterById.get(r.id)!,
-            notifyNewFight: r.notifyNewFight,
-            notifyFightStart: r.notifyFightStart,
-            hasPush: r.hasPush,
-          })),
-        savedEvents: eventRows
-          .filter((r) => eventById.has(r.id))
-          .map((r) => ({ event: eventById.get(r.id)!, notifyEventStart: r.notifyEventStart, hasPush: r.hasPush })),
+        savedFighters: fighterRows.filter((r) => fighterById.has(r.id)).map((r) => ({ fighter: fighterById.get(r.id)! })),
+        savedEvents: eventRows.filter((r) => eventById.has(r.id)).map((r) => ({ event: eventById.get(r.id)! })),
         savedOrganizations: orgRows
           .filter((r) => orgById.has(r.id))
-          .map((r) => ({ organization: orgById.get(r.id)!, notifyEventStart: r.notifyEventStart, hasPush: r.hasPush })),
+          .map((r) => ({ organization: orgById.get(r.id)! })),
       };
     })()
       .then((res) => {
@@ -439,14 +429,6 @@ function useMerkliste(userId: string | null): MerklisteData {
     removeFighter: (id) => setSavedFighters((prev) => prev.filter((x) => x.fighter.id !== id)),
     removeEvent: (id) => setSavedEvents((prev) => prev.filter((x) => x.event.id !== id)),
     removeOrganization: (id) => setSavedOrganizations((prev) => prev.filter((x) => x.organization.id !== id)),
-    updateFighterNotify: (id, notifyNewFight, notifyFightStart) =>
-      setSavedFighters((prev) =>
-        prev.map((x) => (x.fighter.id === id ? { ...x, notifyNewFight, notifyFightStart } : x))
-      ),
-    updateEventNotify: (id, notifyEventStart) =>
-      setSavedEvents((prev) => prev.map((x) => (x.event.id === id ? { ...x, notifyEventStart } : x))),
-    updateOrganizationNotify: (id, notifyEventStart) =>
-      setSavedOrganizations((prev) => prev.map((x) => (x.organization.id === id ? { ...x, notifyEventStart } : x))),
   };
 }
 
@@ -481,27 +463,19 @@ function SectionSwitcher({ section, onChange }: { section: ProfileSection; onCha
   );
 }
 
-// The full contents of the Merkliste tab: followed orgs/fighters/events (bell)
-// and favorited fighters/events (heart). Presentational — the data comes from
-// useMerkliste, so it renders identically for logged-in and logged-out users.
+// The full contents of the Favoriten tab: a plain list of everything saved with
+// the heart, grouped by kind. Deliberately toggle-free — what gets notified is a
+// per-category setting under Einstellungen (see NotificationPrefsSection), not a
+// per-entry one. Presentational; the data comes from useMerkliste, so it renders
+// identically for logged-in and logged-out users.
 function FavoritesList({ data }: { data: MerklisteData }) {
   const { t, locale } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation<NavigationProp<RootTabParamList>>();
   const { timezoneOverride } = useAuth();
-  const {
-    savedOrganizations,
-    savedFighters,
-    savedEvents,
-    loading,
-    removeFighter,
-    removeEvent,
-    removeOrganization,
-    updateFighterNotify,
-    updateEventNotify,
-    updateOrganizationNotify,
-  } = data;
+  const { savedOrganizations, savedFighters, savedEvents, loading, removeFighter, removeEvent, removeOrganization } =
+    data;
 
   const openFighter = (fighter: Fighter) =>
     navigation.navigate('FightersTab', {
@@ -513,22 +487,6 @@ function FavoritesList({ data }: { data: MerklisteData }) {
       screen: 'EventDetail',
       params: { eventId: event.id, eventName: event.name },
     });
-
-  // Optimistic: flip local state immediately, persist via the RPC in the
-  // background. A failed write just leaves the toggle where the user put it —
-  // it re-syncs on the next focus reload.
-  const changeFighterNotify = (id: string, notifyNewFight: boolean, notifyFightStart: boolean) => {
-    updateFighterNotify(id, notifyNewFight, notifyFightStart);
-    setFighterNotify(id, notifyNewFight, notifyFightStart).catch(() => {});
-  };
-  const changeEventNotify = (id: string, value: boolean) => {
-    updateEventNotify(id, value);
-    setEventNotify(id, value).catch(() => {});
-  };
-  const changeOrganizationNotify = (id: string, value: boolean) => {
-    updateOrganizationNotify(id, value);
-    setOrganizationNotify(id, value).catch(() => {});
-  };
 
   return (
     <>
@@ -550,13 +508,6 @@ function FavoritesList({ data }: { data: MerklisteData }) {
                 onToggle={(active) => !active && removeOrganization(item.organization.id)}
               />
             </View>
-            <NotifyToggles hasPush={item.hasPush}>
-              <NotifyToggle
-                label={t.profile.notifyEventStart}
-                value={item.notifyEventStart}
-                onChange={(v) => changeOrganizationNotify(item.organization.id, v)}
-              />
-            </NotifyToggles>
           </View>
         ))
       )}
@@ -581,18 +532,6 @@ function FavoritesList({ data }: { data: MerklisteData }) {
                 onToggle={(active) => !active && removeFighter(item.fighter.id)}
               />
             </View>
-            <NotifyToggles hasPush={item.hasPush}>
-              <NotifyToggle
-                label={t.profile.notifyNewFight}
-                value={item.notifyNewFight}
-                onChange={(v) => changeFighterNotify(item.fighter.id, v, item.notifyFightStart)}
-              />
-              <NotifyToggle
-                label={t.profile.notifyFightStart}
-                value={item.notifyFightStart}
-                onChange={(v) => changeFighterNotify(item.fighter.id, item.notifyNewFight, v)}
-              />
-            </NotifyToggles>
           </View>
         ))
       )}
@@ -620,13 +559,6 @@ function FavoritesList({ data }: { data: MerklisteData }) {
                 onToggle={(active) => !active && removeEvent(item.event.id)}
               />
             </View>
-            <NotifyToggles hasPush={item.hasPush}>
-              <NotifyToggle
-                label={t.profile.notifyEventStart}
-                value={item.notifyEventStart}
-                onChange={(v) => changeEventNotify(item.event.id, v)}
-              />
-            </NotifyToggles>
           </View>
         ))
       )}
@@ -634,17 +566,80 @@ function FavoritesList({ data }: { data: MerklisteData }) {
   );
 }
 
-// Wraps the per-object notify switches. When the device has no push token yet
-// (permission not granted), the switches are meaningless — show a hint to
-// enable notifications instead.
-function NotifyToggles({ hasPush, children }: { hasPush: boolean; children: ReactNode }) {
+// The four per-category notification switches, shown under Einstellungen. This
+// is the ONLY place notifications are configured — grouped by category, not by
+// saved entry (see 015_notification_prefs.sql for why).
+//
+// Prefs are device-anchored, so this renders logged in or out. When the OS
+// permission was never granted the switches would be meaningless, so the whole
+// block is replaced by a single hint — checked via hasNotificationPermission(),
+// which reads the status without ever triggering the prompt.
+function NotificationPrefsSection() {
   const { t } = useLocale();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  if (!hasPush) {
-    return <Text style={styles.notifyNote}>{t.profile.notifyNeedsPermission}</Text>;
-  }
-  return <View style={styles.notifyGroup}>{children}</View>;
+  const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
+  const [hasPush, setHasPush] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    hasNotificationPermission().then(setHasPush);
+    getNotificationPrefs().then(setPrefs);
+  }, []);
+
+  // Optimistic: flip locally at once, persist in the background. A failed write
+  // leaves the switch where the user put it and re-syncs on the next mount.
+  const change = (patch: Partial<NotificationPrefs>) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    setNotificationPrefs(next).catch(() => {});
+  };
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>{t.profile.notificationsTitle}</Text>
+      <View style={styles.infoCard}>
+        <Text style={[styles.body, styles.infoCardText]}>{t.profile.notificationsBody}</Text>
+      </View>
+
+      {hasPush === false ? (
+        <Text style={styles.notifyNote}>{t.profile.notifyNeedsPermission}</Text>
+      ) : (
+        <>
+          <Text style={styles.sectionTitle}>{t.profile.notifyCategoryFighters}</Text>
+          <View style={styles.notifyGroup}>
+            <NotifyToggle
+              label={t.profile.notifyNewFight}
+              value={prefs.notifyNewFight}
+              onChange={(v) => change({ notifyNewFight: v })}
+            />
+            <NotifyToggle
+              label={t.profile.notifyFightStart}
+              value={prefs.notifyFightStart}
+              onChange={(v) => change({ notifyFightStart: v })}
+            />
+          </View>
+
+          <Text style={styles.sectionTitle}>{t.profile.notifyCategoryEvents}</Text>
+          <View style={styles.notifyGroup}>
+            <NotifyToggle
+              label={t.profile.notifyEventStart}
+              value={prefs.notifyEventStart}
+              onChange={(v) => change({ notifyEventStart: v })}
+            />
+          </View>
+
+          <Text style={styles.sectionTitle}>{t.profile.notifyCategoryLeagues}</Text>
+          <View style={styles.notifyGroup}>
+            <NotifyToggle
+              label={t.profile.notifyEventStart}
+              value={prefs.notifyLeagueStart}
+              onChange={(v) => change({ notifyLeagueStart: v })}
+            />
+          </View>
+        </>
+      )}
+    </>
+  );
 }
 
 function NotifyToggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
@@ -685,6 +680,7 @@ function LoggedOutView() {
       {section === 'settings' && (
         <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="always">
           <SettingsSection />
+          <NotificationPrefsSection />
         </ScrollView>
       )}
     </View>
@@ -1407,10 +1403,7 @@ function LoggedInView({ userId, email }: { userId: string; email: string }) {
         }
       />
 
-      <Text style={styles.sectionTitle}>{t.profile.notificationsTitle}</Text>
-      <View style={styles.infoCard}>
-        <Text style={[styles.body, styles.infoCardText]}>{t.profile.notificationsBody}</Text>
-      </View>
+      <NotificationPrefsSection />
     </>
   );
 

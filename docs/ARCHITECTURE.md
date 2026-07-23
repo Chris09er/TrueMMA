@@ -256,12 +256,14 @@ Tables (Supabase Postgres), all with RLS enabled:
 | `event_follows` | **Legacy (superseded by `saved_events`, not yet dropped).** Login-only: user ↔ followed event | — no longer read/written by the client |
 | `fighter_favorites` / `event_favorites` | **Legacy (superseded by `saved_fighters`/`saved_events`, not yet dropped).** Login-only: user ↔ favorited fighter/event | — no longer read/written by the client |
 | `saved_fighters` / `saved_events` / `saved_organizations` | **Gruppe C (bell→heart merge).** Unified "save = list + notify". `device_id`-anchored, with `user_id`/`push_token` as attributes | **RPC only** (base tables fully locked, no policies) |
+| `notification_prefs` | **Gruppe C Phase 6.** Per-device, per-category push preferences (4 booleans). No row = all categories on | **RPC only** (base table fully locked, no policies) |
 
 ### Gruppe C — the `saved_*` model (bell→heart merge)
 
 Gruppe C collapses the split "favorite (heart, list-only) vs. follow (bell,
 push)" into a single heart per object = *saved to the list AND notifications on
-by default*, tunable per object in the profile. The six legacy rows above
+by default*, tunable **per category** under Einstellungen (see
+[Notification preferences](#notification-preferences--per-category)). The six legacy rows above
 (`push_subscriptions`, `organization_follows`, `event_follows`,
 `fighter_favorites`, `event_favorites`) are replaced by three `saved_*` tables,
 one per object type.
@@ -273,15 +275,16 @@ key improvement over the legacy split, where the three concepts had three
 *different* anchors and anonymous favorites could only live in local
 AsyncStorage. `user_id` and `push_token` are mutable **attributes** of the row:
 `user_id` set from `auth.uid()` on login (cross-device), `push_token` set when
-notification permission is granted. The push audience for any object is simply
-`push_token is not null AND notify_<type> = true`. Unique on
-`(device_id, object_id)`. Notify flags: fighter → `notify_new_fight` +
-`notify_fight_start`; event/org → `notify_event_start`.
+notification permission is granted. The push audience for any object is
+`push_token is not null AND` the saving device's category preference. Unique on
+`(device_id, object_id)`. The rows carry **no** notify flags of their own — those
+were dropped in `015`, see below.
 
 **Access.** Base tables are fully RLS-locked (RLS on, no policies, no
 anon/authenticated grants — same treatment as the `push_*` bookkeeping tables).
 All reads and writes go through SECURITY DEFINER RPCs (`save_*` / `unsave_*` /
-`set_*_notify` / `attach_push_token` / `claim_saves_for_user` / `list_saved_*`),
+`attach_push_token` / `claim_saves_for_user` / `list_saved_*` /
+`get_notification_prefs` / `set_notification_prefs`),
 so a client can never SELECT another device's `push_token`. `device_id` and
 `push_token` are client-self-reported (the accepted anon trust model from
 `fight_votes` / `push_subscriptions`), but `user_id` is derived server-side from
@@ -322,10 +325,55 @@ heart/bell components are replaced by a single
 turns notifications on, with a one-time "Erst-Klick-Hinweis" before the very
 first OS permission prompt. Saving is device-anchored and never blocked by a
 denied permission (the row stays in the list, push just doesn't fire). The
-profile Merkliste is one unified list of three saved sections, each with
-per-type notify switches (`set_*_notify`); local event reminders are **retired**
-in favour of the new `event_start` server push. Remaining: verify on a real
-build, then drop the five legacy tables.
+profile Favoriten tab is one unified list of three saved sections; local event
+reminders are **retired** in favour of the new `event_start` server push.
+
+**Verified on a real build (2026-07-23).** Driven from the dev client over Metro
+— no new native build was needed, since Gruppe C added no native module. All
+three push audiences were confirmed arriving on a physical Android device:
+`fighter_follow` (by inserting a test fight for a saved fighter, then deleting
+it), plus `league_start` and `event_start` (by temporarily moving a saved event
+and a saved org's event into the `events_pending_league_start_push` window and
+restoring them afterwards). `save → attach_push_token` was confirmed stamping
+the `ExponentPushToken` onto the device's rows.
+
+### Notification preferences — per category
+
+Migration `015` moved notification preferences from **per object** to **per
+category**. Phase 1 had put a `notify_*` flag on every `saved_*` row, which put
+a switch on every saved entry; in use that was the wrong altitude — the list
+became a wall of toggles and nobody wants to answer "notify me about a new
+fight?" once per fighter. There are now **four** switches in total, under
+Einstellungen:
+
+| Category | Switches | Gates |
+| --- | --- | --- |
+| Kämpfer | `notify_new_fight`, `notify_fight_start` | `fighter_follow` (both paths) |
+| Veranstaltungen | `notify_event_start` | `event_start` |
+| Ligen | `notify_league_start` | `league_start` |
+
+Stored in **`notification_prefs`**, one row per device, `device_id`-anchored
+exactly like `saved_*` (push is delivered to a device, so the device owns the
+preference) and claimed onto the account on login by the extended
+`claim_saves_for_user()`, so the setting survives a reinstall.
+
+A single prefs row was chosen over fanning a category switch out across every
+`saved_*` row: with fan-out, a newly saved object arrives with the column
+default `true` and then contradicts a category the user had switched off, so the
+client would need extra sync logic forever. With one prefs row there is nothing
+to drift — the audience queries read the pref directly and a new save inherits it
+automatically.
+
+**Absence means all-on.** A device that never opened the settings has no prefs
+row. Every audience query therefore `LEFT JOIN`s `notification_prefs` and wraps
+the flag in `coalesce(..., true)`, matching both the column default and
+`get_notification_prefs()`'s fallback. This is what let `015` land without a
+backfill — already-saved devices kept receiving push across the migration.
+
+Consequently the per-row `notify_*` columns, the three `set_*_notify` RPCs and
+the notify columns in the `list_saved_*` return types were all dropped in `015`.
+
+Remaining for Gruppe C: drop the five legacy tables.
 
 The `saved_*` tables (via their RPCs) are the exception to "app is read-only"
 for anonymous users — a `SaveHeart` tap writes a device-anchored row without
@@ -497,12 +545,14 @@ else (UFC + 9 other leagues) is populated by
     Einstellungen), **shown in both the logged-in and logged-out states**
     (`SectionSwitcher`, shared). Konto: logged-out shows the auth form
     (login/signup + forgot-password OTP + magic-link + OAuth, `AuthPanel`),
-    logged-in shows nickname, change email/password, logout. Merkliste: one
+    logged-in shows nickname, change email/password, logout. Favoriten: one
     unified saved list — saved leagues / fighters / events, each row a
-    `SaveHeart` (tap to unsave) plus per-type notify switches (`set_*_notify`;
-    fighter → new-fight/fight-start, event/org → event-start; a "enable
-    notifications" hint replaces the switches when the device has no push token
-    yet). **The Merkliste tab is identical logged-out and logged-in**
+    `SaveHeart` (tap to unsave) and nothing else; the notification switches live
+    under Einstellungen as four per-category toggles
+    (`NotificationPrefsSection`, replaced by an "enable notifications" hint when
+    the device has no push permission yet — see
+    [Notification preferences](#notification-preferences--per-category)).
+    **The Favoriten tab is identical logged-out and logged-in**
     (`FavoritesList` + `useMerkliste`, shared) and needs no auth branch: the
     `list_saved_*` RPCs union this device's rows with the logged-in user's rows,
     so both states call the same `getSavedFighters`/`getSavedEvents`/
@@ -684,7 +734,8 @@ single lib, `src/lib/saves.ts` (device token resolved via
 details live in the [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge).
 The three push types below differ only in their trigger mechanics:
 
-1. **Event-start push** (`saved_events`, `notify_event_start`) — **replaced the
+1. **Event-start push** (`saved_events`, gated by the device's
+   `notify_event_start` pref) — **replaced the
    old local device reminders.** Events had no server push before Gruppe C; a
    saved event now fires via the `event_start` audience of
    `send_league_start_pushes()` (the timer path in item 3), so it no longer
@@ -694,7 +745,7 @@ The three push types below differ only in their trigger mechanics:
    database change (a new fight involving a saved fighter). This requires:
    - A device push token (`Notifications.getExpoPushTokenAsync`), stored on the
      device's `saved_fighters` rows (`push_token`), audience filtered on
-     `push_token is not null AND notify_new_fight`.
+     `push_token is not null` AND the device's `notify_new_fight` pref.
    - A Postgres trigger (`notify_fighter_added_to_fight`, uses the
      `pg_net` extension) that fires `AFTER INSERT ON fights` and POSTs
      directly to Expo's push API (`https://exp.host/--/api/v2/push/send`)
@@ -706,7 +757,8 @@ The three push types below differ only in their trigger mechanics:
      `send_league_start_pushes()` below rather than its own trigger, since "did
      this event start" is already that function's job and there's no per-fight
      start time to key a separate trigger off anyway.
-3. **League-follow push** (`saved_organizations`, `notify_event_start`) — fires
+3. **League-follow push** (`saved_organizations`, gated by the device's
+   `notify_league_start` pref) — fires
    when a saved organization's event actually **starts**, not when it's created,
    so it can't be a simple `AFTER INSERT` trigger. It needs something that ticks
    on a timer.
@@ -1162,8 +1214,10 @@ relationship on top of the new architecture surface.
 
 Favoriting and following were **merged** in Gruppe C — there is no longer a
 separate favorite concept. One `SaveHeart` per fighter/event/org both pins the
-entry to the top of its list / into the profile merkliste **and** turns its push
-notifications on (tunable per object). The full model — the `device_id` anchor,
+entry to the top of its list / into the profile Favoriten tab **and** turns its
+push notifications on (tunable per category under Einstellungen, see
+[Notification preferences](#notification-preferences--per-category)).
+The full model — the `device_id` anchor,
 the `saved_*` tables and RPCs, anonymous → account claiming, and push audiences
 — is documented under the
 [Gruppe C `saved_*` model](#gruppe-c--the-saved_-model-bellheart-merge). The old

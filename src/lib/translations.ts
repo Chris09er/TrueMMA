@@ -137,7 +137,7 @@ export const translations = {
     saves: {
       hintTitle: 'Merken & benachrichtigt werden',
       hintBody:
-        'Mit dem Herz speicherst du auf diesem Gerät und wirst bei passenden Ereignissen benachrichtigt. Gleich fragt dein Gerät nach der Erlaubnis dafür – du kannst die Benachrichtigungen später im Profil pro Eintrag anpassen.',
+        'Das Herz merkt sich den Eintrag und benachrichtigt dich. Dein Gerät fragt gleich nach der Erlaubnis – anpassen kannst du das später im Profil.',
       hintButton: 'Verstanden',
       saveOrganization: 'Liga merken',
       savedOrganization: 'Liga gemerkt',
@@ -195,7 +195,7 @@ export const translations = {
       sectionSettings: 'Einstellungen',
       notificationsTitle: 'Benachrichtigungen',
       notificationsBody:
-        'Was du mit dem Herz speicherst, findest du hier. Pro Eintrag legst du fest, worüber du benachrichtigt wirst.',
+        'Gilt für alles, was du mit dem Herz speicherst – pro Kategorie, nicht pro Eintrag.',
       guestMode: 'Gastmodus',
       guestTitle: 'Gast',
       guestSubtitle: 'Erlebe True MMA im Gastmodus',
@@ -224,6 +224,9 @@ export const translations = {
       notifyNewFight: 'Neuer Kampf',
       notifyFightStart: 'Kampfstart',
       notifyEventStart: 'Eventstart',
+      notifyCategoryFighters: 'Kämpfer',
+      notifyCategoryEvents: 'Veranstaltungen',
+      notifyCategoryLeagues: 'Ligen',
       notifyNeedsPermission: 'Erlaube Benachrichtigungen in den Geräteeinstellungen, um Push zu erhalten.',
       biometricLockTitle: 'Biometrische Sperre',
       biometricPrompt: 'Entsperre True MMA',
@@ -359,7 +362,7 @@ export const translations = {
     saves: {
       hintTitle: 'Save & get notified',
       hintBody:
-        "Tapping the heart saves this to your device and notifies you about relevant events. Your device will now ask for permission – you can fine-tune notifications per item later in your profile.",
+        'The heart saves this and notifies you. Your device will now ask for permission – fine-tune it later in your profile.',
       hintButton: 'Got it',
       saveOrganization: 'Save league',
       savedOrganization: 'League saved',
@@ -417,7 +420,7 @@ export const translations = {
       sectionSettings: 'Settings',
       notificationsTitle: 'Notifications',
       notificationsBody:
-        'Whatever you save with the heart shows up here. Choose per item what you get notified about.',
+        'Applies to everything you save with the heart – per category, not per item.',
       guestMode: 'Guest mode',
       guestTitle: 'Guest',
       guestSubtitle: 'Experience True MMA in guest mode',
@@ -446,6 +449,9 @@ export const translations = {
       notifyNewFight: 'New fight',
       notifyFightStart: 'Fight start',
       notifyEventStart: 'Event start',
+      notifyCategoryFighters: 'Fighters',
+      notifyCategoryEvents: 'Events',
+      notifyCategoryLeagues: 'Leagues',
       notifyNeedsPermission: 'Allow notifications in your device settings to receive push.',
       biometricLockTitle: 'Biometric lock',
       biometricPrompt: 'Unlock True MMA',

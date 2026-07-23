@@ -13,7 +13,8 @@ import { getDeviceId } from './deviceId';
 //                  row anchor; saving never requires a permission prompt.
 //   * push_token — stamped onto ALL of this device's rows once the OS
 //                  notification permission is granted (attach_push_token). Only
-//                  rows with a token + the matching notify_* flag get push.
+//                  rows with a token get push, gated by the device's
+//                  per-category prefs (015_notification_prefs.sql).
 //   * user_id    — attached on login (claim_saves_for_user), derived
 //                  server-side from auth.uid(); never passed from the client.
 // All access goes through the SECURITY DEFINER RPCs; the base tables are
@@ -169,15 +170,9 @@ export async function unsave(kind: SaveKind, id: string): Promise<SaveResult> {
 // rows (across devices), deduplicated per object; push_token is never returned.
 // ---------------------------------------------------------------------------
 
-export type SavedFighter = {
-  id: string;
-  notifyNewFight: boolean;
-  notifyFightStart: boolean;
-  hasPush: boolean;
-  createdAt: string;
-};
-export type SavedEvent = { id: string; notifyEventStart: boolean; hasPush: boolean; createdAt: string };
-export type SavedOrganization = { id: string; notifyEventStart: boolean; hasPush: boolean; createdAt: string };
+export type SavedFighter = { id: string; hasPush: boolean; createdAt: string };
+export type SavedEvent = { id: string; hasPush: boolean; createdAt: string };
+export type SavedOrganization = { id: string; hasPush: boolean; createdAt: string };
 
 async function listRaw(kind: SaveKind): Promise<Record<string, unknown>[]> {
   const deviceId = await getDeviceId();
@@ -200,8 +195,6 @@ export async function isSaved(kind: SaveKind, id: string): Promise<boolean> {
 export async function getSavedFighters(): Promise<SavedFighter[]> {
   return (await listRaw('fighter')).map((r) => ({
     id: r.fighter_id as string,
-    notifyNewFight: r.notify_new_fight as boolean,
-    notifyFightStart: r.notify_fight_start as boolean,
     hasPush: r.has_push as boolean,
     createdAt: r.created_at as string,
   }));
@@ -210,7 +203,6 @@ export async function getSavedFighters(): Promise<SavedFighter[]> {
 export async function getSavedEvents(): Promise<SavedEvent[]> {
   return (await listRaw('event')).map((r) => ({
     id: r.event_id as string,
-    notifyEventStart: r.notify_event_start as boolean,
     hasPush: r.has_push as boolean,
     createdAt: r.created_at as string,
   }));
@@ -219,37 +211,57 @@ export async function getSavedEvents(): Promise<SavedEvent[]> {
 export async function getSavedOrganizations(): Promise<SavedOrganization[]> {
   return (await listRaw('organization')).map((r) => ({
     id: r.organization_id as string,
-    notifyEventStart: r.notify_event_start as boolean,
     hasPush: r.has_push as boolean,
     createdAt: r.created_at as string,
   }));
 }
 
 // ---------------------------------------------------------------------------
-// Per-object notification preferences (profile toggles).
+// Notification preferences — PER CATEGORY, not per saved object (see
+// 015_notification_prefs.sql). Four switches govern every save: two for
+// fighters, one for events, one for leagues. Anchored on device_id like the
+// saves themselves, since push is delivered to a device.
+//
+// A device that has never touched these has no prefs row at all; the RPC
+// returns the all-on defaults, and the server-side audience queries coalesce
+// the same way. So "not configured" behaves identically on both sides.
 // ---------------------------------------------------------------------------
 
-export async function setFighterNotify(id: string, notifyNewFight: boolean, notifyFightStart: boolean): Promise<void> {
+export type NotificationPrefs = {
+  notifyNewFight: boolean;
+  notifyFightStart: boolean;
+  notifyEventStart: boolean;
+  notifyLeagueStart: boolean;
+};
+
+export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  notifyNewFight: true,
+  notifyFightStart: true,
+  notifyEventStart: true,
+  notifyLeagueStart: true,
+};
+
+export async function getNotificationPrefs(): Promise<NotificationPrefs> {
   const deviceId = await getDeviceId();
-  await supabase.rpc('set_fighter_notify', {
-    p_device_id: deviceId,
-    p_fighter_id: id,
-    p_notify_new_fight: notifyNewFight,
-    p_notify_fight_start: notifyFightStart,
-  });
+  const { data, error } = await supabase.rpc('get_notification_prefs', { p_device_id: deviceId });
+  const row = (data as Record<string, unknown>[] | null)?.[0];
+  if (error || !row) return DEFAULT_NOTIFICATION_PREFS;
+  return {
+    notifyNewFight: row.notify_new_fight as boolean,
+    notifyFightStart: row.notify_fight_start as boolean,
+    notifyEventStart: row.notify_event_start as boolean,
+    notifyLeagueStart: row.notify_league_start as boolean,
+  };
 }
 
-export async function setEventNotify(id: string, notifyEventStart: boolean): Promise<void> {
+export async function setNotificationPrefs(prefs: NotificationPrefs): Promise<void> {
   const deviceId = await getDeviceId();
-  await supabase.rpc('set_event_notify', { p_device_id: deviceId, p_event_id: id, p_notify_event_start: notifyEventStart });
-}
-
-export async function setOrganizationNotify(id: string, notifyEventStart: boolean): Promise<void> {
-  const deviceId = await getDeviceId();
-  await supabase.rpc('set_organization_notify', {
+  await supabase.rpc('set_notification_prefs', {
     p_device_id: deviceId,
-    p_organization_id: id,
-    p_notify_event_start: notifyEventStart,
+    p_notify_new_fight: prefs.notifyNewFight,
+    p_notify_fight_start: prefs.notifyFightStart,
+    p_notify_event_start: prefs.notifyEventStart,
+    p_notify_league_start: prefs.notifyLeagueStart,
   });
 }
 
