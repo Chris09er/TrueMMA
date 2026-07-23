@@ -7,7 +7,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { EventsStackParamList, RootTabParamList } from '../navigation';
 import { abbreviateWeightClass, formatRecord, getEventDetail, getFightsForEvent, isEventLive } from '../lib/queries';
 import type { CardSegment, EventDetail, Fight, Fighter } from '../lib/types';
-import { pressedStyle, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
+import { pressedStyle, radius, spacing, tabularNums, typography, useTheme, type ColorTokens } from '../lib/theme';
 import { formatEventDateTime } from '../lib/dateFormat';
 import { useLocale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
@@ -156,6 +156,7 @@ export default function EventDetailScreen({ route, navigation }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [fights, setFights] = useState<Fight[]>([]);
+  const [activeSegment, setActiveSegment] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -280,32 +281,73 @@ export default function EventDetailScreen({ route, navigation }: Props) {
           )}
         </View>
 
-        {groups.length === 0 ? (
-          <EmptyState title={t.eventDetail.emptyFightCard} />
-        ) : (
-          groups.map((group) => (
-            <Card key={group.key} style={styles.groupCard}>
-              {group.title && (
-                <View style={styles.groupHeader}>
-                  <Text style={styles.groupTitle}>{group.title}</Text>
-                  {group.startTime && (
-                    <Text style={styles.groupStarts}>
-                      {t.eventDetail.starts} {formatTime(group.startTime)}
-                    </Text>
-                  )}
-                </View>
+        {(() => {
+          if (groups.length === 0) {
+            return <EmptyState title={t.eventDetail.emptyFightCard} />;
+          }
+          // With 2+ titled segments (Main Card / Prelims / Early Prelims) show a
+          // segmented switcher and only the active segment's fights; otherwise
+          // keep the plain stacked layout (nothing to switch between).
+          const titled = groups.filter((g) => g.title);
+          const untitled = groups.find((g) => !g.title);
+          if (titled.length < 2) {
+            return groups.map((group) => (
+              <Card key={group.key} style={styles.groupCard}>
+                {group.title && (
+                  <View style={styles.groupHeader}>
+                    <Text style={styles.groupTitle}>{group.title}</Text>
+                    {group.startTime && (
+                      <Text style={styles.groupStarts}>
+                        {t.eventDetail.starts} {formatTime(group.startTime)}
+                      </Text>
+                    )}
+                  </View>
+                )}
+                {group.fights.map((fight) => (
+                  <FightRow key={fight.id} fight={fight} t={t} styles={styles} />
+                ))}
+              </Card>
+            ));
+          }
+          const activeGroup = titled.find((g) => g.key === activeSegment) ?? titled[0];
+          return (
+            <>
+              <View style={styles.segment}>
+                {titled.map((g) => {
+                  const active = g.key === activeGroup.key;
+                  return (
+                    <Pressable
+                      key={g.key}
+                      onPress={() => setActiveSegment(g.key)}
+                      style={({ pressed }) => [styles.segmentItem, active && styles.segmentItemActive, pressed && pressedStyle]}
+                    >
+                      <Text style={[styles.segmentText, active && styles.segmentTextActive]} numberOfLines={1}>
+                        {g.title!.toUpperCase()}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {activeGroup.startTime && (
+                <Text style={styles.segmentStarts}>
+                  {t.eventDetail.starts} {formatTime(activeGroup.startTime)}
+                </Text>
               )}
-              {group.fights.map((fight) => (
-                <FightRow
-                  key={fight.id}
-                  fight={fight}
-                  t={t}
-                  styles={styles}
-                />
-              ))}
-            </Card>
-          ))
-        )}
+              <Card style={styles.groupCard}>
+                {activeGroup.fights.map((fight) => (
+                  <FightRow key={fight.id} fight={fight} t={t} styles={styles} />
+                ))}
+              </Card>
+              {untitled && (
+                <Card style={styles.groupCard}>
+                  {untitled.fights.map((fight) => (
+                    <FightRow key={fight.id} fight={fight} t={t} styles={styles} />
+                  ))}
+                </Card>
+              )}
+            </>
+          );
+        })()}
       </ScrollView>
     </Screen>
   );
@@ -334,6 +376,22 @@ const makeStyles = (colors: ColorTokens) =>
     locationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     eventMeta: { ...typography.meta, color: colors.textSecondary, flexShrink: 1 },
 
+    segment: {
+      flexDirection: 'row',
+      backgroundColor: colors.surface,
+      borderRadius: radius.control,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      padding: 3,
+      gap: 3,
+      marginBottom: spacing.md,
+    },
+    segmentItem: { flex: 1, minHeight: 38, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xs },
+    segmentItemActive: { backgroundColor: colors.accent },
+    segmentText: { ...typography.caption, color: colors.textSecondary },
+    segmentTextActive: { color: colors.onAccent },
+    segmentStarts: { ...typography.meta, ...tabularNums, color: colors.textSecondary, textAlign: 'right', marginBottom: spacing.sm },
+
     groupCard: { padding: 0, marginBottom: spacing.lg },
     groupHeader: {
       flexDirection: 'row',
@@ -355,7 +413,7 @@ const makeStyles = (colors: ColorTokens) =>
     bannerRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, marginBottom: spacing.sm },
     tag: { borderRadius: 8, paddingHorizontal: spacing.sm, paddingVertical: 3, overflow: 'hidden' },
     tagMain: { backgroundColor: colors.accent },
-    tagMainText: { ...typography.caption, color: '#FFFFFF' },
+    tagMainText: { ...typography.caption, color: colors.onAccent },
     tagTitle: { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.alloy },
     tagTitleText: { ...typography.caption, color: colors.alloy },
     tagCancelled: { backgroundColor: colors.danger },

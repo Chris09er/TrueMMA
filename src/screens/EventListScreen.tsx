@@ -399,7 +399,7 @@ export default function EventListScreen({ navigation }: Props) {
                   textDisabledColor: colors.border,
                   dotColor: colors.accent,
                   selectedDayBackgroundColor: colors.accent,
-                  selectedDayTextColor: '#FFFFFF',
+                  selectedDayTextColor: colors.onAccent,
                 }}
                 style={styles.calendar}
               />
@@ -473,7 +473,7 @@ const makeStyles = (colors: ColorTokens) =>
     segmentItem: { flex: 1, minHeight: 38, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     segmentItemActive: { backgroundColor: colors.accent },
     segmentText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.textSecondary },
-    segmentTextActive: { color: '#FFFFFF' },
+    segmentTextActive: { color: colors.onAccent },
 
     listContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
     skeletonWrap: { paddingBottom: spacing.lg },

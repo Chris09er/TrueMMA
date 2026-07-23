@@ -25,9 +25,13 @@ export type ColorTokens = {
   accent: string;
   /** Lower-emphasis accent for secondary highlights. */
   accentSecondary: string;
-  /** Focus ring / link blue (handoff #63A0FF on dark). */
+  /** Focus ring / link (Carbon & Ice: bright ice `accent.ice`). */
   focus: string;
   link: string;
+  /** Foreground for content sitting ON an `accent`/`accentGradient` fill.
+   * The ice accent is light, so filled chips/segments/buttons need dark text —
+   * this is that token (dark on light theme accent uses white instead). */
+  onAccent: string;
   /**
    * Metallic "alloy" tones — RESERVED for the logo and rare premium accents
    * (handoff #D8DEE7 / #7D8A9B). Do not use as general text/surface colors.
@@ -58,46 +62,54 @@ export type ColorTokens = {
   accentGradient: [string, string];
 };
 
+// --- Carbon & Ice — Frost Haze (dark) --------------------------------------
+// Token values from docs/DESIGN_HANDOFF.md. Carbon surfaces, a lighter/airier
+// desaturated ice-blue accent, no bright cobalt wash. `outcome` (WIN/LOSS/
+// DRAW/NC) is deliberately left on its own semantic palette, unchanged.
 const darkColors: ColorTokens = {
-  background: '#050C1C',
-  surface: '#0B1830',
-  surfaceAlt: '#10213B',
-  border: '#263954',
-  divider: '#263954',
-  textPrimary: '#F2F6FC',
-  textSecondary: '#94A2B6',
-  accent: '#2367C9',
-  accentSecondary: '#7D8A9B',
-  focus: '#63A0FF',
-  link: '#63A0FF',
+  background: '#151B20',
+  surface: '#1E2A33',
+  surfaceAlt: '#263543',
+  border: '#3A515D',
+  divider: '#3A515D',
+  textPrimary: '#F3F7FA',
+  textSecondary: '#B8CBD7',
+  accent: '#7FB6CF',
+  accentSecondary: '#8299A7',
+  focus: '#B9D8E8',
+  link: '#B9D8E8',
+  onAccent: '#151B20',
   alloy: '#D8DEE7',
-  alloyMuted: '#7D8A9B',
+  alloyMuted: '#8299A7',
   danger: '#E5484D',
   live: '#F04438',
   outcome: { win: '#3FB950', loss: '#E5484D', draw: '#E3873C', nc: '#7D8A9B' },
-  backgroundGradient: ['#0F2547', '#050C1C'],
-  accentGradient: ['#3A7BE0', '#1B4F9E'],
+  backgroundGradient: ['#22323D', '#151B20'],
+  accentGradient: ['#A9D2E4', '#7FB6CF'],
 };
 
+// Light equivalent of Carbon & Ice — DERIVED (the handoff specifies dark only).
+// Airy cool-grey canvas, a deeper ice accent so white `onAccent` text reads.
 const lightColors: ColorTokens = {
-  background: '#F4F7FC',
+  background: '#EEF3F6',
   surface: '#FFFFFF',
-  surfaceAlt: '#EAF0F8',
-  border: '#D3DCEA',
-  divider: '#D3DCEA',
-  textPrimary: '#0B1830',
-  textSecondary: '#5A6A82',
-  accent: '#2160C0',
-  accentSecondary: '#5A6A82',
-  focus: '#2367C9',
-  link: '#2160C0',
+  surfaceAlt: '#E1EAEF',
+  border: '#C4D2DA',
+  divider: '#C4D2DA',
+  textPrimary: '#16222B',
+  textSecondary: '#47606E',
+  accent: '#3E7186',
+  accentSecondary: '#6E8493',
+  focus: '#2C6A82',
+  link: '#2C6A82',
+  onAccent: '#FFFFFF',
   alloy: '#8593A6',
   alloyMuted: '#5A6A82',
   danger: '#C4362F',
   live: '#D13A2E',
   outcome: { win: '#2DA44E', loss: '#C4362F', draw: '#C2711F', nc: '#5A6A82' },
-  backgroundGradient: ['#FFFFFF', '#E4ECF8'],
-  accentGradient: ['#3A7BE0', '#1F5DBB'],
+  backgroundGradient: ['#FFFFFF', '#DDE8EE'],
+  accentGradient: ['#4E7C90', '#335466'],
 };
 
 export const palettes: Record<ThemeMode, ColorTokens> = { dark: darkColors, light: lightColors };

@@ -72,6 +72,6 @@ const makeStyles = (colors: ColorTokens) =>
       ...typography.body,
       fontFamily: typography.label.fontFamily,
       fontSize: 13,
-      color: '#FFFFFF',
+      color: colors.onAccent,
     },
   });

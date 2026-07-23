@@ -138,8 +138,8 @@ function SettingsSection({
   const localeCountry: Record<string, string> = { de: 'Germany', en: 'United Kingdom' };
   const themeOptions: { value: ThemeOverride; label: string; preview: string }[] = [
     { value: 'system', label: t.settings.themeSystem, preview: colors.surfaceAlt },
-    { value: 'light', label: t.settings.themeLight, preview: '#F4F7FC' },
-    { value: 'dark', label: t.settings.themeDark, preview: '#050C1C' },
+    { value: 'light', label: t.settings.themeLight, preview: '#EEF3F6' },
+    { value: 'dark', label: t.settings.themeDark, preview: '#151B20' },
   ];
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
   const currentTz =
@@ -163,7 +163,7 @@ function SettingsSection({
               <Text style={styles.themeCardLabel}>{option.label}</Text>
               {active && (
                 <View style={styles.themeCheck}>
-                  <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                  <Ionicons name="checkmark" size={13} color={colors.onAccent} />
                 </View>
               )}
             </Pressable>
@@ -1453,7 +1453,7 @@ const makeStyles = (colors: ColorTokens) =>
     switcherItem: { flex: 1, minHeight: 38, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     switcherItemActive: { backgroundColor: colors.accent },
     switcherText: { ...typography.body, fontFamily: typography.label.fontFamily, color: colors.textSecondary },
-    switcherTextActive: { color: '#FFFFFF' },
+    switcherTextActive: { color: colors.onAccent },
     title: { ...typography.title, color: colors.textPrimary, marginBottom: spacing.md },
     sectionTitle: { ...typography.label, color: colors.textSecondary, marginTop: spacing.xl, marginBottom: spacing.sm },
     body: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.lg },

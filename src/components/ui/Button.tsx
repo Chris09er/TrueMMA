@@ -35,7 +35,7 @@ export default function Button({
 }: Props) {
   const { colors } = useTheme();
   const isPrimary = variant === 'primary';
-  const fg = isPrimary ? '#FFFFFF' : colors.textPrimary;
+  const fg = isPrimary ? colors.onAccent : colors.textPrimary;
   const inactive = disabled || loading;
   return (
     <Pressable

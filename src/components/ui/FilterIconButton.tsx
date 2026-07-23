@@ -59,5 +59,5 @@ const makeStyles = (colors: ColorTokens) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    badgeText: { ...typography.caption, color: '#FFFFFF' },
+    badgeText: { ...typography.caption, color: colors.onAccent },
   });
