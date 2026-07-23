@@ -287,16 +287,34 @@ so a client can never SELECT another device's `push_token`. `device_id` and
 `fight_votes` / `push_subscriptions`), but `user_id` is derived server-side from
 `auth.uid()` and cannot be spoofed into another account.
 
-**Rollout order (non-breaking).** Migration `013` is **Phase 1 only**: it
-creates the tables + RPCs and leaves the six legacy tables and the existing push
-triggers untouched. Phase 2 rewrites `notify_fighter_added_to_fight()` and
-`send_league_start_pushes()` to read `saved_*` — including a brand-new per-event
-push audience for `saved_events` (events had *no* server push before; only
-org-level league-start existed), retiring the local event reminders. Only after
-Phase 2 lands do the legacy tables get dropped, so the running push functions
-never reference a missing table. Data is **not** migrated — a clean cutover was
-chosen because both envs held only a handful of test rows (prod: 4 rows, one
-test user; stage: 3).
+**Rollout order (non-breaking).** Migration `013` (Phase 1) created the tables +
+RPCs. Migration `014` (Phase 2, applied to stage) rewired the push path:
+`notify_fighter_added_to_fight()` and `send_league_start_pushes()` now read
+`saved_*` filtered on `push_token is not null AND notify_<type>`, and
+`send_league_start_pushes()` gained a **third, brand-new audience** — savers of
+the specific event (`event_start`, tagged via a widened
+`push_send_batches.source` CHECK). Events had *no* server push before; only
+org-level league-start existed. An org+event+fighter overlap can now fire up to
+three "Es geht los!" messages at once — the same accepted duplicate the
+org+fighter overlap already produced in `009`, now three-way, no cross-audience
+dedup. Dead-token (DeviceNotRegistered) cleanup moved into
+`retire_dead_push_token()`: it **deletes anonymous rows** (that device is gone)
+but only **NULLs the token on logged-in rows** so a user's cross-device saved
+list survives an uninstall — a deliberate change from the old "the follow row
+was the subscription, delete it" behaviour, since a `saved_*` row is now also a
+list entry.
+
+After `014`, **nothing reads the six legacy tables** (`push_subscriptions`,
+`organization_follows`, `event_follows`, `fighter_favorites`, `event_favorites`).
+They are intentionally **not yet dropped** — that is a separate follow-up once
+verified on a real build, so a rollback doesn't strand data. Still pending:
+Phase 3 (collapse the client libs into one `saves.ts`: device_id,
+token-on-permission, claim-on-login), Phase 4 (UI: bell out, one heart,
+first-tap hint), Phase 5 (profile per-type toggles), then the legacy-table drop.
+Data is **not** migrated — a clean cutover was chosen because both envs held only
+a handful of test rows (prod: 4 rows, one test user; stage: 3). Local event
+reminders are retired in favour of the new `event_start` server push as part of
+the Phase 3/4 client work.
 
 `push_subscriptions` and `organization_follows` are the exceptions to "app
 is read-only" for anonymous users — they're how the fighter-follow and
